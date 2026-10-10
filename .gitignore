@@ -8,6 +8,7 @@
 /[Mm]emoryCaptures/
 *.csproj
 *.sln
+*.slnx
 *.apk
 *.aab
 *.keystore

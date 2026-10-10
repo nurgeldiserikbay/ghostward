@@ -17,7 +17,7 @@ AR-игра: призраки приходят со всех сторон, иг�
 
 ## Запуск
 
-1. Установить Unity Hub и **Unity 6 LTS (6000.0.x)** с модулем **Android Build Support** (вместе с OpenJDK и Android SDK & NDK).
+1. Установить Unity Hub и **Unity 6000.6** (проверено на 6000.6.5f1) с модулем **Android Build Support** (вместе с OpenJDK и Android SDK & NDK).
 2. Unity Hub → Add → Add project from disk → эта папка.
 3. При первом открытии скрипт `Assets/GhostWard/Editor/ProjectSetup.cs` сам настроит URP, ARCore, Android и создаст сцену `Assets/GhostWard/Scenes/Main.unity`. Если попросит перезапуск — согласиться.
 4. Открыть сцену Main и нажать Play: в редакторе работает режим гироскопа (с веб-камерой, если она есть).
