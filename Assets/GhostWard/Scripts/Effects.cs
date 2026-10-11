@@ -46,23 +46,5 @@ namespace GhostWard
             ps.Play();
             return ps;
         }
-
-        // Мягкая виньетка для вспышки урона: генерируется один раз.
-        public static Texture2D Vignette()
-        {
-            const int s = 128;
-            var tex = new Texture2D(s, s, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
-            var px = new Color32[s * s];
-            for (int y = 0; y < s; y++)
-                for (int x = 0; x < s; x++)
-                {
-                    float dx = (x + 0.5f) / s * 2f - 1f, dy = (y + 0.5f) / s * 2f - 1f;
-                    float d = Mathf.Clamp01((Mathf.Sqrt(dx * dx + dy * dy) - 0.45f) / 0.75f);
-                    px[y * s + x] = new Color32(255, 255, 255, (byte)(d * d * 255));
-                }
-            tex.SetPixels32(px);
-            tex.Apply();
-            return tex;
-        }
     }
 }

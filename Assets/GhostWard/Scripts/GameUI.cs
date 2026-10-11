@@ -9,28 +9,29 @@ namespace GhostWard
 {
     public class GameUI : MonoBehaviour
     {
-        static readonly Color Ink = new(0.04f, 0.03f, 0.06f, 0.82f);
-        static readonly Color Bone = new(0.93f, 0.9f, 0.84f);
-
-        public RectTransform Root { get; private set; }
-
-        Font font;
-        Text scoreText, waveText, messageText, fpsText, comboText;
-        float messageTimer;
-        readonly List<UILine> hearts = new();
-        UILine stroke;
-        float strokeFade;
-        RawImage damage;
-        float damageAlpha;
-        RectTransform indicatorRoot;
-        readonly List<UILine> indicators = new();
-        GameObject hud, menu, over, loading;
-        Text menuMode, overScore;
-        readonly Dictionary<GhostKind, GameObject> legend = new();
-        float fpsTime;
-        int fpsFrames;
+        static readonly Color Ink = new(0.03f, 0.025f, 0.035f, 0.85f);
+        static readonly Color Bone = new(0.86f, 0.83f, 0.76f);
+        static readonly Color Dim = new(0.86f, 0.83f, 0.76f, 0.35f);
+        static readonly Color Blood = new(0.55f, 0.06f, 0.08f);
+        static readonly Color Frost = new(0.75f, 0.88f, 1f);
 
         public event Action StartPressed;
+        public event Action NextNightPressed;
+        public event Action<ItemKind> ItemSelected;
+
+        RectTransform root, shakeRoot, itemBar;
+        Font font;
+        GameObject hud, menu, dawn, over, loading;
+        Text nightText, clockText, messageText, diagText, menuMode, dawnText, overText;
+        RectTransform fearFill;
+        RawImage darkness, lanternDark, lanternGlow, flash;
+        readonly RawImage[] edges = new RawImage[4]; // лево, право, верх, низ
+        readonly float[] edgeTarget = new float[4];
+        readonly Dictionary<ItemKind, (UILine frame, Text count, CanvasGroup group)> slots = new();
+        readonly List<(RectTransform rt, Vector2 vel, float life)> grains = new();
+        float messageTimer, shake, flashAlpha, fear;
+        Color flashColor;
+        bool lanternOn;
 
         public static GameUI Create()
         {
@@ -47,7 +48,7 @@ namespace GhostWard
             scaler.matchWidthOrHeight = 0.5f;
 
             var ui = go.AddComponent<GameUI>();
-            ui.Root = go.GetComponent<RectTransform>();
+            ui.root = go.GetComponent<RectTransform>();
             ui.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             ui.Build();
             return ui;
@@ -55,174 +56,238 @@ namespace GhostWard
 
         void Build()
         {
-            // урон — самый нижний слой интерфейса, поверх сцены
-            damage = Rect(Root, "Damage", Vector2.zero, Vector2.one).gameObject.AddComponent<RawImage>();
-            damage.texture = Effects.Vignette();
-            damage.color = new Color(0.8f, 0f, 0.05f, 0f);
-            damage.raycastTarget = false;
+            shakeRoot = Rect(root, "Shake", Vector2.zero, Vector2.one);
 
-            indicatorRoot = Rect(Root, "Indicators", Vector2.zero, Vector2.one);
+            // атмосфера: постоянная тёмная виньетка, сгущается со страхом
+            var vignette = Textures.Vignette();
+            darkness = Overlay(shakeRoot, "Darkness", vignette, new Color(0f, 0f, 0f, 0.6f));
+            lanternDark = Overlay(shakeRoot, "LanternDark", vignette, new Color(0f, 0f, 0f, 0f));
+            lanternGlow = Overlay(shakeRoot, "LanternGlow", Textures.Glow(), new Color(1f, 0.8f, 0.5f, 0f));
 
-            stroke = Rect(Root, "Stroke", Vector2.zero, Vector2.one).gameObject.AddComponent<UILine>();
-            stroke.Thickness = 14f;
-            stroke.raycastTarget = false;
+            // иней по краю экрана — с той стороны, где сущность
+            var grad = Textures.EdgeGradient();
+            for (int i = 0; i < 4; i++)
+            {
+                var img = Overlay(shakeRoot, "Edge" + i, grad, new Color(Frost.r, Frost.g, Frost.b, 0f));
+                var rt = img.rectTransform;
+                switch (i)
+                {
+                    case 0: rt.anchorMax = new Vector2(0.22f, 1f); break;
+                    case 1: rt.anchorMin = new Vector2(0.78f, 0f); rt.localScale = new Vector3(-1, 1, 1); break;
+                    case 2: rt.anchorMin = new Vector2(0f, 0.85f); break;
+                    case 3: rt.anchorMax = new Vector2(1f, 0.15f); break;
+                }
+                if (i >= 2)
+                {
+                    // градиент повёрнут для верхнего и нижнего края
+                    img.uvRect = new Rect(0, 0, 1, 1);
+                    img.texture = i == 2 ? Textures.EdgeGradient(vertical: true, flip: true) : Textures.EdgeGradient(vertical: true);
+                }
+                edges[i] = img;
+            }
 
             BuildHud();
             BuildMenu();
+            BuildDawn();
             BuildOver();
 
-            loading = Panel(Root, "Loading");
-            Label(loading.transform, "Открываю врата…", 54, new Vector2(0.5f, 0.5f), Vector2.zero, Bone);
+            loading = Panel(root, "Loading");
+            Label(loading.transform, "Темнеет…", 54, new Vector2(0.5f, 0.5f), Vector2.zero, Bone);
 
-            messageText = Label(Root, "", 58, new Vector2(0.5f, 0.62f), Vector2.zero, Bone);
-            messageText.rectTransform.sizeDelta = new Vector2(1000, 220);
+            messageText = Label(root, "", 44, new Vector2(0.5f, 0.6f), Vector2.zero, Bone);
+            messageText.rectTransform.sizeDelta = new Vector2(940, 300);
+            messageText.fontStyle = FontStyle.Italic;
             Outline(messageText);
 
-            fpsText = Label(Root, "", 26, new Vector2(0f, 0f), new Vector2(90, 40), new Color(1, 1, 1, 0.5f));
+            flash = Overlay(root, "Flash", Texture2D.whiteTexture, new Color(0, 0, 0, 0));
+
+            diagText = Label(root, "", 22, new Vector2(1f, 1f), new Vector2(-20, -40), new Color(1, 1, 1, 0.45f));
+            diagText.alignment = TextAnchor.UpperRight;
+            diagText.rectTransform.pivot = new Vector2(1f, 1f);
+            diagText.rectTransform.sizeDelta = new Vector2(600, 120);
 
             ShowOnly(loading);
         }
 
         void BuildHud()
         {
-            hud = new GameObject("HUD", typeof(RectTransform));
-            hud.transform.SetParent(Root, false);
-            Stretch(hud.GetComponent<RectTransform>());
+            hud = Rect(shakeRoot, "HUD", Vector2.zero, Vector2.one).gameObject;
 
-            scoreText = Label(hud.transform, "0", 64, new Vector2(0f, 1f), new Vector2(200, -110), Bone);
-            scoreText.alignment = TextAnchor.MiddleLeft;
-            scoreText.rectTransform.pivot = new Vector2(0f, 0.5f);
-            scoreText.rectTransform.anchoredPosition = new Vector2(56, -110);
-            Outline(scoreText);
+            nightText = Label(hud.transform, "", 34, new Vector2(0f, 1f), new Vector2(40, -130), Dim);
+            nightText.alignment = TextAnchor.MiddleLeft;
+            nightText.rectTransform.pivot = new Vector2(0f, 0.5f);
 
-            comboText = Label(hud.transform, "", 36, new Vector2(0f, 1f), new Vector2(56, -175), new Color(1f, 0.85f, 0.3f));
-            comboText.alignment = TextAnchor.MiddleLeft;
-            comboText.rectTransform.pivot = new Vector2(0f, 0.5f);
-            comboText.rectTransform.anchoredPosition = new Vector2(56, -175);
+            clockText = Label(hud.transform, "00:00", 64, new Vector2(0.5f, 1f), new Vector2(0, -130), Bone);
+            Outline(clockText);
 
-            waveText = Label(hud.transform, "", 40, new Vector2(0.5f, 1f), new Vector2(0, -110), new Color(Bone.r, Bone.g, Bone.b, 0.75f));
-            Outline(waveText);
+            // шкала страха
+            var bar = Rect(hud.transform, "Fear", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+            bar.anchoredPosition = new Vector2(0, -205);
+            bar.sizeDelta = new Vector2(520, 14);
+            bar.gameObject.AddComponent<Image>().color = new Color(1, 1, 1, 0.12f);
+            fearFill = Rect(bar, "Fill", Vector2.zero, new Vector2(0f, 1f));
+            fearFill.gameObject.AddComponent<Image>().color = Blood;
+            var fearLabel = Label(bar, "СТРАХ", 24, new Vector2(0.5f, 0f), new Vector2(0, -26), Dim);
+            fearLabel.rectTransform.sizeDelta = new Vector2(300, 40);
 
-            for (int i = 0; i < 3; i++)
-            {
-                var h = Rect(hud.transform, "Heart", new Vector2(1f, 1f), new Vector2(1f, 1f)).gameObject.AddComponent<UILine>();
-                h.rectTransform.anchoredPosition = new Vector2(-70 - i * 80, -110);
-                h.Filled = true;
-                h.color = new Color(0.95f, 0.15f, 0.2f);
-                h.raycastTarget = false;
-                h.SetPoints(new[] { new Vector2(0, 30), new Vector2(26, 0), new Vector2(0, -30), new Vector2(-26, 0) });
-                hearts.Add(h);
-            }
-
-            // нижняя памятка: какой знак против какого призрака
-            var bar = Rect(hud.transform, "Legend", new Vector2(0f, 0f), new Vector2(1f, 0f));
-            bar.sizeDelta = new Vector2(0, 230);
-            bar.anchoredPosition = new Vector2(0, 150);
-            int n = GhostCatalog.All.Length;
+            // панель предметов
+            itemBar = Rect(hud.transform, "Items", new Vector2(0f, 0f), new Vector2(1f, 0f));
+            itemBar.sizeDelta = new Vector2(0, 250);
+            itemBar.anchoredPosition = new Vector2(0, 150);
+            int n = Catalog.Items.Length;
             for (int i = 0; i < n; i++)
             {
-                var def = GhostCatalog.All[i];
-                var card = Rect(bar, def.Name, new Vector2((i + 0.5f) / n, 0.5f), new Vector2((i + 0.5f) / n, 0.5f));
-                card.sizeDelta = new Vector2(300, 220);
-                var bg = card.gameObject.AddComponent<Image>();
+                var def = Catalog.Items[i];
+                var slot = Rect(itemBar, def.Name, new Vector2((i + 0.5f) / n, 0.5f), new Vector2((i + 0.5f) / n, 0.5f));
+                slot.sizeDelta = new Vector2(230, 240);
+                var bg = slot.gameObject.AddComponent<Image>();
                 bg.color = Ink;
-                bg.raycastTarget = false;
-                Frame(card, 300, 220, def.Color, 4f);
+                var group = slot.gameObject.AddComponent<CanvasGroup>();
+                var btn = slot.gameObject.AddComponent<UnityEngine.UI.Button>();
+                btn.targetGraphic = bg;
+                btn.transition = Selectable.Transition.None;
+                var kind = def.Kind;
+                btn.onClick.AddListener(() => ItemSelected?.Invoke(kind));
 
-                var dot = Rect(card, "Dot", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f)).gameObject.AddComponent<UILine>();
-                dot.rectTransform.anchoredPosition = new Vector2(-95, -40);
-                dot.Filled = true;
-                dot.color = def.Color;
-                dot.SetPoints(new[] { new Vector2(0, 14), new Vector2(14, 0), new Vector2(0, -14), new Vector2(-14, 0) });
-
-                var name = Label(card, def.Name, 32, new Vector2(0.5f, 1f), new Vector2(20, -40), Bone);
-                name.rectTransform.sizeDelta = new Vector2(220, 50);
-
-                var icon = Rect(card, "Sigil", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f)).gameObject.AddComponent<UILine>();
-                icon.rectTransform.anchoredPosition = new Vector2(0, 80);
-                icon.Thickness = 7f;
-                icon.color = def.Color;
-                icon.raycastTarget = false;
-                SetSigilShape(icon, def.Ward, 52f);
-
-                legend[def.Kind] = card.gameObject;
+                var frame = Frame(slot, 230, 240, Dim, 3f);
+                var icon = Rect(slot, "Icon", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
+                icon.anchoredPosition = new Vector2(0, 28);
+                Icons.Draw(icon, def.Kind, Bone);
+                var name = Label(slot, def.Name, 26, new Vector2(0.5f, 0f), new Vector2(0, 58), Dim);
+                name.rectTransform.sizeDelta = new Vector2(220, 40);
+                var count = Label(slot, "", 30, new Vector2(0.5f, 0f), new Vector2(0, 24), Bone);
+                count.rectTransform.sizeDelta = new Vector2(220, 40);
+                slots[kind] = (frame, count, group);
             }
         }
 
         void BuildMenu()
         {
-            menu = Panel(Root, "Menu");
-            var title = Label(menu.transform, "GHOST WARD", 120, new Vector2(0.5f, 0.72f), Vector2.zero, Bone);
-            title.rectTransform.sizeDelta = new Vector2(1000, 160);
+            menu = Panel(root, "Menu");
+            var title = Label(menu.transform, "GHOST WARD", 110, new Vector2(0.5f, 0.84f), Vector2.zero, Bone);
+            title.rectTransform.sizeDelta = new Vector2(1000, 150);
             title.fontStyle = FontStyle.Bold;
-            Outline(title);
 
-            var sub = Label(menu.transform,
-                "Призраки приходят со всех сторон.\nСлушай шёпот, поворачивайся\nи рисуй нужный знак пальцем.",
-                40, new Vector2(0.5f, 0.56f), Vector2.zero, Bone);
-            sub.rectTransform.sizeDelta = new Vector2(960, 220);
+            var sub = Label(menu.transform, "Доживи до рассвета. Узнай, кто пришёл, и возьми то, чего он боится.",
+                34, new Vector2(0.5f, 0.76f), Vector2.zero, Dim);
+            sub.rectTransform.sizeDelta = new Vector2(900, 120);
 
-            menuMode = Label(menu.transform, "", 30, new Vector2(0.5f, 0.45f), Vector2.zero, new Color(1, 1, 1, 0.55f));
-            menuMode.rectTransform.sizeDelta = new Vector2(960, 100);
+            // дневник: канон сущностей
+            float y = 0.66f;
+            foreach (var e in Catalog.Entities)
+            {
+                var head = Label(menu.transform, $"{e.Name.ToUpper()} — {Catalog.Get(e.Bane).Name.ToLower()}", 36,
+                    new Vector2(0.5f, y), Vector2.zero, Bone);
+                head.rectTransform.sizeDelta = new Vector2(900, 50);
+                head.alignment = TextAnchor.MiddleLeft;
+                var signs = Label(menu.transform, e.Signs, 28, new Vector2(0.5f, y - 0.03f), Vector2.zero, Dim);
+                signs.rectTransform.sizeDelta = new Vector2(900, 50);
+                signs.alignment = TextAnchor.MiddleLeft;
+                y -= 0.075f;
+            }
 
-            Button(menu.transform, "НАЧАТЬ ОХОТУ", new Vector2(0.5f, 0.3f), () => StartPressed?.Invoke());
+            menuMode = Label(menu.transform, "", 28, new Vector2(0.5f, 0.3f), Vector2.zero, Dim);
+            menuMode.rectTransform.sizeDelta = new Vector2(900, 80);
+            Button(menu.transform, "НАЧАТЬ НОЧЬ", new Vector2(0.5f, 0.2f), () => StartPressed?.Invoke());
+            var tip = Label(menu.transform, "Играй в темноте и в наушниках", 28, new Vector2(0.5f, 0.1f), Vector2.zero, Dim);
+            tip.rectTransform.sizeDelta = new Vector2(900, 50);
+        }
 
-            var tip = Label(menu.transform, "Лучше в наушниках", 30, new Vector2(0.5f, 0.18f), Vector2.zero, new Color(1, 1, 1, 0.45f));
-            tip.rectTransform.sizeDelta = new Vector2(900, 60);
+        void BuildDawn()
+        {
+            dawn = Panel(root, "Dawn");
+            var t = Label(dawn.transform, "РАССВЕТ", 110, new Vector2(0.5f, 0.66f), Vector2.zero, new Color(1f, 0.85f, 0.6f));
+            t.rectTransform.sizeDelta = new Vector2(1000, 150);
+            t.fontStyle = FontStyle.Bold;
+            dawnText = Label(dawn.transform, "", 36, new Vector2(0.5f, 0.5f), Vector2.zero, Bone);
+            dawnText.rectTransform.sizeDelta = new Vector2(940, 260);
+            Button(dawn.transform, "СЛЕДУЮЩАЯ НОЧЬ", new Vector2(0.5f, 0.3f), () => NextNightPressed?.Invoke());
         }
 
         void BuildOver()
         {
-            over = Panel(Root, "GameOver");
-            var t = Label(over.transform, "ТЕБЯ ЗАБРАЛИ", 96, new Vector2(0.5f, 0.66f), Vector2.zero, new Color(1f, 0.3f, 0.3f));
+            over = Panel(root, "GameOver");
+            var t = Label(over.transform, "ТЕБЯ ЗАБРАЛИ", 96, new Vector2(0.5f, 0.64f), Vector2.zero, new Color(0.8f, 0.15f, 0.15f));
             t.rectTransform.sizeDelta = new Vector2(1000, 140);
             t.fontStyle = FontStyle.Bold;
-            Outline(t);
-            overScore = Label(over.transform, "", 48, new Vector2(0.5f, 0.52f), Vector2.zero, Bone);
-            overScore.rectTransform.sizeDelta = new Vector2(1000, 200);
-            Button(over.transform, "ЕЩЁ РАЗ", new Vector2(0.5f, 0.32f), () => StartPressed?.Invoke());
+            overText = Label(over.transform, "", 40, new Vector2(0.5f, 0.5f), Vector2.zero, Bone);
+            overText.rectTransform.sizeDelta = new Vector2(1000, 200);
+            Button(over.transform, "ЕЩЁ РАЗ", new Vector2(0.5f, 0.3f), () => StartPressed?.Invoke());
         }
 
-        // ---------- состояние экранов ----------
+        // ---------- экраны ----------
 
-        public void ShowMenu(string modeInfo)
-        {
-            menuMode.text = modeInfo;
-            ShowOnly(menu);
-        }
-
+        public void ShowMenu(string modeInfo) { menuMode.text = modeInfo; ShowOnly(menu); }
         public void ShowHud() => ShowOnly(hud);
 
-        public void ShowGameOver(int score, int best, int wave)
+        public void ShowDawn(int night, string supply)
         {
-            overScore.text = $"Счёт: {score}\nВолна: {wave}   Рекорд: {best}";
+            dawnText.text = $"Ночь {night} пережита.\n\nНашлось в доме:\n{supply}";
+            ShowOnly(dawn);
+            ClearEffects();
+        }
+
+        public void ShowGameOver(int night, float progress, int best)
+        {
+            overText.text = $"Ночь {night}, {Clock(progress)}\nДольше всего: ночь {best}";
             ShowOnly(over);
-            ClearIndicators();
+            ClearEffects();
         }
 
         void ShowOnly(GameObject panel)
         {
             loading.SetActive(panel == loading);
             menu.SetActive(panel == menu);
+            dawn.SetActive(panel == dawn);
             over.SetActive(panel == over);
             hud.SetActive(panel == hud);
         }
 
-        public void SetLegendVisible(GhostKind kind, bool visible) => legend[kind].SetActive(visible);
-
-        public void SetScore(int score, int combo)
+        void ClearEffects()
         {
-            scoreText.text = score.ToString();
-            comboText.text = combo > 1 ? $"серия ×{combo}" : "";
+            for (int i = 0; i < 4; i++) edgeTarget[i] = 0f;
+            lanternOn = false;
         }
 
-        public void SetWave(int wave) => waveText.text = $"ВОЛНА {wave}";
+        // ---------- HUD ----------
 
-        public void SetHp(int hp)
+        public void SetNight(int night) => nightText.text = $"НОЧЬ {night}";
+        public void SetClock(float progress) => clockText.text = Clock(progress);
+        static string Clock(float progress)
         {
-            for (int i = 0; i < hearts.Count; i++)
-                hearts[i].color = i < hp ? new Color(0.95f, 0.15f, 0.2f) : new Color(1f, 1f, 1f, 0.15f);
+            int minutes = Mathf.FloorToInt(Mathf.Clamp01(progress) * 240f);
+            return $"{minutes / 60:00}:{minutes % 60:00}";
         }
+
+        public void SetFear(float v)
+        {
+            fear = v;
+            fearFill.anchorMax = new Vector2(Mathf.Clamp01(v), 1f);
+        }
+
+        public void SetInventory(Inventory inv)
+        {
+            foreach (var (kind, s) in slots)
+            {
+                s.count.text = inv.Label(kind);
+                s.group.alpha = inv.Has(kind) ? 1f : 0.35f;
+            }
+        }
+
+        public void SetSelected(ItemKind kind)
+        {
+            foreach (var (k, s) in slots)
+            {
+                s.frame.color = k == kind ? Bone : Dim;
+                s.frame.Thickness = k == kind ? 7f : 3f;
+                s.frame.SetVerticesDirty();
+            }
+        }
+
+        public bool IsOverItemBar(Vector2 screen) =>
+            hud.activeSelf && RectTransformUtility.RectangleContainsScreenPoint(itemBar, screen, null);
+
+        public void SetDiagnostics(string text) => diagText.text = text;
 
         public void Message(string text, float seconds = 1.6f)
         {
@@ -230,84 +295,54 @@ namespace GhostWard
             messageTimer = seconds;
         }
 
-        public void Damage() => damageAlpha = 0.9f;
+        public void SetLantern(bool on) => lanternOn = on;
+        public void Shake(float amount) => shake = Mathf.Max(shake, amount);
+        public void Flash(Color c) { flashColor = c; flashAlpha = c.a; }
 
-        // ---------- росчерк ----------
-
-        public Vector2 ScreenToLocal(Vector2 screen)
+        public void Jumpscare(float strength)
         {
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(stroke.rectTransform, screen, null, out var local);
-            return local;
+            Flash(new Color(0.35f, 0f, 0f, 0.85f * strength));
+            Shake(strength);
         }
 
-        public void SetStroke(List<Vector2> screenPoints, Color color)
+        public void SaltBurst()
         {
-            var local = new List<Vector2>(screenPoints.Count);
-            foreach (var p in screenPoints) local.Add(ScreenToLocal(p));
-            stroke.color = color;
-            stroke.SetPoints(local);
-            strokeFade = 0f;
-        }
-
-        public void ReleaseStroke(Color color)
-        {
-            stroke.color = color;
-            strokeFade = 0.5f;
-        }
-
-        // ---------- указатели на призраков за краем экрана ----------
-
-        public void UpdateIndicators(Camera cam, List<Ghost> ghosts)
-        {
-            int used = 0;
-            var size = indicatorRoot.rect.size;
-            foreach (var g in ghosts)
+            for (int i = 0; i < 26; i++)
             {
-                if (g == null || !g.Alive) continue;
-                var vp = cam.WorldToViewportPoint(g.transform.position);
-                bool onScreen = vp.z > 0f && vp.x > 0.02f && vp.x < 0.98f && vp.y > 0.02f && vp.y < 0.98f;
-                if (onScreen) continue;
+                var g = Rect(shakeRoot, "Grain", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f)).gameObject.AddComponent<UILine>();
+                g.Filled = true;
+                g.raycastTarget = false;
+                g.color = new Color(1f, 1f, 0.95f, 0.9f);
+                float s = UnityEngine.Random.Range(4f, 9f);
+                g.SetPoints(new[] { new Vector2(0, s), new Vector2(s, 0), new Vector2(0, -s), new Vector2(-s, 0) });
+                g.rectTransform.anchoredPosition = new Vector2(UnityEngine.Random.Range(-60f, 60f), 420f);
+                var vel = new Vector2(UnityEngine.Random.Range(-500f, 500f), UnityEngine.Random.Range(1400f, 2400f));
+                grains.Add((g.rectTransform, vel, 0.6f));
+            }
+        }
+
+        // иней с той стороны, где сущность (если её не видно на экране)
+        public void UpdateCues(Camera cam, List<Entity> entities)
+        {
+            for (int i = 0; i < 4; i++) edgeTarget[i] = 0f;
+            foreach (var e in entities)
+            {
+                if (e == null || !e.Alive) continue;
+                var vp = cam.WorldToViewportPoint(e.transform.position);
+                bool onScreen = vp.z > 0f && vp.x > 0f && vp.x < 1f && vp.y > 0f && vp.y < 1f;
+                if (onScreen && e.Visible) continue;
 
                 var dir = new Vector2(vp.x - 0.5f, vp.y - 0.5f);
                 if (vp.z < 0f) dir = -dir;
                 if (dir.sqrMagnitude < 1e-5f) dir = Vector2.down;
                 dir.Normalize();
 
-                // точка на границе прямоугольника экрана с отступом
-                var half = size * 0.5f - new Vector2(70f, 160f);
-                float k = Mathf.Min(half.x / Mathf.Max(Mathf.Abs(dir.x), 1e-4f), half.y / Mathf.Max(Mathf.Abs(dir.y), 1e-4f));
-                var pos = dir * k;
-
-                var arrow = GetIndicator(used++);
-                arrow.rectTransform.anchoredPosition = pos;
-                arrow.rectTransform.localEulerAngles = new Vector3(0, 0, Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg);
-                float dist = Vector3.Distance(cam.transform.position, g.transform.position);
-                float pulse = dist < 1.6f ? 0.6f + 0.4f * Mathf.Abs(Mathf.Sin(Time.time * 10f)) : 1f;
-                var c = g.Def.Color;
-                c.a = pulse;
-                arrow.color = c;
-                arrow.rectTransform.localScale = Vector3.one * Mathf.Lerp(1.4f, 0.8f, Mathf.InverseLerp(1f, 4f, dist));
+                float strength = Mathf.Clamp01(1.2f - e.FlatDistance() / 4.5f) * (e.Current == Entity.State.Lurking ? 0.5f : 1f);
+                edgeTarget[0] = Mathf.Max(edgeTarget[0], Mathf.Max(0f, -dir.x) * strength);
+                edgeTarget[1] = Mathf.Max(edgeTarget[1], Mathf.Max(0f, dir.x) * strength);
+                edgeTarget[2] = Mathf.Max(edgeTarget[2], Mathf.Max(0f, dir.y) * strength);
+                edgeTarget[3] = Mathf.Max(edgeTarget[3], Mathf.Max(0f, -dir.y) * strength);
             }
-            for (int i = used; i < indicators.Count; i++) indicators[i].gameObject.SetActive(false);
-        }
-
-        void ClearIndicators()
-        {
-            foreach (var i in indicators) i.gameObject.SetActive(false);
-        }
-
-        UILine GetIndicator(int i)
-        {
-            while (indicators.Count <= i)
-            {
-                var a = Rect(indicatorRoot, "Arrow", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<UILine>();
-                a.Filled = true;
-                a.raycastTarget = false;
-                a.SetPoints(new[] { new Vector2(34, 0), new Vector2(-18, 26), new Vector2(-8, 0), new Vector2(-18, -26) });
-                indicators.Add(a);
-            }
-            indicators[i].gameObject.SetActive(true);
-            return indicators[i];
         }
 
         // ---------- кадр ----------
@@ -320,64 +355,51 @@ namespace GhostWard
             {
                 messageTimer -= dt;
                 var c = messageText.color;
-                c.a = Mathf.Clamp01(messageTimer / 0.3f);
+                c.a = Mathf.Clamp01(messageTimer / 0.5f);
                 messageText.color = c;
             }
 
-            damageAlpha = Mathf.MoveTowards(damageAlpha, 0f, dt * 1.5f);
-            var dc = damage.color;
-            dc.a = damageAlpha;
-            damage.color = dc;
-            // лёгкая тряска интерфейса при уроне
-            hud.transform.localPosition = damageAlpha > 0.3f ? (Vector3)(UnityEngine.Random.insideUnitCircle * 14f * damageAlpha) : Vector3.zero;
+            bool inNight = hud.activeSelf;
+            float dark = inNight ? 0.55f + fear * 0.35f : 0f;
+            // редкое «моргание» света при высоком страхе
+            if (inNight && fear > 0.5f && UnityEngine.Random.value < 0.01f) dark = 0.95f;
+            SetAlpha(darkness, Mathf.MoveTowards(darkness.color.a, dark, dt * 2f));
+            SetAlpha(lanternDark, Mathf.MoveTowards(lanternDark.color.a, lanternOn && inNight ? 0.6f : 0f, dt * 6f));
+            float glow = lanternOn && inNight ? 0.22f + UnityEngine.Random.Range(-0.02f, 0.02f) : 0f;
+            SetAlpha(lanternGlow, Mathf.MoveTowards(lanternGlow.color.a, glow, dt * 4f));
 
-            if (strokeFade > 0f)
+            for (int i = 0; i < 4; i++)
             {
-                strokeFade -= dt;
-                var sc = stroke.color;
-                sc.a = Mathf.Clamp01(strokeFade / 0.5f);
-                stroke.color = sc;
-                if (strokeFade <= 0f) stroke.SetPoints(Array.Empty<Vector2>());
+                float target = inNight ? edgeTarget[i] * 0.75f : 0f;
+                SetAlpha(edges[i], Mathf.MoveTowards(edges[i].color.a, target, dt * 1.5f));
             }
 
-            fpsFrames++;
-            fpsTime += dt;
-            if (fpsTime >= 0.5f)
+            flashAlpha = Mathf.MoveTowards(flashAlpha, 0f, dt * 1.6f);
+            flash.color = new Color(flashColor.r, flashColor.g, flashColor.b, flashAlpha);
+
+            shake = Mathf.MoveTowards(shake, 0f, dt * 1.5f);
+            shakeRoot.anchoredPosition = shake > 0.01f ? UnityEngine.Random.insideUnitCircle * 30f * shake : Vector2.zero;
+
+            for (int i = grains.Count - 1; i >= 0; i--)
             {
-                fpsText.text = Mathf.RoundToInt(fpsFrames / fpsTime) + " fps";
-                fpsFrames = 0;
-                fpsTime = 0f;
+                var (rt, vel, life) = grains[i];
+                life -= dt;
+                if (life <= 0f) { Destroy(rt.gameObject); grains.RemoveAt(i); continue; }
+                vel.y -= 2200f * dt;
+                rt.anchoredPosition += vel * dt;
+                rt.localScale = Vector3.one * Mathf.Clamp01(life / 0.6f);
+                grains[i] = (rt, vel, life);
             }
+        }
+
+        static void SetAlpha(Graphic g, float a)
+        {
+            var c = g.color;
+            c.a = a;
+            g.color = c;
         }
 
         // ---------- построители ----------
-
-        public static void SetSigilShape(UILine line, Sigil sigil, float r)
-        {
-            var pts = new List<Vector2>();
-            switch (sigil)
-            {
-                case Sigil.Circle:
-                    for (int i = 0; i < 20; i++)
-                    {
-                        float a = i / 20f * Mathf.PI * 2f;
-                        pts.Add(new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r);
-                    }
-                    line.Closed = true;
-                    break;
-                case Sigil.Triangle:
-                    pts.Add(new Vector2(0, r));
-                    pts.Add(new Vector2(r * 0.87f, -r * 0.5f));
-                    pts.Add(new Vector2(-r * 0.87f, -r * 0.5f));
-                    line.Closed = true;
-                    break;
-                case Sigil.Zigzag:
-                    for (int i = 0; i < 5; i++) pts.Add(new Vector2(-r + i * r * 0.5f, i % 2 == 0 ? -r * 0.45f : r * 0.45f));
-                    line.Closed = false;
-                    break;
-            }
-            line.SetPoints(pts);
-        }
 
         static RectTransform Rect(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax)
         {
@@ -390,18 +412,19 @@ namespace GhostWard
             return rt;
         }
 
-        static void Stretch(RectTransform rt)
+        static RawImage Overlay(Transform parent, string name, Texture tex, Color color)
         {
-            rt.anchorMin = Vector2.zero;
-            rt.anchorMax = Vector2.one;
-            rt.offsetMin = rt.offsetMax = Vector2.zero;
+            var img = Rect(parent, name, Vector2.zero, Vector2.one).gameObject.AddComponent<RawImage>();
+            img.texture = tex;
+            img.color = color;
+            img.raycastTarget = false;
+            return img;
         }
 
         GameObject Panel(Transform parent, string name)
         {
             var rt = Rect(parent, name, Vector2.zero, Vector2.one);
-            var img = rt.gameObject.AddComponent<Image>();
-            img.color = new Color(0.02f, 0.01f, 0.04f, 0.72f);
+            rt.gameObject.AddComponent<Image>().color = new Color(0.01f, 0.008f, 0.012f, 0.9f);
             return rt.gameObject;
         }
 
@@ -428,11 +451,11 @@ namespace GhostWard
         static void Outline(Text t)
         {
             var o = t.gameObject.AddComponent<Outline>();
-            o.effectColor = new Color(0, 0, 0, 0.85f);
+            o.effectColor = new Color(0, 0, 0, 0.9f);
             o.effectDistance = new Vector2(3, -3);
         }
 
-        static void Frame(RectTransform parent, float w, float h, Color color, float thickness)
+        static UILine Frame(RectTransform parent, float w, float h, Color color, float thickness)
         {
             var f = Rect(parent, "Frame", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<UILine>();
             f.Closed = true;
@@ -441,20 +464,21 @@ namespace GhostWard
             f.raycastTarget = false;
             float x = w * 0.5f, y = h * 0.5f;
             f.SetPoints(new[] { new Vector2(-x, y), new Vector2(x, y), new Vector2(x, -y), new Vector2(-x, -y) });
+            return f;
         }
 
         void Button(Transform parent, string text, Vector2 anchor, Action onClick)
         {
             var rt = Rect(parent, text, anchor, anchor);
-            rt.sizeDelta = new Vector2(640, 150);
+            rt.sizeDelta = new Vector2(640, 140);
             var img = rt.gameObject.AddComponent<Image>();
-            img.color = new Color(0.75f, 0.1f, 0.15f);
+            img.color = Blood;
             var btn = rt.gameObject.AddComponent<UnityEngine.UI.Button>();
             btn.targetGraphic = img;
             btn.onClick.AddListener(() => onClick());
-            Frame(rt, 640, 150, Bone, 5f);
-            var label = Label(rt, text, 54, new Vector2(0.5f, 0.5f), Vector2.zero, Bone);
-            label.rectTransform.sizeDelta = new Vector2(620, 140);
+            Frame(rt, 640, 140, Bone, 4f);
+            var label = Label(rt, text, 48, new Vector2(0.5f, 0.5f), Vector2.zero, Bone);
+            label.rectTransform.sizeDelta = new Vector2(620, 130);
             label.fontStyle = FontStyle.Bold;
         }
     }

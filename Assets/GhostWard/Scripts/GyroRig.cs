@@ -5,17 +5,18 @@ using UnityEngine.UI;
 namespace GhostWard
 {
     // Запасной режим без ARCore: видео с задней камеры фоном, поворот камеры по гироскопу.
-    // Призраки висят вокруг игрока; ходить нельзя, но крутиться на месте — да.
+    // Сущности висят вокруг игрока; ходить нельзя, но крутиться на месте — да.
     // В редакторе: поворот камеры зажатой правой кнопкой мыши.
     public class GyroRig : MonoBehaviour
     {
         public Camera Cam { get; private set; }
-        public bool HasGyro { get; private set; }
 
         WebCamTexture webcam;
         RawImage background;
         RectTransform canvasRect;
         Vector2 editorLook;
+        string gyroSource = "нет";
+        string camStatus = "нет";
 
         public static GyroRig Create()
         {
@@ -29,20 +30,14 @@ namespace GhostWard
             rig.Cam.fieldOfView = 60f;
             go.transform.position = new Vector3(0f, 1.4f, 0f);
             go.AddComponent<AudioListener>();
-
-            if (AttitudeSensor.current != null)
-            {
-                InputSystem.EnableDevice(AttitudeSensor.current);
-                rig.HasGyro = true;
-            }
-
+            Input.gyro.enabled = true;
             rig.CreateBackground();
             return rig;
         }
 
         void CreateBackground()
         {
-            // холст далеко за призраками, чтобы видео рисовалось первым
+            // холст далеко за сущностями, чтобы видео рисовалось первым
             var canvasGo = new GameObject("Camera Feed", typeof(Canvas));
             var canvas = canvasGo.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceCamera;
@@ -61,8 +56,11 @@ namespace GhostWard
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.Camera))
             {
+                camStatus = "ждём разрешения";
                 var cb = new UnityEngine.Android.PermissionCallbacks();
                 cb.PermissionGranted += _ => StartWebcam();
+                cb.PermissionDenied += _ => camStatus = "разрешение отклонено";
+                cb.PermissionDeniedAndDontAskAgain += _ => camStatus = "разрешение отклонено навсегда";
                 UnityEngine.Android.Permission.RequestUserPermission(UnityEngine.Android.Permission.Camera, cb);
                 return;
             }
@@ -76,12 +74,13 @@ namespace GhostWard
             foreach (var d in WebCamTexture.devices)
                 if (!d.isFrontFacing) { device = d.name; break; }
             if (device == null && WebCamTexture.devices.Length > 0) device = WebCamTexture.devices[0].name;
-            if (device == null) return;
+            if (device == null) { camStatus = "камера не найдена"; return; }
 
             webcam = new WebCamTexture(device, 1280, 720, 30);
             webcam.Play();
             background.texture = webcam;
             background.color = Color.white;
+            camStatus = "запуск";
         }
 
         void Update()
@@ -90,15 +89,34 @@ namespace GhostWard
             FitBackground();
         }
 
+        // гироскоп: сначала датчик Input System, если его нет — старый Input.gyro
         void UpdateRotation()
         {
-            if (HasGyro && AttitudeSensor.current != null)
+            var sensor = AttitudeSensor.current;
+            if (sensor != null)
             {
-                var q = AttitudeSensor.current.attitude.ReadValue();
-                transform.rotation = Quaternion.Euler(90f, 0f, 0f) * new Quaternion(q.x, q.y, -q.z, -q.w);
-                return;
+                if (!sensor.enabled) InputSystem.EnableDevice(sensor);
+                var q = sensor.attitude.ReadValue();
+                if (q != default && q != Quaternion.identity)
+                {
+                    gyroSource = "AttitudeSensor";
+                    transform.rotation = Convert(q);
+                    return;
+                }
             }
 
+            if (SystemInfo.supportsGyroscope)
+            {
+                var q = Input.gyro.attitude;
+                if (q != default && q != Quaternion.identity)
+                {
+                    gyroSource = "Input.gyro";
+                    transform.rotation = Convert(q);
+                    return;
+                }
+            }
+
+            gyroSource = "нет";
             var mouse = Mouse.current;
             if (mouse != null && mouse.rightButton.isPressed)
             {
@@ -108,10 +126,16 @@ namespace GhostWard
             transform.rotation = Quaternion.Euler(-editorLook.y, editorLook.x, 0f);
         }
 
+        // ориентация телефона (правая система координат) → камера Unity, портретный экран
+        static Quaternion Convert(Quaternion q) => Quaternion.Euler(90f, 0f, 0f) * new Quaternion(q.x, q.y, -q.z, -q.w);
+
         // растягиваем видео с обрезкой краёв (cover) с учётом поворота сенсора
         void FitBackground()
         {
-            if (webcam == null || webcam.width < 32) return;
+            if (webcam == null) return;
+            if (webcam.width < 32) { camStatus = webcam.isPlaying ? "ждём кадр" : "не запустилась"; return; }
+            camStatus = $"{webcam.width}x{webcam.height} {webcam.videoRotationAngle}°";
+
             int angle = webcam.videoRotationAngle;
             bool sideways = angle % 180 != 0;
             float texW = sideways ? webcam.height : webcam.width;
@@ -123,6 +147,8 @@ namespace GhostWard
             rt.localEulerAngles = new Vector3(0f, 0f, -angle);
             background.uvRect = webcam.videoVerticallyMirrored ? new Rect(0f, 1f, 1f, -1f) : new Rect(0f, 0f, 1f, 1f);
         }
+
+        public string Diagnostics() => $"гироскоп: {gyroSource}\nкамера: {camStatus}";
 
         void OnDestroy()
         {

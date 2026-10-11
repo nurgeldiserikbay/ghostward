@@ -44,7 +44,7 @@ namespace GhostWard.EditorTools
             Debug.Log("[GhostWard] Проект настроен");
 
             if (SetupInputHandling() && !Application.isBatchMode &&
-                EditorUtility.DisplayDialog("GhostWard", "Включён новый Input System. Нужен перезапуск редактора.", "Перезапустить", "Позже"))
+                EditorUtility.DisplayDialog("GhostWard", "Изменена система ввода. Нужен перезапуск редактора.", "Перезапустить", "Позже"))
                 EditorApplication.OpenProject(Directory.GetCurrentDirectory());
         }
 
@@ -103,8 +103,9 @@ namespace GhostWard.EditorTools
             if (assets.Length == 0) return false;
             var so = new SerializedObject(assets[0]);
             var prop = so.FindProperty("activeInputHandler");
-            if (prop == null || prop.intValue != 0) return false;
-            prop.intValue = 1;
+            // 2 = оба: новый Input System и старый Input.gyro как запасной гироскоп
+            if (prop == null || prop.intValue == 2) return false;
+            prop.intValue = 2;
             so.ApplyModifiedProperties();
             return true;
         }

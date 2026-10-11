@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -9,91 +10,126 @@ namespace GhostWard
         const int Rate = 44100;
         static readonly Dictionary<string, AudioClip> Cache = new();
 
-        // Зацикленный шёпот: шум через полосовой фильтр с «дыханием» по громкости.
-        public static AudioClip Whisper(float pitch)
+        static AudioClip Get(string key, float seconds, Func<float, System.Random, float> sample, int fade = 0)
         {
-            string key = "whisper" + pitch.ToString("0.00");
             if (Cache.TryGetValue(key, out var c)) return c;
-
-            int len = Rate * 4;
+            int len = (int)(Rate * seconds);
             var data = new float[len];
             var rng = new System.Random(key.GetHashCode());
+            for (int i = 0; i < len; i++) data[i] = sample((float)i / Rate, rng);
+            if (fade > 0) Fade(data, fade);
+            var clip = AudioClip.Create(key, len, 1, Rate, false);
+            clip.SetData(data, 0);
+            return Cache[key] = clip;
+        }
+
+        static float Noise(System.Random r) => (float)(r.NextDouble() * 2 - 1);
+        static float Sin(float f, float t) => Mathf.Sin(2f * Mathf.PI * f * t);
+
+        // Фоновый гул комнаты: низкий шум с медленными биениями. Зацикливается.
+        public static AudioClip Drone()
+        {
+            float lp = 0f;
+            return Get("drone", 8f, (t, r) =>
+            {
+                lp += 0.01f * (Noise(r) - lp);
+                float beat = Sin(55f, t) * 0.3f + Sin(55.7f, t) * 0.3f + Sin(82.4f, t) * 0.12f;
+                return (lp * 4f + beat * (0.6f + 0.4f * Sin(0.125f, t))) * 0.35f;
+            }, Rate / 4);
+        }
+
+        // Один удар сердца «тук-тук», темп задаётся паузой между запусками.
+        public static AudioClip Heartbeat() => Get("heart", 0.45f, (t, r) =>
+        {
+            float a = Mathf.Exp(-t * 30f) * Sin(55f - t * 30f, t);
+            float t2 = t - 0.18f;
+            float b = t2 > 0 ? Mathf.Exp(-t2 * 35f) * Sin(48f, t2) * 0.7f : 0f;
+            return (a + b) * 0.9f;
+        });
+
+        // Зацикленный шёпот призрака.
+        public static AudioClip Whisper()
+        {
             float lp = 0f, bp = 0f;
-            float cutoff = 0.08f * pitch;
-            for (int i = 0; i < len; i++)
+            return Get("whisper", 4f, (t, r) =>
             {
-                float t = (float)i / Rate;
-                float noise = (float)(rng.NextDouble() * 2 - 1);
-                lp += cutoff * (noise - lp);
+                lp += 0.09f * (Noise(r) - lp);
                 bp += 0.5f * (lp - bp);
-                float breath = Mathf.Pow(Mathf.Sin(t * Mathf.PI * 0.5f * 3f) * 0.5f + 0.5f, 3f);
-                float moan = Mathf.Sin(2 * Mathf.PI * (110f * pitch + Mathf.Sin(t * 5f) * 6f) * t) * 0.25f;
-                data[i] = ((lp - bp) * 3f * breath + moan * breath) * 0.6f;
-            }
-            Fade(data, Rate / 20);
-            return Cache[key] = Make(key, data);
+                float syl = Mathf.Pow(Mathf.Abs(Sin(2.2f + Sin(0.3f, t), t)), 4f);
+                return (lp - bp) * 3.5f * syl;
+            }, Rate / 10);
         }
 
-        public static AudioClip Banish()
+        // Тяжёлое дыхание тени.
+        public static AudioClip Breath()
         {
-            if (Cache.TryGetValue("banish", out var c)) return c;
-            int len = (int)(Rate * 0.9f);
-            var data = new float[len];
-            for (int i = 0; i < len; i++)
+            float lp = 0f;
+            return Get("breath", 3f, (t, r) =>
             {
-                float t = (float)i / Rate;
-                float env = Mathf.Exp(-t * 4f);
-                float f = 440f + t * 900f;
-                data[i] = (Mathf.Sin(2 * Mathf.PI * f * t) + 0.5f * Mathf.Sin(2 * Mathf.PI * f * 1.5f * t)) * env * 0.35f;
-            }
-            return Cache["banish"] = Make("banish", data);
+                lp += 0.03f * (Noise(r) - lp);
+                float env = Mathf.Pow(Mathf.Max(0f, Sin(0.333f, t)), 2f) + 0.6f * Mathf.Pow(Mathf.Max(0f, -Sin(0.333f, t)), 3f);
+                return (lp * 5f + Sin(70f, t) * 0.1f) * env;
+            }, Rate / 10);
         }
 
-        public static AudioClip Hit()
+        // Тихий смех/напев албасты: дрожащий голос с ритмичными «ха».
+        public static AudioClip Laugh() => Get("laugh", 2.2f, (t, r) =>
         {
-            if (Cache.TryGetValue("hit", out var c)) return c;
-            int len = (int)(Rate * 0.6f);
-            var data = new float[len];
-            var rng = new System.Random(7);
-            for (int i = 0; i < len; i++)
-            {
-                float t = (float)i / Rate;
-                float env = Mathf.Exp(-t * 7f);
-                float thump = Mathf.Sin(2 * Mathf.PI * (60f - t * 40f) * t);
-                float noise = (float)(rng.NextDouble() * 2 - 1) * Mathf.Exp(-t * 15f);
-                data[i] = (thump * 0.8f + noise * 0.5f) * env;
-            }
-            return Cache["hit"] = Make("hit", data);
-        }
+            float f = 420f + Sin(6f, t) * 25f - t * 60f;
+            float ha = Mathf.Pow(Mathf.Max(0f, Sin(3.5f, t)), 6f);
+            float voice = Sin(f, t) * 0.5f + Sin(f * 2.01f, t) * 0.25f + Sin(f * 3.03f, t) * 0.12f;
+            return (voice * 0.6f + Noise(r) * 0.25f) * ha * Mathf.Exp(-t * 0.7f) * 0.6f;
+        });
 
-        public static AudioClip Fail()
+        public static AudioClip Knock() => Get("knock", 0.9f, (t, r) =>
         {
-            if (Cache.TryGetValue("fail", out var c)) return c;
-            int len = (int)(Rate * 0.35f);
-            var data = new float[len];
-            for (int i = 0; i < len; i++)
+            float s = 0f;
+            for (int k = 0; k < 3; k++)
             {
-                float t = (float)i / Rate;
-                float sq = Mathf.Sign(Mathf.Sin(2 * Mathf.PI * (180f - t * 200f) * t));
-                data[i] = sq * Mathf.Exp(-t * 8f) * 0.15f;
+                float tk = t - k * 0.22f;
+                if (tk < 0) continue;
+                s += (Sin(140f, tk) * 0.8f + Noise(r) * 0.5f) * Mathf.Exp(-tk * 45f);
             }
-            return Cache["fail"] = Make("fail", data);
-        }
+            return s;
+        });
 
-        public static AudioClip Spawn()
+        public static AudioClip Crash() => Get("crash", 1.2f, (t, r) =>
         {
-            if (Cache.TryGetValue("spawn", out var c)) return c;
-            int len = (int)(Rate * 1.2f);
-            var data = new float[len];
-            for (int i = 0; i < len; i++)
-            {
-                float t = (float)i / Rate;
-                float env = Mathf.Sin(Mathf.Clamp01(t / 1.2f) * Mathf.PI);
-                float f = 300f - t * 150f;
-                data[i] = (Mathf.Sin(2 * Mathf.PI * f * t) * Mathf.Sin(2 * Mathf.PI * 7f * t)) * env * 0.3f;
-            }
-            return Cache["spawn"] = Make("spawn", data);
-        }
+            float n = Noise(r) * Mathf.Exp(-t * 5f);
+            float ring = (Sin(1830f, t) + Sin(2710f, t) * 0.6f) * Mathf.Exp(-t * 6f) * 0.2f;
+            float thud = Sin(70f - t * 30f, t) * Mathf.Exp(-t * 12f);
+            return (n * 0.6f + ring + thud) * 0.8f;
+        });
+
+        // Визг при нападении.
+        public static AudioClip Screech() => Get("screech", 0.9f, (t, r) =>
+        {
+            float f = 900f + Sin(23f, t) * 180f + t * 400f;
+            float s = Sin(f, t) * 0.4f + Sin(f * 1.47f, t) * 0.3f + Noise(r) * 0.5f;
+            return Mathf.Clamp(s * 1.6f, -1f, 1f) * Mathf.Min(1f, t * 40f) * Mathf.Exp(-t * 2f) * 0.9f;
+        });
+
+        public static AudioClip SaltThrow() => Get("salt", 0.6f, (t, r) =>
+            Noise(r) * Mathf.Exp(-t * 7f) * (0.5f + 0.5f * Mathf.Abs(Sin(37f, t))) * 0.5f);
+
+        public static AudioClip BellRing() => Get("bell", 2.2f, (t, r) =>
+        {
+            float env = Mathf.Exp(-t * 2.2f);
+            return (Sin(1046f, t) + Sin(1046f * 2.76f, t) * 0.5f + Sin(1046f * 5.4f, t) * 0.25f) * env * 0.25f;
+        });
+
+        public static AudioClip IronStrike() => Get("iron", 0.8f, (t, r) =>
+            (Sin(2400f, t) * 0.4f + Sin(3720f, t) * 0.3f + Noise(r) * Mathf.Exp(-t * 60f)) * Mathf.Exp(-t * 5f) * 0.5f);
+
+        // Вой при изгнании: нисходящий тон, тающий в шум.
+        public static AudioClip Banish() => Get("banish", 1.4f, (t, r) =>
+        {
+            float f = 520f - t * 300f;
+            return (Sin(f, t) * 0.5f + Sin(f * 1.5f, t) * 0.25f + Noise(r) * 0.2f * t) * Mathf.Exp(-t * 2.5f) * 0.5f;
+        });
+
+        public static AudioClip Fail() => Get("fail", 0.35f, (t, r) =>
+            Mathf.Sign(Sin(180f - t * 200f, t)) * Mathf.Exp(-t * 8f) * 0.12f);
 
         static void Fade(float[] d, int n)
         {
@@ -103,13 +139,6 @@ namespace GhostWard
                 d[i] *= k;
                 d[d.Length - 1 - i] *= k;
             }
-        }
-
-        static AudioClip Make(string name, float[] data)
-        {
-            var clip = AudioClip.Create(name, data.Length, 1, Rate, false);
-            clip.SetData(data, 0);
-            return clip;
         }
     }
 }
