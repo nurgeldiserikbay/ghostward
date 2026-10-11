@@ -11,7 +11,11 @@ namespace GhostWard
     {
         public Camera Cam { get; private set; }
 
+        static readonly int ModeId = Shader.PropertyToID("_Mode");
+        static readonly int GlitchId = Shader.PropertyToID("_Glitch");
+
         WebCamTexture webcam;
+        Material feedMat;
         RawImage background;
         RectTransform canvasRect;
         Vector2 editorLook;
@@ -50,6 +54,8 @@ namespace GhostWard
             background = imgGo.GetComponent<RawImage>();
             background.color = Color.black;
             background.raycastTarget = false;
+            feedMat = new Material(Shader.Find("GhostWard/Feed"));
+            background.material = feedMat;
             var rt = background.rectTransform;
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
 
@@ -146,6 +152,13 @@ namespace GhostWard
             rt.sizeDelta = new Vector2(webcam.width * scale, webcam.height * scale);
             rt.localEulerAngles = new Vector3(0f, 0f, -angle);
             background.uvRect = webcam.videoVerticallyMirrored ? new Rect(0f, 1f, 1f, -1f) : new Rect(0f, 0f, 1f, 1f);
+        }
+
+        // вид камеры: 0 — тёмная, 1 — ночной режим; glitch — помехи рядом с сущностью
+        public void SetLook(float nightVision, float glitch)
+        {
+            feedMat.SetFloat(ModeId, nightVision);
+            feedMat.SetFloat(GlitchId, glitch);
         }
 
         public string Diagnostics() => $"гироскоп: {gyroSource}\nкамера: {camStatus}";

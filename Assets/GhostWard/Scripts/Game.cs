@@ -10,7 +10,9 @@ namespace GhostWard
     // Перед ночью игрок осматривает комнату — игра строит карту темноты.
     // Ночью «режиссёр» чередует затишье (с ложными звуками) и встречи; сущности выходят из тёмных мест.
     // Предметы применяются жестами, без выбора на экране:
-    //   соль — смахнуть вверх, фонарь — зажать палец, железо — двойное касание, колокольчик — встряхнуть.
+    //   соль — смахнуть вверх, зеркало — вниз, полынь — зигзаг, фонарь — зажать палец,
+    //   железо — двойное касание, колокольчик — встряхнуть.
+    // Новые виды сущностей открываются по мере того, сколько игрок продержался за игру.
     // Страх растёт, когда сущность рядом или нападает; на 100% игра окончена. Дожил до 04:00 — рассвет.
     public class Game : MonoBehaviour
     {
@@ -20,6 +22,7 @@ namespace GhostWard
         const float FearDecay = 2.5f;
         const float EyeHeight = 1.4f;
         const float ScanCoverage = 0.85f;
+        const float CeilingHeight = 2.6f;
 
         Phase phase;
         GameUI ui;
@@ -33,8 +36,17 @@ namespace GhostWard
         readonly HashSet<EntityKind> introduced = new();
         readonly DarknessMap map = new();
         Inventory inv;
-        int night;
-        float nightTime, fear, nextEncounter, nextFakeCue;
+        int night, unlocked;
+        float nightTime, survived, fear, nextEncounter, nextFakeCue;
+        EntityKind? forcedNext;
+
+        // вид камеры: ночной режим и помехи
+        AudioSource staticNoise;
+        float nightVision, nightVisionTarget, nextVisionSwitch, glitch;
+
+        // скорость поворота игрока, °/с — по ней ходит двойник
+        public float TurnSpeed { get; private set; }
+        Vector3 lastForward;
 
         // осмотр комнаты
         Vector2[] samplePoints;
@@ -43,7 +55,8 @@ namespace GhostWard
 
         // жесты
         bool pressing, pressIgnored, moved, lanternHeld;
-        Vector2 pressStart;
+        Vector2 pressStart, lastExtreme;
+        int reversals, lastDirX;
         float pressTime, lastTapTime = -10f, bellCooldown;
         Vector3 lastAccel;
 
@@ -61,6 +74,11 @@ namespace GhostWard
             drone.Play();
             heart = gameObject.AddComponent<AudioSource>();
             heart.clip = ProceduralAudio.Heartbeat();
+            staticNoise = gameObject.AddComponent<AudioSource>();
+            staticNoise.clip = ProceduralAudio.Static();
+            staticNoise.loop = true;
+            staticNoise.volume = 0f;
+            staticNoise.Play();
 
             // сетка точек экрана, по которым меряем яркость при осмотре
             const int gx = 8, gy = 12;
@@ -118,6 +136,9 @@ namespace GhostWard
             inv = Inventory.Starting();
             night = 0;
             fear = 0f;
+            survived = 0f;
+            unlocked = Catalog.Unlocked(0f);
+            forcedNext = null;
             introduced.Clear();
             StartNight();
         }
@@ -150,6 +171,8 @@ namespace GhostWard
             nightTime = 0f;
             nextEncounter = Random.Range(8f, 12f);
             nextFakeCue = Random.Range(4f, 7f);
+            nextVisionSwitch = Random.Range(20f, 40f);
+            nightVisionTarget = 0f;
             ui.Message($"Ночь {night}", 3f);
             phase = Phase.Night;
         }
@@ -161,12 +184,31 @@ namespace GhostWard
 
             if (cam != null) ui.SetMapStrip(map, cam.transform.forward, phase is Phase.Scan or Phase.Night);
             if (phase == Phase.Scan) { UpdateScan(); return; }
-            if (phase != Phase.Night) { drone.volume = Mathf.MoveTowards(drone.volume, 0.15f, Time.deltaTime); return; }
+            if (phase != Phase.Night)
+            {
+                drone.volume = Mathf.MoveTowards(drone.volume, 0.15f, Time.deltaTime);
+                staticNoise.volume = 0f;
+                UpdateLook(Time.deltaTime);
+                return;
+            }
 
             float dt = Time.deltaTime;
             entities.RemoveAll(e => e == null);
 
+            var fwd = cam.transform.forward;
+            TurnSpeed = Mathf.Lerp(TurnSpeed, Vector3.Angle(fwd, lastForward) / Mathf.Max(dt, 1e-3f), dt * 8f);
+            lastForward = fwd;
+
             nightTime += dt;
+            survived += dt;
+            int nowUnlocked = Catalog.Unlocked(survived);
+            if (nowUnlocked > unlocked)
+            {
+                // открылся новый вид — он придёт следующим
+                unlocked = nowUnlocked;
+                forcedNext = Catalog.Entities[unlocked - 1].Kind;
+            }
+
             ui.SetClock(nightTime / NightSeconds);
             if (nightTime >= NightSeconds) { Dawn(); return; }
 
@@ -174,7 +216,42 @@ namespace GhostWard
             HandleInput(dt);
             UpdateFear(dt);
             UpdateAtmosphere(dt);
+            UpdateLook(dt);
             ui.UpdateCues(cam, entities);
+        }
+
+        // Камера: тёмная, иногда переключается в ночной режим; рядом с сущностью — помехи.
+        void UpdateLook(float dt)
+        {
+            if (phase == Phase.Night)
+            {
+                nextVisionSwitch -= dt;
+                if (nextVisionSwitch <= 0f)
+                {
+                    bool on = nightVisionTarget < 0.5f;
+                    nightVisionTarget = on ? 1f : 0f;
+                    nextVisionSwitch = on ? Random.Range(10f, 18f) : Random.Range(25f, 50f);
+                    sfx.PlayOneShot(ProceduralAudio.Click(), 0.8f);
+                    glitch = 1f;
+                }
+
+                float near = 0f;
+                foreach (var e in entities)
+                    if (e.Alive && e.Current != Entity.State.Lurking)
+                        near = Mathf.Max(near, Mathf.Clamp01(1f - (e.FlatDistance() - 0.8f) / 2.2f));
+                glitch = Mathf.Max(Mathf.MoveTowards(glitch, 0f, dt * 2f), near * 0.6f);
+            }
+            else
+            {
+                nightVisionTarget = 0f;
+                glitch = Mathf.MoveTowards(glitch, 0f, dt * 2f);
+            }
+
+            // переключение режимов не плавное, а через короткий «сбой»
+            nightVision = Mathf.MoveTowards(nightVision, nightVisionTarget, dt * 6f);
+            staticNoise.volume = glitch * 0.35f;
+            if (gyroRig != null) gyroRig.SetLook(nightVision, glitch);
+            ui.SetGrain(0.05f + nightVision * 0.08f + glitch * 0.25f);
         }
 
         string DiagnosticsText()
@@ -220,7 +297,7 @@ namespace GhostWard
         {
             int alive = 0;
             foreach (var e in entities) if (e.Alive) alive++;
-            int maxAlive = night >= 3 && nightTime > NightSeconds * 0.4f ? 2 : 1;
+            int maxAlive = survived > 600f ? 3 : survived > 300f ? 2 : 1;
 
             if (alive < maxAlive)
             {
@@ -245,14 +322,30 @@ namespace GhostWard
 
         void Spawn()
         {
-            var def = Catalog.Entities[Random.Range(0, Catalog.KindsForNight(night))];
+            EntityDef def;
+            if (forcedNext.HasValue)
+            {
+                def = Catalog.Get(forcedNext.Value);
+                forcedNext = null;
+            }
+            else
+            {
+                // свежие виды приходят чуть чаще старых
+                float total = 0f;
+                for (int i = 0; i < unlocked; i++) total += 1f + i * 0.15f;
+                float r = Random.value * total;
+                int pick = 0;
+                for (; pick < unlocked - 1; pick++)
+                {
+                    r -= 1f + pick * 0.15f;
+                    if (r <= 0f) break;
+                }
+                def = Catalog.Entities[pick];
+            }
             // приходят из темноты сбоку и со спины
             var pos = PickPosition(def, 60f, -1f);
             entities.Add(Entity.Create(def, pos, cam, this, 1f + (night - 1) * 0.1f));
         }
-
-        public static float EntityHeight(EntityDef def) =>
-            def.Kind is EntityKind.Albasty or EntityKind.Shade ? 1.7f : 1.15f;
 
         // Место для сущности: тёмный сектор карты, не ближе minAngle к взгляду игрока.
         // Расстояние: если тёмное место ниже горизонта — это пол, считаем по наклону и высоте глаз;
@@ -274,6 +367,7 @@ namespace GhostWard
 
             float dist;
             if (def.Kind == EntityKind.Poltergeist) dist = Random.Range(1.8f, 2.6f);
+            else if (def.Kind == EntityKind.Mara) dist = Random.Range(1.2f, 1.6f);
             else if (pitch < -8f) dist = Mathf.Clamp(EyeHeight / Mathf.Tan(-pitch * Mathf.Deg2Rad), 2.2f, 4.5f);
             else dist = Random.Range(3.2f, 4.5f);
             if (maxDist > 0f) dist = Mathf.Min(dist, maxDist);
@@ -283,7 +377,9 @@ namespace GhostWard
             float floor = camPos.y - EyeHeight;
             pos.y = def.Kind switch
             {
-                EntityKind.Shade or EntityKind.Albasty => floor + EntityHeight(def) * 0.5f,
+                EntityKind.Shade or EntityKind.Albasty or EntityKind.Double or EntityKind.Upyr or EntityKind.Mara
+                    => floor + def.Height * 0.5f,
+                EntityKind.Kikimora => floor + CeilingHeight - def.Height * 0.5f,
                 EntityKind.Ghost => camPos.y + Mathf.Clamp(Mathf.Tan(pitch * Mathf.Deg2Rad) * dist, -0.4f, 0.8f),
                 _ => camPos.y
             };
@@ -324,9 +420,14 @@ namespace GhostWard
 
         public void OnManifest(Entity e)
         {
-            // подсказка при первой встрече за игру — дальше игрок опознаёт сам
-            if (introduced.Add(e.Def.Kind) && night <= 2)
-                ui.Message(e.Def.Hint, 5f);
+            // при самой первой встрече — подсказка и новая запись в дневнике; дальше игрок опознаёт сам
+            if (!Catalog.Seen(e.Def.Kind))
+            {
+                Catalog.MarkSeen(e.Def.Kind);
+                ui.Message(e.Def.Hint + "\n\nНовая запись в дневнике", 6f);
+            }
+            else if (introduced.Add(e.Def.Kind) && night == 1)
+                ui.Message(e.Def.Hint, 4f);
         }
 
         public void OnThrow(Entity e)
@@ -338,7 +439,7 @@ namespace GhostWard
         public void OnAttack(Entity e)
         {
             AddFear(e.Def.Kind == EntityKind.Poltergeist ? 22f : 32f);
-            ui.Jumpscare(e.Def.Kind == EntityKind.Poltergeist ? 0.5f : 1f);
+            ui.Jumpscare(e.Def, e.Seed, e.Def.Kind == EntityKind.Poltergeist ? 0.5f : 1f);
             sfx.PlayOneShot(ProceduralAudio.Screech(), 0.8f);
 #if UNITY_ANDROID || UNITY_IOS
             Handheld.Vibrate();
@@ -359,6 +460,8 @@ namespace GhostWard
                 if (!e.Alive || e.Current == Entity.State.Lurking) continue;
                 calm = false;
                 if (!e.Visible) continue;
+                // на мару нельзя смотреть — страх растёт втрое быстрее
+                if (e.Def.Kind == EntityKind.Mara && IsInView(e.transform.position)) { AddFear(dt * 9f); continue; }
                 float d = e.FlatDistance();
                 if (d < 3f) AddFear(dt * 7f * (1f - d / 3f));
             }
@@ -385,7 +488,7 @@ namespace GhostWard
         void HandleInput(float dt)
         {
             bellCooldown -= dt;
-            float h = Screen.height;
+            float h = Screen.height, w = Screen.width;
 
             var pointer = Pointer.current;
             if (pointer != null)
@@ -399,7 +502,9 @@ namespace GhostWard
                     pressIgnored = ui.IsOverButton(pos);
                     moved = false;
                     lanternHeld = false;
-                    pressStart = pos;
+                    pressStart = lastExtreme = pos;
+                    reversals = 0;
+                    lastDirX = 0;
                     pressTime = 0f;
                 }
                 else if (pressed && pressing && !pressIgnored)
@@ -408,6 +513,21 @@ namespace GhostWard
                     if ((pos - pressStart).magnitude > h * 0.03f) moved = true;
                     // зажатый неподвижный палец — фонарь
                     if (!moved && pressTime > 0.3f) lanternHeld = true;
+
+                    // зигзаг: считаем развороты по горизонтали с заметным размахом
+                    float dx = pos.x - lastExtreme.x;
+                    int dir = dx > 0f ? 1 : -1;
+                    if (lastDirX == 0)
+                    {
+                        if (Mathf.Abs(dx) > w * 0.08f) { lastDirX = dir; lastExtreme = pos; }
+                    }
+                    else if (dir == lastDirX) lastExtreme = pos;          // тянем дальше в ту же сторону
+                    else if (Mathf.Abs(dx) > w * 0.08f)
+                    {
+                        reversals++;
+                        lastDirX = dir;
+                        lastExtreme = pos;
+                    }
                 }
                 else if (!pressed && pressing)
                 {
@@ -424,9 +544,10 @@ namespace GhostWard
         void OnRelease(Vector2 delta)
         {
             float h = Screen.height;
-            if (pressTime < 0.6f && delta.y > h * 0.1f && Mathf.Abs(delta.x) < delta.y)
+            if (reversals >= 2) { Use(ItemKind.Wormwood); return; }
+            if (pressTime < 0.6f && Mathf.Abs(delta.y) > h * 0.1f && Mathf.Abs(delta.x) < Mathf.Abs(delta.y))
             {
-                ThrowSalt();
+                Use(delta.y > 0f ? ItemKind.Salt : ItemKind.Mirror);
                 return;
             }
             if (!moved && pressTime < 0.3f)
@@ -434,7 +555,7 @@ namespace GhostWard
                 if (Time.time - lastTapTime < 0.35f)
                 {
                     lastTapTime = -10f;
-                    StrikeIron();
+                    Use(ItemKind.Iron);
                 }
                 else lastTapTime = Time.time;
             }
@@ -455,35 +576,36 @@ namespace GhostWard
             return best;
         }
 
-        void ThrowSalt()
+        // Применить предмет «в цель» — в сущность у центра экрана.
+        void Use(ItemKind item)
         {
-            if (inv.Salt <= 0) { Empty("Соль закончилась"); return; }
-            inv.Salt--;
-            sfx.PlayOneShot(ProceduralAudio.SaltThrow(), 1f);
-            ui.SaltBurst();
-            ui.Supply($"соль: {inv.Salt}");
+            var def = Catalog.Get(item);
+            float angle = item switch { ItemKind.Iron => 35f, ItemKind.Wormwood => 35f, ItemKind.Mirror => 25f, _ => 20f };
+            float range = item switch { ItemKind.Iron => 1.5f, ItemKind.Wormwood => 4f, ItemKind.Mirror => 5f, _ => 4.5f };
 
-            var t = Target(20f, 4.5f);
-            if (t == null) { ui.Message("Соль рассыпалась впустую", 1.5f); return; }
-            if (t.Def.Bane == ItemKind.Salt) t.Banish();
-            else WrongItem(t);
-        }
-
-        void StrikeIron()
-        {
-            if (inv.Iron <= 0) { Empty("Железа не осталось"); return; }
-            var t = Target(35f, 1.5f);
-            if (t == null)
+            if (item == ItemKind.Iron)
             {
-                var far = Target(30f, 6f);
-                ui.Message(far != null ? "Слишком далеко. Подпусти ближе…" : "Рядом никого", 1.5f);
-                return;
+                if (inv.Iron <= 0) { Empty("Железа не осталось"); return; }
+                if (Target(angle, range) == null)
+                {
+                    ui.Message(Target(30f, 6f) != null ? "Слишком далеко. Подпусти ближе…" : "Рядом никого", 1.5f);
+                    return;
+                }
             }
-            inv.Iron--;
-            sfx.PlayOneShot(ProceduralAudio.IronStrike(), 1f);
-            ui.Flash(new Color(1f, 1f, 1f, 0.5f));
-            ui.Supply($"железо: {inv.Iron}");
-            if (t.Def.Bane == ItemKind.Iron) t.Banish();
+            if (!inv.Use(item)) { Empty($"Больше нет: {def.Name.ToLower()}"); return; }
+
+            switch (item)
+            {
+                case ItemKind.Salt: sfx.PlayOneShot(ProceduralAudio.SaltThrow(), 1f); ui.SaltBurst(); break;
+                case ItemKind.Iron: sfx.PlayOneShot(ProceduralAudio.IronStrike(), 1f); ui.Flash(new Color(1f, 1f, 1f, 0.5f)); break;
+                case ItemKind.Mirror: sfx.PlayOneShot(ProceduralAudio.Shimmer(), 1f); ui.Flash(new Color(0.8f, 0.9f, 1f, 0.6f)); break;
+                case ItemKind.Wormwood: sfx.PlayOneShot(ProceduralAudio.Whoosh(), 1f); ui.Smoke(); break;
+            }
+            ui.Supply($"{def.Name.ToLower()}: {inv.Label(item)}");
+
+            var t = Target(angle, range);
+            if (t == null) { ui.Message("Впустую…", 1.2f); return; }
+            if (t.Def.Bane == item) t.Banish();
             else WrongItem(t);
         }
 
@@ -496,11 +618,13 @@ namespace GhostWard
             sfx.PlayOneShot(ProceduralAudio.BellRing(), 1f);
             ui.Supply($"колокольчик: {inv.Bell}");
 
-            // колокольчик действует на полтергейста, если повернуться в его сторону
+            // мару звон будит всегда; полтергейста — если повернуться в его сторону
             bool hit = false;
             foreach (var e in entities)
             {
-                if (!e.Alive || e.Current != Entity.State.Manifest || e.Def.Kind != EntityKind.Poltergeist) continue;
+                if (!e.Alive || e.Current != Entity.State.Manifest) continue;
+                if (e.Def.Kind == EntityKind.Mara) { e.Banish(); hit = true; continue; }
+                if (e.Def.Kind != EntityKind.Poltergeist) continue;
                 var to = e.transform.position - cam.transform.position;
                 to.y = 0f;
                 var fwd = cam.transform.forward;
@@ -529,7 +653,7 @@ namespace GhostWard
             foreach (var e in entities)
             {
                 e.Lit = e == lit;
-                if (e == lit && e.Def.Bane == ItemKind.Lantern && e.Exposure > 1.6f) e.Banish();
+                if (e == lit && e.Def.Bane == ItemKind.Lantern && e.Exposure > e.ExposureNeeded) e.Banish();
             }
         }
 

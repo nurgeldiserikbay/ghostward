@@ -24,7 +24,16 @@ namespace GhostWard
         RectTransform root, shakeRoot, journalButton;
         Font font;
         GameObject hud, menu, dawn, over, loading, journal, scan, strip;
-        Text nightText, clockText, messageText, supplyText, diagText, menuMode, dawnText, overText, journalSupply, scanText;
+        GameObject journalList, journalEntry, journalItems;
+        Text nightText, clockText, messageText, supplyText, diagText, menuMode, dawnText, overText, scanText;
+        Text entryName, entryOrigin, entryText, entryItem, entryCount;
+        RectTransform entryItemIcon, entryGestureIcon;
+        RawImage entryPicture, grain, jumpscare;
+        Material entryMat, jumpMat;
+        float jumpTimer;
+        readonly List<(EntityKind kind, RawImage pic, Material mat, Text name)> cards = new();
+        readonly List<(ItemKind kind, Text count)> itemRows = new();
+        Inventory shownInventory;
         RectTransform fearFill, scanFill, stripMarker;
         RawImage darkness, lanternDark, lanternGlow, flash;
         readonly RawImage[] edges = new RawImage[4]; // лево, право, верх, низ
@@ -106,7 +115,13 @@ namespace GhostWard
             supplyText = Label(root, "", 32, new Vector2(0.5f, 0f), new Vector2(0, 160), Dim);
             supplyText.rectTransform.sizeDelta = new Vector2(800, 60);
 
+            jumpscare = Rect(root, "Jumpscare", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<RawImage>();
+            jumpscare.rectTransform.sizeDelta = new Vector2(1100, 1380);
+            jumpscare.raycastTarget = false;
+            jumpscare.gameObject.SetActive(false);
+
             flash = Overlay(root, "Flash", Texture2D.whiteTexture, new Color(0, 0, 0, 0));
+            grain = Overlay(root, "Grain", Textures.Noise(), new Color(1, 1, 1, 0.05f));
 
             diagText = Label(root, "", 22, new Vector2(1f, 1f), new Vector2(-20, -40), new Color(1, 1, 1, 0.45f));
             diagText.alignment = TextAnchor.UpperRight;
@@ -230,41 +245,186 @@ namespace GhostWard
             Button(over.transform, "ЕЩЁ РАЗ", new Vector2(0.5f, 0.3f), () => StartPressed?.Invoke(), true);
         }
 
-        // дневник: кто приходит, по каким признакам узнать и как защититься
+        // Дневник — энциклопедия: список сущностей, статья о каждой, страница предметов и жестов.
         void BuildJournal()
         {
             journal = Panel(root, "Journal");
-            journal.GetComponent<Image>().color = new Color(0.02f, 0.015f, 0.02f, 0.96f);
-            var title = Label(journal.transform, "ДНЕВНИК", 72, new Vector2(0.5f, 0.92f), Vector2.zero, Bone);
+            journal.GetComponent<Image>().color = new Color(0.02f, 0.015f, 0.02f, 0.97f);
+            BuildJournalList();
+            BuildJournalEntry();
+            BuildJournalItems();
+            journal.SetActive(false);
+        }
+
+        void BuildJournalList()
+        {
+            journalList = Rect(journal.transform, "List", Vector2.zero, Vector2.one).gameObject;
+            var title = Label(journalList.transform, "ДНЕВНИК", 72, new Vector2(0.5f, 0.93f), Vector2.zero, Bone);
             title.rectTransform.sizeDelta = new Vector2(900, 110);
             title.fontStyle = FontStyle.Bold;
 
-            float y = 0.81f;
-            foreach (var e in Catalog.Entities)
+            for (int i = 0; i < Catalog.Entities.Length; i++)
             {
-                var item = Catalog.Get(e.Bane);
-                var head = Label(journal.transform, e.Name.ToUpper(), 42, new Vector2(0.5f, y), Vector2.zero, Bone);
-                head.rectTransform.sizeDelta = new Vector2(900, 60);
-                head.alignment = TextAnchor.MiddleLeft;
-                head.fontStyle = FontStyle.Bold;
-                var body = Label(journal.transform,
-                    $"{e.Signs}\nБоится: {item.Name.ToLower()} — {item.Usage}.",
-                    30, new Vector2(0.5f, y - 0.055f), Vector2.zero, Dim);
-                body.rectTransform.sizeDelta = new Vector2(900, 120);
-                body.alignment = TextAnchor.UpperLeft;
-                body.color = new Color(Bone.r, Bone.g, Bone.b, 0.7f);
-                y -= 0.15f;
+                var def = Catalog.Entities[i];
+                int col = i % 2, row = i / 2;
+                var card = Rect(journalList.transform, def.Name, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+                card.sizeDelta = new Vector2(470, 300);
+                card.anchoredPosition = new Vector2(col == 0 ? -245 : 245, -370 - row * 320);
+                var bg = card.gameObject.AddComponent<Image>();
+                bg.color = Ink;
+                var btn = card.gameObject.AddComponent<UnityEngine.UI.Button>();
+                btn.targetGraphic = bg;
+                var kind = def.Kind;
+                btn.onClick.AddListener(() => OpenEntry(kind));
+                Frame(card, 470, 300, Dim, 3f);
+
+                var pic = Rect(card, "Picture", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f)).gameObject.AddComponent<RawImage>();
+                pic.rectTransform.sizeDelta = new Vector2(216, 270);
+                pic.rectTransform.anchoredPosition = new Vector2(130, 0);
+                pic.raycastTarget = false;
+                var mat = Entity.CreateMaterial(def, 1.7f + i);
+                pic.material = mat;
+
+                var name = Label(card, "", 34, new Vector2(1f, 0.5f), new Vector2(-110, 0), Bone);
+                name.rectTransform.sizeDelta = new Vector2(220, 200);
+                name.fontStyle = FontStyle.Bold;
+                cards.Add((kind, pic, mat, name));
             }
 
-            journalSupply = Label(journal.transform, "", 32, new Vector2(0.5f, 0.17f), Vector2.zero, Bone);
-            journalSupply.rectTransform.sizeDelta = new Vector2(900, 60);
-            Button(journal.transform, "ЗАКРЫТЬ", new Vector2(0.5f, 0.08f), () => SetJournal(false), false);
-            journal.SetActive(false);
+            Button(journalList.transform, "ПРЕДМЕТЫ", new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalItems), false);
+            Button(journalList.transform, "ЗАКРЫТЬ", new Vector2(0.5f, 0.06f), () => SetJournal(false), false);
+        }
+
+        void BuildJournalEntry()
+        {
+            journalEntry = Rect(journal.transform, "Entry", Vector2.zero, Vector2.one).gameObject;
+            entryPicture = Rect(journalEntry.transform, "Picture", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f)).gameObject.AddComponent<RawImage>();
+            entryPicture.rectTransform.sizeDelta = new Vector2(420, 520);
+            entryPicture.rectTransform.anchoredPosition = new Vector2(-250, -340);
+            entryPicture.raycastTarget = false;
+
+            entryName = Label(journalEntry.transform, "", 64, new Vector2(0.5f, 1f), new Vector2(230, -230), Bone);
+            entryName.rectTransform.sizeDelta = new Vector2(500, 100);
+            entryName.fontStyle = FontStyle.Bold;
+            entryName.alignment = TextAnchor.MiddleLeft;
+            entryOrigin = Label(journalEntry.transform, "", 28, new Vector2(0.5f, 1f), new Vector2(230, -300), Dim);
+            entryOrigin.rectTransform.sizeDelta = new Vector2(500, 80);
+            entryOrigin.alignment = TextAnchor.UpperLeft;
+
+            // чем защищаться: иконка предмета, жест, остаток
+            entryItemIcon = Rect(journalEntry.transform, "ItemIcon", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+            entryItemIcon.anchoredPosition = new Vector2(80, -470);
+            entryGestureIcon = Rect(journalEntry.transform, "GestureIcon", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+            entryGestureIcon.anchoredPosition = new Vector2(380, -470);
+            entryItem = Label(journalEntry.transform, "", 30, new Vector2(0.5f, 1f), new Vector2(230, -590), Bone);
+            entryItem.rectTransform.sizeDelta = new Vector2(500, 90);
+            entryCount = Label(journalEntry.transform, "", 26, new Vector2(0.5f, 1f), new Vector2(230, -640), Dim);
+            entryCount.rectTransform.sizeDelta = new Vector2(500, 40);
+
+            entryText = Label(journalEntry.transform, "", 32, new Vector2(0.5f, 1f), new Vector2(0, -700), Bone);
+            entryText.rectTransform.pivot = new Vector2(0.5f, 1f);
+            entryText.rectTransform.sizeDelta = new Vector2(940, 900);
+            entryText.alignment = TextAnchor.UpperLeft;
+            entryText.supportRichText = true;
+
+            Button(journalEntry.transform, "НАЗАД", new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
+        }
+
+        void BuildJournalItems()
+        {
+            journalItems = Rect(journal.transform, "Items", Vector2.zero, Vector2.one).gameObject;
+            var title = Label(journalItems.transform, "ПРЕДМЕТЫ", 64, new Vector2(0.5f, 0.94f), Vector2.zero, Bone);
+            title.rectTransform.sizeDelta = new Vector2(900, 100);
+            title.fontStyle = FontStyle.Bold;
+
+            for (int i = 0; i < Catalog.Items.Length; i++)
+            {
+                var def = Catalog.Items[i];
+                float y = -250 - i * 245;
+                var icon = Rect(journalItems.transform, "Icon", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+                icon.anchoredPosition = new Vector2(-420, y);
+                icon.localScale = Vector3.one * 0.9f;
+                Icons.Item(icon, def.Kind, Bone);
+                var gesture = Rect(journalItems.transform, "Gesture", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+                gesture.anchoredPosition = new Vector2(-280, y);
+                gesture.localScale = Vector3.one * 0.85f;
+                Icons.GestureIcon(gesture, def.Gesture, new Color(1f, 0.75f, 0.45f));
+
+                var name = Label(journalItems.transform, def.Name.ToUpper(), 36, new Vector2(0.5f, 1f), new Vector2(110, y + 60), Bone);
+                name.rectTransform.sizeDelta = new Vector2(600, 50);
+                name.alignment = TextAnchor.MiddleLeft;
+                name.fontStyle = FontStyle.Bold;
+                var body = Label(journalItems.transform, $"<color=#ffc073>{def.Usage}</color>\n{def.Lore}", 28,
+                    new Vector2(0.5f, 1f), new Vector2(110, y - 20), Dim);
+                body.rectTransform.sizeDelta = new Vector2(600, 110);
+                body.alignment = TextAnchor.UpperLeft;
+                body.color = new Color(Bone.r, Bone.g, Bone.b, 0.75f);
+                var count = Label(journalItems.transform, "", 34, new Vector2(0.5f, 1f), new Vector2(460, y + 60), Bone);
+                count.rectTransform.sizeDelta = new Vector2(120, 50);
+                count.alignment = TextAnchor.MiddleRight;
+                itemRows.Add((def.Kind, count));
+            }
+
+            Button(journalItems.transform, "НАЗАД", new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
+        }
+
+        void ShowJournalPage(GameObject page)
+        {
+            journalList.SetActive(page == journalList);
+            journalEntry.SetActive(page == journalEntry);
+            journalItems.SetActive(page == journalItems);
+        }
+
+        void OpenEntry(EntityKind kind)
+        {
+            if (!Catalog.Seen(kind)) { Message("Ты ещё не встречал её. Продержись дольше.", 2f); return; }
+            var def = Catalog.Get(kind);
+            var item = Catalog.Get(def.Bane);
+
+            if (entryMat != null) Destroy(entryMat);
+            entryMat = Entity.CreateMaterial(def, 3.3f);
+            entryPicture.material = entryMat;
+
+            entryName.text = def.Name.ToUpper();
+            entryOrigin.text = def.Origin;
+            entryText.text =
+                $"{def.Lore}\n\n<b>Как узнать.</b> {def.Signs}\n\n<b>Как защититься.</b> {def.Defense}";
+
+            Clear(entryItemIcon);
+            Clear(entryGestureIcon);
+            Icons.Item(entryItemIcon, item.Kind, Bone);
+            Icons.GestureIcon(entryGestureIcon, item.Gesture, new Color(1f, 0.75f, 0.45f));
+            entryItem.text = $"{item.Name} — {item.Usage.ToLower()}";
+            entryCount.text = shownInventory != null ? $"с собой: {shownInventory.Label(item.Kind)}" : "";
+            ShowJournalPage(journalEntry);
+        }
+
+        // для превью из редактора: открыть дневник на нужной странице
+        public void DebugJournal(EntityKind? entry, bool items)
+        {
+            SetJournal(true);
+            if (entry.HasValue) OpenEntry(entry.Value);
+            else if (items) ShowJournalPage(journalItems);
+        }
+
+        static void Clear(Transform t)
+        {
+            for (int i = t.childCount - 1; i >= 0; i--) Destroy(t.GetChild(i).gameObject);
         }
 
         void SetJournal(bool open)
         {
             journal.SetActive(open);
+            if (open)
+            {
+                foreach (var c in cards)
+                {
+                    bool seen = Catalog.Seen(c.kind);
+                    c.mat.SetFloat("_Locked", seen ? 0f : 1f);
+                    c.name.text = seen ? Catalog.Get(c.kind).Name : "???";
+                }
+                ShowJournalPage(journalList);
+            }
             JournalToggled?.Invoke(open);
         }
 
@@ -275,8 +435,8 @@ namespace GhostWard
 
         public void ShowJournal(Inventory inv)
         {
-            journalSupply.text = inv == null ? "" :
-                $"С собой: соль {inv.Salt} · железо {inv.Iron} · колокольчик {inv.Bell} · фонарь {Mathf.CeilToInt(inv.Battery)}%";
+            shownInventory = inv;
+            foreach (var (kind, count) in itemRows) count.text = inv != null ? inv.Label(kind) : "";
         }
 
         public void ShowDawn(int night, string supply)
@@ -373,10 +533,43 @@ namespace GhostWard
         public void Shake(float amount) => shake = Mathf.Max(shake, amount);
         public void Flash(Color c) { flashColor = c; flashAlpha = c.a; }
 
-        public void Jumpscare(float strength)
+        // скример: лицо сущности на весь экран на долю секунды
+        public void Jumpscare(EntityDef def, float seed, float strength)
         {
-            Flash(new Color(0.35f, 0f, 0f, 0.85f * strength));
+            Flash(new Color(0.35f, 0f, 0f, 0.7f * strength));
             Shake(strength);
+            if (def.Kind == EntityKind.Poltergeist) return;
+            if (jumpMat != null) Destroy(jumpMat);
+            jumpMat = Entity.CreateMaterial(def, seed);
+            jumpMat.SetFloat("_Flash", 0.15f);
+            jumpscare.material = jumpMat;
+            jumpscare.gameObject.SetActive(true);
+            jumpTimer = 0.45f;
+        }
+
+        public void SetGrain(float amount) => grain.color = new Color(1f, 1f, 1f, amount);
+
+        // дым полыни: серо-зелёные клубы снизу вверх
+        public void Smoke()
+        {
+            for (int i = 0; i < 16; i++)
+            {
+                var g = Rect(shakeRoot, "Smoke", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f)).gameObject.AddComponent<UILine>();
+                g.Filled = true;
+                g.raycastTarget = false;
+                g.color = new Color(0.55f, 0.6f, 0.5f, 0.35f);
+                float r = UnityEngine.Random.Range(40f, 90f);
+                var pts = new Vector2[8];
+                for (int k = 0; k < 8; k++)
+                {
+                    float a = k / 8f * Mathf.PI * 2f;
+                    pts[k] = new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
+                }
+                g.SetPoints(pts);
+                g.rectTransform.anchoredPosition = new Vector2(UnityEngine.Random.Range(-300f, 300f), 150f);
+                var vel = new Vector2(UnityEngine.Random.Range(-150f, 150f), UnityEngine.Random.Range(900f, 1500f));
+                grains.Add((g.rectTransform, vel, 0.9f));
+            }
         }
 
         public void SaltBurst()
@@ -451,6 +644,16 @@ namespace GhostWard
                 SetAlpha(edges[i], Mathf.MoveTowards(edges[i].color.a, target, dt * 1.5f));
             }
 
+            grain.uvRect = new Rect(UnityEngine.Random.value, UnityEngine.Random.value, 6f, 10f);
+            if (jumpTimer > 0f)
+            {
+                jumpTimer -= dt;
+                float k = 1f - jumpTimer / 0.45f;
+                jumpscare.rectTransform.localScale = Vector3.one * (1.05f + k * 0.35f);
+                jumpscare.rectTransform.anchoredPosition = UnityEngine.Random.insideUnitCircle * 25f;
+                if (jumpTimer <= 0f) jumpscare.gameObject.SetActive(false);
+            }
+
             flashAlpha = Mathf.MoveTowards(flashAlpha, 0f, dt * 1.6f);
             flash.color = new Color(flashColor.r, flashColor.g, flashColor.b, flashAlpha);
 
@@ -462,9 +665,18 @@ namespace GhostWard
                 var (rt, vel, life) = grains[i];
                 life -= dt;
                 if (life <= 0f) { Destroy(rt.gameObject); grains.RemoveAt(i); continue; }
-                vel.y -= 2200f * dt;
+                if (rt.name == "Grain") vel.y -= 2200f * dt;
+                else
+                {
+                    vel *= 1f - dt * 2.5f;
+                    rt.localScale = Vector3.one * (1f + (0.9f - life));
+                    var puff = rt.GetComponent<UILine>();
+                    var pc = puff.color;
+                    pc.a = 0.35f * Mathf.Clamp01(life / 0.9f);
+                    puff.color = pc;
+                }
                 rt.anchoredPosition += vel * dt;
-                rt.localScale = Vector3.one * Mathf.Clamp01(life / 0.6f);
+                if (rt.name == "Grain") rt.localScale = Vector3.one * Mathf.Clamp01(life / 0.6f);
                 grains[i] = (rt, vel, life);
             }
         }

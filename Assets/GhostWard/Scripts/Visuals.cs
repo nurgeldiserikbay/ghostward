@@ -9,6 +9,26 @@ namespace GhostWard
         static Texture2D vignette, glow;
         static readonly Dictionary<int, Texture2D> edges = new();
 
+        static Texture2D noise;
+
+        // зерно для наложения поверх экрана; повторяется плиткой
+        public static Texture2D Noise()
+        {
+            if (noise != null) return noise;
+            const int s = 128;
+            noise = new Texture2D(s, s, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Point };
+            var px = new Color32[s * s];
+            var rng = new System.Random(11);
+            for (int i = 0; i < px.Length; i++)
+            {
+                byte v = (byte)rng.Next(0, 256);
+                px[i] = new Color32(v, v, v, (byte)rng.Next(80, 256));
+            }
+            noise.SetPixels32(px);
+            noise.Apply();
+            return noise;
+        }
+
         public static Texture2D Vignette() => vignette ??= Radial(128, d => Mathf.Pow(Mathf.Clamp01((d - 0.35f) / 0.85f), 1.6f));
 
         // тёплое пятно света фонаря в центре
@@ -101,6 +121,84 @@ namespace GhostWard
                     Poly(parent, color, Diamond(new Vector2(0, -44), 9f));
                     break;
             }
+        }
+
+        public static void Item(RectTransform parent, ItemKind kind, Color color)
+        {
+            switch (kind)
+            {
+                case ItemKind.Mirror:
+                    var oval = new List<Vector2>();
+                    for (int i = 0; i < 16; i++)
+                    {
+                        float a = i / 16f * Mathf.PI * 2f;
+                        oval.Add(new Vector2(Mathf.Cos(a) * 30f, Mathf.Sin(a) * 40f + 14f));
+                    }
+                    Line(parent, color, 6f, true, oval.ToArray());
+                    Line(parent, color, 10f, false, new Vector2(0, -26), new Vector2(0, -62));
+                    Line(parent, color, 4f, false, new Vector2(-12, 30), new Vector2(4, 44));
+                    break;
+                case ItemKind.Wormwood:
+                    for (int i = -2; i <= 2; i++)
+                    {
+                        var top = new Vector2(i * 13f, 58f - Mathf.Abs(i) * 8f);
+                        Line(parent, color, 4f, false, new Vector2(0, -60), new Vector2(i * 3f, -20), top);
+                        Poly(parent, color, Diamond(top + new Vector2(i * 4f, -14f), 6f, 10f));
+                    }
+                    Line(parent, color, 8f, false, new Vector2(-12, -34), new Vector2(12, -34));
+                    break;
+                default:
+                    Draw(parent, kind, color);
+                    break;
+            }
+        }
+
+        // как вызвать предмет: схема жеста
+        public static void GestureIcon(RectTransform parent, Gesture g, Color color)
+        {
+            var finger = Diamond(Vector2.zero, 12f);
+            switch (g)
+            {
+                case Gesture.SwipeUp:
+                case Gesture.SwipeDown:
+                    float s = g == Gesture.SwipeUp ? 1f : -1f;
+                    Poly(parent, color, Diamond(new Vector2(0, -40 * s), 12f));
+                    Line(parent, color, 6f, false, new Vector2(0, -26 * s), new Vector2(0, 44 * s));
+                    Poly(parent, color, new List<Vector2> { new(0, 60 * s), new(-16, 36 * s), new(16, 36 * s) });
+                    break;
+                case Gesture.Hold:
+                    Poly(parent, color, finger);
+                    Line(parent, color, 4f, true, Ring(28f, 12));
+                    Line(parent, color, 3f, true, Ring(46f, 16));
+                    break;
+                case Gesture.DoubleTap:
+                    Poly(parent, color, Diamond(new Vector2(-22, 0), 11f));
+                    Poly(parent, color, Diamond(new Vector2(22, 0), 11f));
+                    Line(parent, color, 3f, true, Ring(54f, 16));
+                    break;
+                case Gesture.Shake:
+                    Line(parent, color, 5f, true, new Vector2(-18, -38), new Vector2(18, -38), new Vector2(18, 38), new Vector2(-18, 38));
+                    Line(parent, color, 4f, false, new Vector2(-32, 22), new Vector2(-42, 0), new Vector2(-32, -22));
+                    Line(parent, color, 4f, false, new Vector2(32, 22), new Vector2(42, 0), new Vector2(32, -22));
+                    Line(parent, color, 3f, false, new Vector2(-48, 34), new Vector2(-60, 0), new Vector2(-48, -34));
+                    Line(parent, color, 3f, false, new Vector2(48, 34), new Vector2(60, 0), new Vector2(48, -34));
+                    break;
+                case Gesture.Zigzag:
+                    Line(parent, color, 6f, false, new Vector2(-50, -20), new Vector2(-25, 20), new Vector2(0, -20), new Vector2(25, 20), new Vector2(46, -12));
+                    Poly(parent, color, new List<Vector2> { new(60, -32), new(34, -20), new(52, -2) });
+                    break;
+            }
+        }
+
+        static Vector2[] Ring(float r, int n)
+        {
+            var pts = new Vector2[n];
+            for (int i = 0; i < n; i++)
+            {
+                float a = i / (float)n * Mathf.PI * 2f;
+                pts[i] = new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
+            }
+            return pts;
         }
 
         // раскрытая книга — кнопка дневника

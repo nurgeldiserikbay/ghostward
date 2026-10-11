@@ -128,6 +128,62 @@ namespace GhostWard
             return (Sin(f, t) * 0.5f + Sin(f * 1.5f, t) * 0.25f + Noise(r) * 0.2f * t) * Mathf.Exp(-t * 2.5f) * 0.5f;
         });
 
+        // Треск помех, зацикленный: громкость зависит от близости сущности.
+        public static AudioClip Static() => Get("static", 2f, (t, r) =>
+        {
+            float crackle = Mathf.Pow((float)r.NextDouble(), 30f) * Mathf.Sign(Noise(r));
+            return (Noise(r) * 0.25f + crackle * 0.8f) * (0.7f + 0.3f * Sin(50f, t));
+        }, Rate / 20);
+
+        // Скрежет когтей кикиморы.
+        public static AudioClip Scrape() => Get("scrape", 1.1f, (t, r) =>
+        {
+            float bursts = Mathf.Pow(Mathf.Abs(Sin(9f + t * 6f, t)), 3f);
+            return (Noise(r) * 0.5f + Sin(2300f + Sin(13f, t) * 300f, t) * 0.2f) * bursts * Mathf.Exp(-t * 1.2f) * 0.7f;
+        });
+
+        // Хрип упыря, зацикленный.
+        public static AudioClip Rasp()
+        {
+            float lp = 0f;
+            return Get("rasp", 2.6f, (t, r) =>
+            {
+                lp += 0.2f * (Noise(r) - lp);
+                float env = Mathf.Pow(Mathf.Max(0f, Sin(0.385f, t)), 1.5f);
+                float growl = Mathf.Sign(Sin(48f + Sin(3f, t) * 6f, t)) * 0.15f;
+                return (lp * 1.4f + growl) * env * 0.7f;
+            }, Rate / 10);
+        }
+
+        // Низкий гул-напев мары, зацикленный.
+        public static AudioClip Hum() => Get("hum", 4f, (t, r) =>
+        {
+            float f = 98f + Sin(0.25f, t) * 4f;
+            return (Sin(f, t) * 0.4f + Sin(f * 2f, t) * 0.2f + Sin(f * 3.01f, t) * 0.1f) * (0.6f + 0.4f * Sin(0.5f, t)) * 0.5f;
+        }, Rate / 4);
+
+        // Щелчок переключения камеры.
+        public static AudioClip Click() => Get("click", 0.08f, (t, r) => Noise(r) * Mathf.Exp(-t * 120f) * 0.6f);
+
+        // Звон зеркала: стеклянный перелив.
+        public static AudioClip Shimmer() => Get("shimmer", 1.4f, (t, r) =>
+        {
+            float s = 0f;
+            for (int k = 0; k < 5; k++) s += Sin(1800f + k * 470f + t * 300f, t) * Mathf.Exp(-(t - k * 0.06f) * (t - k * 0.06f) * 20f);
+            return s * Mathf.Exp(-t * 2f) * 0.18f;
+        });
+
+        // Свист пучка полыни.
+        public static AudioClip Whoosh()
+        {
+            float lp = 0f;
+            return Get("whoosh", 0.8f, (t, r) =>
+            {
+                lp += (0.05f + 0.25f * Mathf.Sin(t / 0.8f * Mathf.PI)) * (Noise(r) - lp);
+                return lp * Mathf.Sin(t / 0.8f * Mathf.PI) * 1.2f;
+            });
+        }
+
         public static AudioClip Fail() => Get("fail", 0.35f, (t, r) =>
             Mathf.Sign(Sin(180f - t * 200f, t)) * Mathf.Exp(-t * 8f) * 0.12f);
 
