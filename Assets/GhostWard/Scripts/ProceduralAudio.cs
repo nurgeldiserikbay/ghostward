@@ -206,6 +206,9 @@ namespace GhostWard
             return (saw * 0.3f + Noise(r) * 0.08f) * env * Mathf.Abs(Sin(23f, t)) * 0.5f;
         });
 
+        // писк ЭМП-детектора
+        public static AudioClip Beep() => Get("beep", 0.07f, (t, r) => Mathf.Sign(Sin(1900f, t)) * Mathf.Min(1f, (0.07f - t) * 60f) * 0.12f);
+
         public static AudioClip Fail() => Get("fail", 0.35f, (t, r) =>
             Mathf.Sign(Sin(180f - t * 200f, t)) * Mathf.Exp(-t * 8f) * 0.12f);
 

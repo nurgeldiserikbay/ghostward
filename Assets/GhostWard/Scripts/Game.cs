@@ -53,6 +53,11 @@ namespace GhostWard
         float radioCooldown, radioAnswerIn = -1f, banishedTime = -1f;
         bool named, namedRight, wrongItemUsed;
 
+        // приборы и защита
+        Tool tool = Tool.Emf;
+        float emf, thermo = 20f, beepTimer, candleTime;
+        bool circle, tumar;
+
         // охота: слух и затаивание
         float quietTime, heardTime;
 
@@ -139,6 +144,13 @@ namespace GhostWard
                 else ui.ShowSettings();
             };
             ui.NextNightPressed += StartNight;
+            ui.ToolSelected += t =>
+            {
+                tool = t;
+                ui.SetTool(t);
+                sfx.PlayOneShot(ProceduralAudio.Click(), 0.5f);
+            };
+            ui.ProtectUsed += UseProtection;
             ui.NamePressed += NameEntity;
             ui.SharePressed += SharePhoto;
             ui.JournalToggled += open =>
@@ -210,6 +222,11 @@ namespace GhostWard
             fear = Mathf.Min(fear, 20f);
             pressing = false;
             photo = null;
+            circle = tumar = false;
+            candleTime = 0f;
+            ui.SetTool(tool);
+            ui.SetProtection(inv);
+            ui.CloseBag();
             target = PickTarget();
             ui.ShowHud();
             ui.SetNight(night);
@@ -299,6 +316,8 @@ namespace GhostWard
 
             if (phase == Phase.Investigate) UpdateInvestigation(dt);
             else UpdateHunt(dt);
+            UpdateTools(dt);
+            UpdateProtection(dt);
 
             UpdateFear(dt);
             UpdateAtmosphere(dt);
@@ -317,7 +336,7 @@ namespace GhostWard
 
         void UpdateInvestigation(float dt)
         {
-            anger += dt * (0.4f + night * 0.05f);
+            anger += dt * (0.4f + night * 0.05f) * (tumar ? 0.6f : 1f);
             frostTime -= dt;
             staticTime -= dt;
             compassTime -= dt;
@@ -342,7 +361,7 @@ namespace GhostWard
             }
 
             float angle = AngleToLair();
-            ui.SetCompass(cam.transform.forward, compassTime > 0f && angle < 40f ? 1f : 0f);
+            ui.SetCompass(cam.transform.forward, 0f);
             if (staticTime > 0f && angle < 35f) glitch = Mathf.Max(glitch, 0.85f);
             if (silhouetteArmed > 0f && nightVision > 0.9f && angle < 30f && silhouetteCooldown <= 0f)
             {
@@ -352,7 +371,7 @@ namespace GhostWard
             }
 
             // радио духов: игрок задаёт вопрос вслух
-            if (mic.Speaking && radioCooldown <= 0f)
+            if (tool == Tool.Radio && mic.Speaking && radioCooldown <= 0f)
             {
                 radioCooldown = 7f;
                 radioAnswerIn = 1.3f;
@@ -422,6 +441,100 @@ namespace GhostWard
                 ui.Message(Loc.T("named_wrong"), 3f);
                 StartHunt(false, enraged: true);
             }
+        }
+
+        // ---------- приборы ----------
+
+        // Показания прибора. Цель — логово во время расследования и сама сущность на охоте.
+        void UpdateTools(float dt)
+        {
+            var aim = hunter != null && hunter.Alive ? hunter.transform.position : lair;
+            float angle = Vector3.Angle(cam.transform.forward, aim - cam.transform.position);
+            bool aimed = angle < 35f;
+
+            // ЭМП: фон 1, у логова 2–3, с уликой «ЭМП 5» в момент всплеска — 5; на охоте рядом с ней — 4
+            float emfTarget = 1f + Mathf.PerlinNoise(Time.time * 0.7f, 0f) * 0.6f;
+            if (aimed) emfTarget = phase == Phase.Hunt ? 4f : 2.4f + Mathf.PerlinNoise(Time.time * 2f, 3f);
+            if (aimed && phase == Phase.Investigate && compassTime > 0f && Catalog.Has(target, Evidence.Compass)) emfTarget = 5f;
+            emf = Mathf.MoveTowards(emf, emfTarget, dt * 6f);
+
+            // термометр: в комнате ~20 °C, у логова холоднее; с уликой «Холод» — ниже нуля
+            float thermoTarget = 19.5f + Mathf.PerlinNoise(Time.time * 0.3f, 7f);
+            if (aimed) thermoTarget = Catalog.Has(target, Evidence.Frost) ? -2.5f : 13f;
+            thermo = Mathf.MoveTowards(thermo, thermoTarget, dt * 4f);
+
+            switch (tool)
+            {
+                case Tool.Emf:
+                    int level = Mathf.Clamp(Mathf.RoundToInt(emf), 1, 5);
+                    ui.SetToolReadout("EMF  " + new string('■', level) + new string('□', 5 - level), level >= 5 ? new Color(1f, 0.3f, 0.25f) : level >= 3 ? new Color(1f, 0.8f, 0.4f) : new Color(0.86f, 0.83f, 0.76f));
+                    beepTimer -= dt;
+                    if (level >= 2 && beepTimer <= 0f)
+                    {
+                        sfx.PlayOneShot(ProceduralAudio.Beep(), 0.25f + level * 0.1f);
+                        beepTimer = 1.4f / level;
+                    }
+                    break;
+                case Tool.Thermo:
+                    ui.SetToolReadout($"{thermo:0.0} °C", thermo < 0f ? new Color(0.6f, 0.85f, 1f) : new Color(0.86f, 0.83f, 0.76f));
+                    break;
+                case Tool.Night:
+                    ui.SetToolReadout(Loc.T("night_on"), new Color(0.4f, 1f, 0.55f));
+                    break;
+                case Tool.Radio:
+                    ui.SetToolReadout(Loc.T("radio_listen"), new Color(0.86f, 0.83f, 0.76f));
+                    staticNoise.volume = Mathf.Max(staticNoise.volume, 0.08f);
+                    break;
+            }
+        }
+
+        // ---------- защита ----------
+
+        void UseProtection(Protect p)
+        {
+            if (phase is not (Phase.Investigate or Phase.Hunt)) return;
+            bool active = p switch { Protect.Circle => circle, Protect.Candle => candleTime > 0f, Protect.Tumar => tumar, _ => false };
+            if (active) { ui.Message(Loc.T("already"), 1.5f); return; }
+            if (!inv.Use(p)) { Empty(Loc.F("no_more", Loc.T($"p.{p}.name"))); return; }
+
+            switch (p)
+            {
+                case Protect.Circle:
+                    circle = true;
+                    ui.SaltBurst();
+                    sfx.PlayOneShot(ProceduralAudio.SaltThrow(), 1f);
+                    ui.Message(Loc.T("circle_set"), 2f);
+                    break;
+                case Protect.Candle:
+                    candleTime = 60f;
+                    sfx.PlayOneShot(ProceduralAudio.Click(), 0.6f);
+                    ui.Message(Loc.T("candle_lit"), 2f);
+                    break;
+                case Protect.Tumar:
+                    tumar = true;
+                    sfx.PlayOneShot(ProceduralAudio.BellRing(), 0.3f);
+                    ui.Message(Loc.T("tumar_on"), 2f);
+                    break;
+                case Protect.Calm:
+                    fear = Mathf.Max(0f, fear - 40f);
+                    ui.Message(Loc.T("calm_used"), 2f);
+                    break;
+            }
+            ui.SetProtection(inv);
+            ui.CloseBag();
+        }
+
+        void UpdateProtection(float dt)
+        {
+            if (candleTime > 0f)
+            {
+                candleTime -= dt;
+                if (candleTime <= 0f) ui.Message(Loc.T("candle_out"), 1.5f);
+            }
+            ui.SetCandle(candleTime > 0f);
+
+            // свеча замедляет тех, кто боится света
+            if (hunter != null && candleTime > 0f && hunter.Def.Bane == ItemKind.Lantern) hunter.SpeedMul *= 0.6f;
         }
 
         // ---------- охота ----------
@@ -508,6 +621,9 @@ namespace GhostWard
                 nightVisionTarget = 0f;
                 glitch = Mathf.MoveTowards(glitch, 0f, dt * 2f);
             }
+
+            // ночная камера держит ночное видение, пока выбрана
+            if (tool == Tool.Night && phase is Phase.Investigate or Phase.Hunt) nightVisionTarget = 1f;
 
             // переключение режимов не плавное, а через короткий «сбой»
             nightVision = Mathf.MoveTowards(nightVision, nightVisionTarget, dt * 6f);
@@ -655,6 +771,16 @@ namespace GhostWard
 
         public void OnAttack(Entity e)
         {
+            if (circle)
+            {
+                circle = false;
+                ui.SaltBurst();
+                ui.Flash(new Color(1f, 1f, 1f, 0.4f));
+                ui.Message(Loc.T("circle_saved"), 2f);
+                sfx.PlayOneShot(ProceduralAudio.Banish(), 0.6f);
+                ui.SetProtection(inv);
+                return;
+            }
             AddFear(e.Def.Kind == EntityKind.Poltergeist ? 22f : 32f);
             ui.Jumpscare(e.Def, e.Seed, e.Def.Kind == EntityKind.Poltergeist ? 0.5f : 1f);
             sfx.PlayOneShot(ProceduralAudio.Screech(), 0.8f);
@@ -680,9 +806,9 @@ namespace GhostWard
                 // на мару нельзя смотреть — страх растёт втрое быстрее
                 if (e.Def.Kind == EntityKind.Mara && IsInView(e.transform.position)) { AddFear(dt * 9f); continue; }
                 float d = e.FlatDistance();
-                if (d < 3f) AddFear(dt * 7f * (1f - d / 3f));
+                if (d < 3f) AddFear(dt * 7f * (1f - d / 3f) * (candleTime > 0f ? 0.5f : 1f));
             }
-            if (calm) fear = Mathf.Max(0f, fear - FearDecay * dt);
+            if (calm) fear = Mathf.Max(0f, fear - FearDecay * (candleTime > 0f ? 2f : 1f) * dt);
             ui.SetFear(fear / 100f);
         }
 

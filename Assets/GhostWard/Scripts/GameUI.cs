@@ -20,6 +20,8 @@ namespace GhostWard
         public event Action MenuPressed;
         public event Action TutorialFinished;
         public event Action<Lang> LanguageChosen;
+        public event Action<Tool> ToolSelected;
+        public event Action<Protect> ProtectUsed;
         public event Action NextNightPressed;
         public event Action<bool> JournalToggled;
         public event Action<EntityKind> NamePressed;
@@ -56,6 +58,12 @@ namespace GhostWard
         Material menuMat;
         Vision overlayStyle;
         readonly List<(Image img, Func<bool> selected)> settingButtons = new();
+        RectTransform toolBar, bagButton, bagPanel;
+        Text readout;
+        RawImage candleGlow;
+        GameObject journalTools;
+        readonly List<(Tool tool, Image bg)> toolButtons = new();
+        readonly List<(Protect kind, Text label)> bagRows = new();
         Text nightText, clockText, messageText, supplyText, diagText, dawnText, overText, scanText;
         Text entryName, entryOrigin, entryText, entryItem, entryCount;
         RectTransform entryItemIcon, entryGestureIcon;
@@ -146,7 +154,7 @@ namespace GhostWard
             messageText.fontStyle = FontStyle.Italic;
             Outline(messageText);
 
-            supplyText = Label(root, "", 32, new Vector2(0.5f, 0f), new Vector2(0, 160), Dim);
+            supplyText = Label(root, "", 32, new Vector2(0.5f, 0f), new Vector2(0, 400), Dim);
             supplyText.rectTransform.sizeDelta = new Vector2(800, 60);
 
             jumpscare = Rect(root, "Jumpscare", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<RawImage>();
@@ -197,7 +205,7 @@ namespace GhostWard
 
             // шум с микрофона — чтобы игрок учился быть тихим
             micRoot = Rect(hud.transform, "Mic", new Vector2(0f, 0f), new Vector2(0f, 0f)).gameObject;
-            ((RectTransform)micRoot.transform).anchoredPosition = new Vector2(60, 120);
+            ((RectTransform)micRoot.transform).anchoredPosition = new Vector2(60, 330);
             var micLabel = Label(micRoot.transform, Loc.T("noise"), 24, new Vector2(0.5f, 0.5f), new Vector2(60, 40), Dim);
             micLabel.rectTransform.sizeDelta = new Vector2(160, 36);
             for (int i = 0; i < micBars.Length; i++)
@@ -215,7 +223,7 @@ namespace GhostWard
             camTop.alignment = TextAnchor.MiddleLeft;
             camTop.rectTransform.pivot = new Vector2(0f, 0.5f);
             Outline(camTop);
-            camBottom = Label(hud.transform, "", 30, new Vector2(1f, 0f), new Vector2(-40, 260), new Color(1f, 1f, 1f, 0.8f));
+            camBottom = Label(hud.transform, "", 30, new Vector2(1f, 0f), new Vector2(-40, 430), new Color(1f, 1f, 1f, 0.8f));
             camBottom.alignment = TextAnchor.LowerRight;
             camBottom.rectTransform.pivot = new Vector2(1f, 0f);
             Outline(camBottom);
@@ -223,6 +231,8 @@ namespace GhostWard
             hiddenText = Label(hud.transform, Loc.T("hidden"), 32, new Vector2(0.5f, 0.3f), Vector2.zero, Dim);
             hiddenText.fontStyle = FontStyle.Italic;
             hiddenText.gameObject.SetActive(false);
+
+            BuildTools();
 
             // дневник — книжка в левом верхнем углу
             journalButton = Rect(hud.transform, "JournalButton", new Vector2(0f, 1f), new Vector2(0f, 1f));
@@ -236,6 +246,127 @@ namespace GhostWard
             btn.onClick.AddListener(() => SetJournal(true));
             Icons.Book(journalButton, Dim);
         }
+
+        void BuildTools()
+        {
+            // тёплый свет свечи — снизу экрана
+            candleGlow = Rect(hud.transform, "Candle", new Vector2(0f, 0f), new Vector2(1f, 0.45f)).gameObject.AddComponent<RawImage>();
+            candleGlow.texture = Textures.EdgeGradient(vertical: true);
+            candleGlow.color = new Color(1f, 0.7f, 0.35f, 0f);
+            candleGlow.raycastTarget = false;
+
+            toolBar = Rect(hud.transform, "Tools", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f));
+            toolBar.anchoredPosition = new Vector2(0, 110);
+            toolBar.sizeDelta = new Vector2(1000, 170);
+            var tools = new[] { Tool.Emf, Tool.Thermo, Tool.Night, Tool.Radio };
+            for (int i = 0; i < tools.Length; i++)
+            {
+                var t = tools[i];
+                var b = Rect(toolBar, t.ToString(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
+                b.sizeDelta = new Vector2(205, 160);
+                b.anchoredPosition = new Vector2((i - 1.5f) * 220f, 0f);
+                var bg = b.gameObject.AddComponent<Image>();
+                bg.color = Ink;
+                var btn = b.gameObject.AddComponent<UnityEngine.UI.Button>();
+                btn.targetGraphic = bg;
+                btn.transition = Selectable.Transition.None;
+                btn.onClick.AddListener(() => ToolSelected?.Invoke(t));
+                Frame(b, 205, 160, Dim, 3f);
+                var icon = Rect(b, "Icon", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
+                icon.anchoredPosition = new Vector2(0, 18);
+                icon.localScale = Vector3.one * 0.75f;
+                Icons.ToolIcon(icon, t, Bone);
+                var name = Label(b, Loc.T($"t.{t}.name"), 26, new Vector2(0.5f, 0f), new Vector2(0, 26), Bone);
+                name.rectTransform.sizeDelta = new Vector2(220, 40);
+                toolButtons.Add((t, bg));
+            }
+
+            readout = Label(hud.transform, "", 46, new Vector2(0.5f, 0f), new Vector2(0, 250), Bone);
+            readout.rectTransform.sizeDelta = new Vector2(900, 70);
+            readout.fontStyle = FontStyle.Bold;
+            Outline(readout);
+
+            // сумка с защитой — справа
+            bagButton = Rect(hud.transform, "Bag", new Vector2(1f, 1f), new Vector2(1f, 1f));
+            bagButton.sizeDelta = new Vector2(150, 150);
+            bagButton.anchoredPosition = new Vector2(-100, -430);
+            var bbg = bagButton.gameObject.AddComponent<Image>();
+            bbg.color = new Color(0, 0, 0, 0.01f);
+            var bbtn = bagButton.gameObject.AddComponent<UnityEngine.UI.Button>();
+            bbtn.targetGraphic = bbg;
+            bbtn.transition = Selectable.Transition.None;
+            bbtn.onClick.AddListener(() => bagPanel.gameObject.SetActive(!bagPanel.gameObject.activeSelf));
+            Icons.Bag(bagButton, Dim);
+
+            bagPanel = Rect(hud.transform, "BagPanel", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
+            bagPanel.sizeDelta = new Vector2(820, 720);
+            bagPanel.anchoredPosition = new Vector2(0, 40);
+            bagPanel.gameObject.AddComponent<Image>().color = new Color(0.02f, 0.015f, 0.02f, 0.93f);
+            Frame(bagPanel, 820, 720, Dim, 3f);
+            var bt = Label(bagPanel, Loc.T("bag"), 40, new Vector2(0.5f, 1f), new Vector2(0, -50), Bone);
+            bt.rectTransform.sizeDelta = new Vector2(700, 60);
+            bt.fontStyle = FontStyle.Bold;
+            var kinds = new[] { Protect.Circle, Protect.Candle, Protect.Tumar, Protect.Calm };
+            for (int i = 0; i < kinds.Length; i++)
+            {
+                var k = kinds[i];
+                var row = Rect(bagPanel, k.ToString(), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+                row.sizeDelta = new Vector2(760, 140);
+                row.anchoredPosition = new Vector2(0, -170 - i * 150);
+                var rbg = row.gameObject.AddComponent<Image>();
+                rbg.color = Ink;
+                var rbtn = row.gameObject.AddComponent<UnityEngine.UI.Button>();
+                rbtn.targetGraphic = rbg;
+                rbtn.onClick.AddListener(() => ProtectUsed?.Invoke(k));
+                Frame(row, 760, 140, Dim, 2f);
+                var icon = Rect(row, "Icon", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f));
+                icon.anchoredPosition = new Vector2(80, 0);
+                icon.localScale = Vector3.one * 0.85f;
+                Icons.ProtectIcon(icon, k, Bone);
+                var label = Label(row, "", 30, new Vector2(0f, 0.5f), new Vector2(170, 0), Bone);
+                label.rectTransform.pivot = new Vector2(0f, 0.5f);
+                label.rectTransform.sizeDelta = new Vector2(570, 130);
+                label.alignment = TextAnchor.MiddleLeft;
+                bagRows.Add((k, label));
+            }
+            bagPanel.gameObject.SetActive(false);
+        }
+
+        public void SetTool(Tool tool)
+        {
+            foreach (var (t, bg) in toolButtons) bg.color = t == tool ? Blood : Ink;
+        }
+
+        public void SetToolReadout(string text, Color color)
+        {
+            readout.text = text;
+            readout.color = color;
+        }
+
+        public void SetProtection(Inventory inv)
+        {
+            if (inv == null) return;
+            foreach (var (k, label) in bagRows)
+                label.text = $"<b>{Loc.T($"p.{k}.name")}</b>  ×{inv.Count(k)}\n<size=24>{Loc.T($"p.{k}.desc")}</size>";
+        }
+
+        public void CloseBag() => bagPanel.gameObject.SetActive(false);
+
+        // для превью из редактора: экран ночи с открытой сумкой
+        public void DebugHud(Inventory inv, bool bag)
+        {
+            ShowHud();
+            SetNight(2);
+            SetClock(0.4f);
+            SetPhase(Loc.T("phase_investigate"), false);
+            SetTool(Tool.Emf);
+            SetToolReadout("EMF  ■■■□□", new Color(1f, 0.8f, 0.4f));
+            SetFear(0.35f);
+            SetProtection(inv);
+            bagPanel.gameObject.SetActive(bag);
+        }
+
+        public void SetCandle(bool lit) => candleGlow.color = new Color(1f, 0.7f, 0.35f, lit ? 0.18f + UnityEngine.Random.Range(-0.02f, 0.02f) : 0f);
 
         // компас: деления сторон света двигаются с поворотом; стрелка дрожит у логова (улика «Компас»)
         void BuildCompass()
@@ -616,6 +747,7 @@ namespace GhostWard
             BuildJournalItems();
             BuildJournalClues();
             BuildJournalHowTo();
+            BuildJournalTools();
             journal.SetActive(false);
         }
 
@@ -654,8 +786,9 @@ namespace GhostWard
                 cards.Add((kind, pic, mat, name));
             }
 
-            Button(journalList.transform, Loc.T("clues"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalClues), true, 310, -165);
-            Button(journalList.transform, Loc.T("items"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalItems), false, 310, 165);
+            Button(journalList.transform, Loc.T("clues"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalClues), true, 300, -320);
+            Button(journalList.transform, Loc.T("items"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalItems), false, 300, 0);
+            Button(journalList.transform, Loc.T("tools"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalTools), false, 300, 320);
             Button(journalList.transform, Loc.T("howto"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalHowTo), false, 310, -165);
             Button(journalList.transform, Loc.T("close"), new Vector2(0.5f, 0.06f), () => SetJournal(false), false, 310, 165);
         }
@@ -756,6 +889,38 @@ namespace GhostWard
             UpdateSuspects();
         }
 
+        // Приборы поиска и средства защиты.
+        void BuildJournalTools()
+        {
+            journalTools = Rect(journal.transform, "Tools", Vector2.zero, Vector2.one).gameObject;
+            var title = Label(journalTools.transform, Loc.T("tools"), 64, new Vector2(0.5f, 0.95f), Vector2.zero, Bone);
+            title.rectTransform.sizeDelta = new Vector2(900, 100);
+            title.fontStyle = FontStyle.Bold;
+
+            int row = 0;
+            foreach (var t in new[] { Tool.Emf, Tool.Thermo, Tool.Night, Tool.Radio })
+                ToolRow(row++, r => Icons.ToolIcon(r, t, Bone), Loc.T($"t.{t}.desc"));
+            var bagTitle = Label(journalTools.transform, Loc.T("bag"), 40, new Vector2(0.5f, 1f), new Vector2(0, -240 - row * 150 + 30), Bone);
+            bagTitle.rectTransform.sizeDelta = new Vector2(900, 60);
+            bagTitle.fontStyle = FontStyle.Bold;
+            row++;
+            foreach (var k in new[] { Protect.Circle, Protect.Candle, Protect.Tumar, Protect.Calm })
+                ToolRow(row++, r => Icons.ProtectIcon(r, k, Bone), $"<b>{Loc.T($"p.{k}.name")}.</b> {Loc.T($"p.{k}.desc")}");
+            Button(journalTools.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
+        }
+
+        void ToolRow(int row, Action<RectTransform> icon, string text)
+        {
+            float y = -230 - row * 140;
+            var ic = Rect(journalTools.transform, "Icon", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+            ic.anchoredPosition = new Vector2(-430, y);
+            ic.localScale = Vector3.one * 0.8f;
+            icon(ic);
+            var l = Label(journalTools.transform, text, 27, new Vector2(0.5f, 1f), new Vector2(70, y), Bone);
+            l.rectTransform.sizeDelta = new Vector2(780, 130);
+            l.alignment = TextAnchor.MiddleLeft;
+        }
+
         void ToggleClue(int i)
         {
             marks[i] = !marks[i];
@@ -852,6 +1017,7 @@ namespace GhostWard
             journalItems.SetActive(page == journalItems);
             journalClues.SetActive(page == journalClues);
             journalHowTo.SetActive(page == journalHowTo);
+            journalTools.SetActive(page == journalTools);
         }
 
         void OpenEntry(EntityKind kind)
@@ -1014,7 +1180,10 @@ namespace GhostWard
         }
 
         public bool IsOverButton(Vector2 screen) =>
-            hud.activeSelf && RectTransformUtility.RectangleContainsScreenPoint(journalButton, screen, null);
+            hud.activeSelf && (RectTransformUtility.RectangleContainsScreenPoint(journalButton, screen, null)
+                               || RectTransformUtility.RectangleContainsScreenPoint(toolBar, screen, null)
+                               || RectTransformUtility.RectangleContainsScreenPoint(bagButton, screen, null)
+                               || bagPanel.gameObject.activeSelf && RectTransformUtility.RectangleContainsScreenPoint(bagPanel, screen, null));
 
         public void SetDiagnostics(string text) => diagText.text = text;
 

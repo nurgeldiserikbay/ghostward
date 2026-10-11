@@ -190,6 +190,72 @@ namespace GhostWard
             }
         }
 
+        // приборы поиска
+        public static void ToolIcon(RectTransform parent, Tool t, Color color)
+        {
+            switch (t)
+            {
+                case Tool.Emf:
+                    Line(parent, color, 5f, true, new Vector2(-30, -44), new Vector2(30, -44), new Vector2(30, 34), new Vector2(-30, 34));
+                    for (int k = 0; k < 5; k++)
+                        Poly(parent, color, new List<Vector2> { new(-22 + k * 11, 22), new(-15 + k * 11, 22), new(-15 + k * 11, 8 - k * 3), new(-22 + k * 11, 8 - k * 3) });
+                    Line(parent, color, 4f, false, new Vector2(0, 34), new Vector2(0, 52));
+                    break;
+                case Tool.Thermo:
+                    Line(parent, color, 5f, true, new Vector2(-9, -20), new Vector2(-9, 46), new Vector2(9, 46), new Vector2(9, -20));
+                    Poly(parent, color, new List<Vector2>(ShiftRing(new Vector2(0, -32), 17f, 12)));
+                    Line(parent, color, 3f, false, new Vector2(12, 30), new Vector2(22, 30));
+                    Line(parent, color, 3f, false, new Vector2(12, 14), new Vector2(22, 14));
+                    Line(parent, color, 3f, false, new Vector2(12, -2), new Vector2(22, -2));
+                    break;
+                case Tool.Night:
+                    Line(parent, color, 5f, true, new Vector2(-40, -26), new Vector2(30, -26), new Vector2(30, 26), new Vector2(-40, 26));
+                    Line(parent, color, 5f, true, new Vector2(30, -12), new Vector2(48, -24), new Vector2(48, 24), new Vector2(30, 12));
+                    Line(parent, color, 4f, true, ShiftRing(new Vector2(-6, 0), 13f, 12));
+                    Poly(parent, new Color(0.4f, 1f, 0.5f), Diamond(new Vector2(-30, 16), 4f));
+                    break;
+                case Tool.Radio:
+                    Clue(parent, Evidence.Radio, color);
+                    break;
+            }
+        }
+
+        // средства защиты
+        public static void ProtectIcon(RectTransform parent, Protect p, Color color)
+        {
+            switch (p)
+            {
+                case Protect.Circle:
+                    for (int i = 0; i < 12; i++)
+                    {
+                        float a = i / 12f * Mathf.PI * 2f;
+                        Poly(parent, color, Diamond(new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * 40f, 6f));
+                    }
+                    break;
+                case Protect.Candle:
+                    Line(parent, color, 5f, true, new Vector2(-14, -46), new Vector2(14, -46), new Vector2(14, 14), new Vector2(-14, 14));
+                    Line(parent, color, 3f, false, new Vector2(0, 14), new Vector2(0, 22));
+                    Poly(parent, new Color(1f, 0.75f, 0.4f), Diamond(new Vector2(0, 36), 10f, 16f));
+                    break;
+                case Protect.Tumar:
+                    Line(parent, color, 3f, false, new Vector2(-28, 44), new Vector2(0, 20), new Vector2(28, 44));
+                    Line(parent, color, 6f, true, new Vector2(0, 20), new Vector2(34, -36), new Vector2(-34, -36));
+                    Poly(parent, color, Diamond(new Vector2(0, -12), 8f));
+                    break;
+                case Protect.Calm:
+                    Line(parent, color, 6f, true, new Vector2(-38, -8), new Vector2(18, -8), new Vector2(30, 0), new Vector2(18, 8), new Vector2(-38, 8));
+                    Poly(parent, color, new List<Vector2> { new(-38, -8), new(-6, -8), new(-6, 8), new(-38, 8) });
+                    break;
+            }
+        }
+
+        public static void Bag(RectTransform parent, Color color)
+        {
+            Line(parent, color, 5f, true, new Vector2(-38, -36), new Vector2(38, -36), new Vector2(30, 22), new Vector2(-30, 22));
+            Line(parent, color, 5f, false, new Vector2(-16, 22), new Vector2(-12, 42), new Vector2(12, 42), new Vector2(16, 22));
+            Poly(parent, color, Diamond(new Vector2(0, -6), 8f));
+        }
+
         // значки улик для дневника
         public static void Clue(RectTransform parent, Evidence e, Color color)
         {

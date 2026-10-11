@@ -76,6 +76,8 @@ namespace GhostWard.EditorTools
                 Shoot($"menu_{l}", ui => ui.ShowMenu(), "screen");
                 Shoot($"settings_{l}", ui => ui.ShowSettings(), "screen");
                 Shoot($"tutorial_{l}", ui => ui.DebugTutorial(2), "screen");
+                Shoot($"hud_{l}", ui => ui.DebugHud(Inventory.Starting(), false), "screen");
+                Shoot($"bag_{l}", ui => ui.DebugHud(Inventory.Starting(), true), "screen");
             }
             Loc.Set(Lang.En);
         }
