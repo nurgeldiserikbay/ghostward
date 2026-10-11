@@ -150,9 +150,51 @@ namespace GhostWard
 
         public string Diagnostics() => $"гироскоп: {gyroSource}\nкамера: {camStatus}";
 
+        const int SampleSize = 64;
+        RenderTexture sampleRt;
+        Texture2D sampleTex;
+
+        // Яркость кадра в точках экрана (viewport 0..1). -1 — точка вне видео.
+        // Видео уменьшается до 64×64 на GPU, на CPU читается только этот маленький кадр.
+        public bool SampleLuma(Vector2[] viewport, float[] luma)
+        {
+            if (webcam == null || webcam.width < 32) return false;
+
+            if (sampleRt == null)
+            {
+                sampleRt = new RenderTexture(SampleSize, SampleSize, 0, RenderTextureFormat.ARGB32);
+                sampleTex = new Texture2D(SampleSize, SampleSize, TextureFormat.RGBA32, false);
+            }
+            Graphics.Blit(webcam, sampleRt);
+            var prev = RenderTexture.active;
+            RenderTexture.active = sampleRt;
+            sampleTex.ReadPixels(new Rect(0, 0, SampleSize, SampleSize), 0, 0, false);
+            sampleTex.Apply(false);
+            RenderTexture.active = prev;
+            var px = sampleTex.GetPixels32();
+
+            // экран → видео: обратное к тому, как FitBackground растянул и повернул картинку
+            var size = canvasRect.rect.size;
+            var img = background.rectTransform.sizeDelta;
+            float rad = webcam.videoRotationAngle * Mathf.Deg2Rad;
+            float cos = Mathf.Cos(rad), sin = Mathf.Sin(rad);
+            for (int i = 0; i < viewport.Length; i++)
+            {
+                var l = new Vector2((viewport[i].x - 0.5f) * size.x, (viewport[i].y - 0.5f) * size.y);
+                var r = new Vector2(l.x * cos - l.y * sin, l.x * sin + l.y * cos);
+                float u = r.x / img.x + 0.5f, v = r.y / img.y + 0.5f;
+                if (webcam.videoVerticallyMirrored) v = 1f - v;
+                if (u < 0f || u > 1f || v < 0f || v > 1f) { luma[i] = -1f; continue; }
+                var c = px[Mathf.Min((int)(v * SampleSize), SampleSize - 1) * SampleSize + Mathf.Min((int)(u * SampleSize), SampleSize - 1)];
+                luma[i] = (0.299f * c.r + 0.587f * c.g + 0.114f * c.b) / 255f;
+            }
+            return true;
+        }
+
         void OnDestroy()
         {
             if (webcam != null) webcam.Stop();
+            if (sampleRt != null) sampleRt.Release();
         }
     }
 }

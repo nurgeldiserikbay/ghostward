@@ -103,6 +103,17 @@ namespace GhostWard
             }
         }
 
+        // раскрытая книга — кнопка дневника
+        public static void Book(RectTransform parent, Color color)
+        {
+            Line(parent, color, 5f, true, new Vector2(0, -30), new Vector2(-46, -22), new Vector2(-46, 34), new Vector2(0, 26));
+            Line(parent, color, 5f, true, new Vector2(0, -30), new Vector2(46, -22), new Vector2(46, 34), new Vector2(0, 26));
+            Line(parent, color, 3f, false, new Vector2(-36, 14), new Vector2(-10, 10));
+            Line(parent, color, 3f, false, new Vector2(-36, 0), new Vector2(-10, -4));
+            Line(parent, color, 3f, false, new Vector2(10, 10), new Vector2(36, 14));
+            Line(parent, color, 3f, false, new Vector2(10, -4), new Vector2(36, 0));
+        }
+
         static List<Vector2> Diamond(Vector2 c, float w, float h = -1f)
         {
             if (h < 0f) h = w;

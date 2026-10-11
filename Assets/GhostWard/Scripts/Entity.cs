@@ -126,7 +126,7 @@ namespace GhostWard
                 case State.Manifest: TickManifest(dt); break;
                 case State.Attacking: TickAttacking(); break;
                 case State.Retreating:
-                    if (stateTime > 0.3f) Relocate(Random.Range(3.5f, 4.5f), 100f, 180f);
+                    if (stateTime > 0.3f) Relocate(100f, -1f);
                     break;
                 case State.Banished:
                     mat.SetFloat(DissolveId, Mathf.Clamp01(stateTime / 0.9f));
@@ -173,7 +173,7 @@ namespace GhostWard
                     if (nextEvent <= 0f)
                     {
                         // растаял и возник в другом месте, чуть ближе
-                        Relocate(Mathf.Max(1.4f, FlatDistance() * 0.85f), 50f, 150f, keepState: true);
+                        Relocate(50f, Mathf.Max(1.4f, FlatDistance() * 0.85f), keepState: true);
                         nextEvent = Random.Range(5f, 8f);
                     }
                     break;
@@ -195,7 +195,7 @@ namespace GhostWard
                         // пока не смотрят, может зайти за спину
                         if (nextEvent <= 0f && FlatDistance() > 1.6f)
                         {
-                            Relocate(FlatDistance() * 0.8f, 150f, 180f, keepState: true);
+                            Relocate(140f, FlatDistance() * 0.8f, keepState: true);
                             nextEvent = Random.Range(6f, 10f);
                         }
                     }
@@ -218,7 +218,7 @@ namespace GhostWard
                     else
                     {
                         game.OnAttack(this);
-                        Relocate(Random.Range(1.8f, 2.6f), 60f, 180f, keepState: true);
+                        Relocate(60f, -1f, keepState: true);
                         throwsLeft = 3;
                         nextEvent = Random.Range(4f, 6f);
                     }
@@ -259,25 +259,23 @@ namespace GhostWard
 
         // ---------- движение ----------
 
+        // тень и албасты ходят по полу, призрак плывёт по воздуху
+        bool Grounded => Def.Kind is EntityKind.Shade or EntityKind.Albasty;
+
         void Approach(float v)
         {
             var dir = cam.transform.position - transform.position;
-            dir.y *= 0.4f;
+            dir.y = Grounded ? 0f : dir.y * 0.4f;
             var step = dir.normalized * (v * Time.deltaTime);
             var side = Vector3.Cross(Vector3.up, dir.normalized);
             step += side * (Mathf.Sin(Time.time * 1.3f + seed) * 0.15f * Time.deltaTime);
             transform.position += step;
         }
 
-        // переставить на дистанцию dist под углом [minYaw, maxYaw] от направления взгляда (в любую сторону)
-        void Relocate(float dist, float minYaw, float maxYaw, bool keepState = false)
+        // переставить в тёмное место комнаты не ближе minAngle к направлению взгляда
+        void Relocate(float minAngle, float maxDist, bool keepState = false)
         {
-            var fwd = cam.transform.forward;
-            fwd.y = 0f;
-            if (fwd.sqrMagnitude < 1e-3f) fwd = Vector3.forward;
-            float yaw = Random.Range(minYaw, maxYaw) * (Random.value < 0.5f ? -1f : 1f);
-            var dir = Quaternion.Euler(0f, yaw, 0f) * fwd.normalized;
-            transform.position = cam.transform.position + dir * dist + Vector3.up * Random.Range(-0.25f, 0.2f);
+            transform.position = game.PickPosition(Def, minAngle, maxDist);
             if (keepState) { fade = 0f; return; }
             Lurk(Random.Range(3f, 5f));
         }
