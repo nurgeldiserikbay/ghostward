@@ -16,6 +16,8 @@ namespace GhostWard
         public Camera Cam { get; private set; }
         public bool ReceivingFrames => frames > 0;
 
+        const string InstallFailedKey = "arInstallFailed";
+
         GameObject sessionGo;
         ARCameraManager cameraManager;
         AROcclusionManager occlusion;
@@ -33,14 +35,31 @@ namespace GhostWard
                 yield break;
             }
 
+            // Был отказ при прошлой установке сервисов AR — телефон их не поддерживает, сразу в режим гироскопа.
+            if (PlayerPrefs.GetInt(InstallFailedKey, 0) == 1)
+            {
+                log("AR: сервисы AR недоступны на этом телефоне");
+                StopXr();
+                done(null);
+                yield break;
+            }
+
             var sessionGo = new GameObject("AR Session");
-            sessionGo.AddComponent<ARSession>();
+            var session = sessionGo.AddComponent<ARSession>();
+            session.attemptUpdate = false; // установку предлагаем сами и только один раз
             sessionGo.AddComponent<ARInputManager>();
 
-            // ждём проверки поддержки; при необходимости ARSession сам предложит установить сервисы AR
-            float timeout = 20f;
-            while (timeout > 0f && ARSession.state is ARSessionState.None or ARSessionState.CheckingAvailability
-                       or ARSessionState.NeedsInstall or ARSessionState.Installing)
+            yield return ARSession.CheckAvailability();
+            if (ARSession.state == ARSessionState.NeedsInstall)
+            {
+                log("AR: установка сервисов AR");
+                yield return ARSession.Install();
+                if (ARSession.state < ARSessionState.Ready) PlayerPrefs.SetInt(InstallFailedKey, 1);
+                PlayerPrefs.Save();
+            }
+
+            float timeout = 10f;
+            while (timeout > 0f && ARSession.state is ARSessionState.None or ARSessionState.CheckingAvailability or ARSessionState.Installing)
             {
                 timeout -= Time.unscaledDeltaTime;
                 log("AR: " + ARSession.state);
