@@ -28,7 +28,7 @@ namespace GhostWard
         const float ScanCoverage = 0.85f;
         const float CeilingHeight = 2.6f;
 
-        static readonly string[] RadioAnswers = { "…здесь…", "…уходи…", "…я вижу тебя…", "…ближе…", "…мой дом…", "…не спи…" };
+        const int RadioAnswerCount = 6;   // ключи radio_1 … radio_6
 
         Phase phase;
         GameUI ui;
@@ -109,8 +109,35 @@ namespace GhostWard
                 for (int x = 0; x < gx; x++)
                     samplePoints[y * gx + x] = new Vector2((x + 0.5f) / gx, (y + 0.5f) / gy);
 
+            Settings.Apply();
+            CreateUI();
+            if (Loc.Chosen) ui.ShowMenu();
+            else ui.ShowLanguage();
+            phase = Phase.Menu;
+            yield break;
+        }
+
+        void CreateUI()
+        {
             ui = GameUI.Create();
-            ui.StartPressed += StartGame;
+            ui.StartPressed += () => { Ads.OnRetry(); StartGame(); };
+            ui.PlayPressed += () =>
+            {
+                if (Settings.TutorialSeen) StartCoroutine(Play());
+                else ui.OpenTutorial(true);
+            };
+            ui.TutorialFinished += () => StartCoroutine(Play());
+            ui.MenuPressed += ToMenu;
+            ui.LanguageChosen += lang =>
+            {
+                bool firstTime = !Loc.Chosen;
+                Loc.Set(lang);
+                // тексты строятся при сборке интерфейса — проще пересобрать его целиком
+                Destroy(ui.gameObject);
+                CreateUI();
+                if (firstTime) ui.ShowMenu();
+                else ui.ShowSettings();
+            };
             ui.NextNightPressed += StartNight;
             ui.NamePressed += NameEntity;
             ui.SharePressed += SharePhoto;
@@ -122,35 +149,48 @@ namespace GhostWard
                 ui.CanName = open && phase == Phase.Investigate && !named;
                 if (open) ui.ShowJournal(inv);
             };
+        }
 
-            yield return ArRig.TryCreate(r => arRig = r, ui.SetDiagnostics);
-            if (arRig != null)
+        // Камера включается только когда игрок нажал «Играть»: AR, если есть, иначе гироскоп.
+        IEnumerator Play()
+        {
+            if (cam == null)
             {
-                cam = arRig.Cam;
-                // если за 8 секунд с камеры AR не пришло ни одного кадра — уходим в режим гироскопа
-                float wait = 8f;
-                while (wait > 0f && !arRig.ReceivingFrames)
+                ui.ShowLoading();
+                yield return ArRig.TryCreate(r => arRig = r, ui.SetDiagnostics);
+                if (arRig != null)
                 {
-                    wait -= Time.unscaledDeltaTime;
-                    ui.SetDiagnostics(arRig.Diagnostics());
-                    yield return null;
+                    cam = arRig.Cam;
+                    // если за 8 секунд с камеры AR не пришло ни одного кадра — уходим в режим гироскопа
+                    float wait = 8f;
+                    while (wait > 0f && !arRig.ReceivingFrames)
+                    {
+                        wait -= Time.unscaledDeltaTime;
+                        ui.SetDiagnostics(arRig.Diagnostics());
+                        yield return null;
+                    }
+                    if (!arRig.ReceivingFrames)
+                    {
+                        arRig.Shutdown();
+                        arRig = null;
+                    }
                 }
-                if (!arRig.ReceivingFrames)
+                if (arRig == null)
                 {
-                    arRig.Shutdown();
-                    arRig = null;
+                    gyroRig = GyroRig.Create();
+                    cam = gyroRig.Cam;
                 }
             }
-            if (arRig == null)
-            {
-                gyroRig = GyroRig.Create();
-                cam = gyroRig.Cam;
-            }
+            StartGame();
+            ui.Message(Loc.T(arRig != null ? "mode_ar" : "mode_gyro"), 3f);
+        }
 
-            ui.ShowMenu(arRig != null
-                ? "Режим AR: сущность живёт в комнате, можно ходить."
-                : "Режим без AR: стой на месте и поворачивайся всем телом.");
+        void ToMenu()
+        {
+            ClearEntities();
             phase = Phase.Menu;
+            ui.SetHidden(false);
+            ui.ShowMenu();
         }
 
         // ---------- ход игры ----------
@@ -185,7 +225,7 @@ namespace GhostWard
             {
                 phase = Phase.Scan;
                 ui.SetScan(0f);
-                ui.Message("Медленно обведи камерой комнату вокруг себя", 4f);
+                ui.Message(Loc.T("scan_msg"), 4f);
             }
             else BeginInvestigation();
         }
@@ -226,10 +266,9 @@ namespace GhostWard
             if (target.Lair == Lair.Ceiling) lair.y = cam.transform.position.y - EyeHeight + CeilingHeight - 0.5f;
 
             phase = Phase.Investigate;
-            ui.SetPhase("РАССЛЕДОВАНИЕ", false);
-            ui.Message(night == 1
-                ? "Кто-то здесь есть.\nИщи, откуда идут знаки, и отмечай улики в дневнике.\nМожно спросить вслух: «Ты здесь?»"
-                : $"Ночь {night}. Кто-то здесь есть.", 6f);
+            ui.SetPhase(Loc.T("phase_investigate"), false);
+            ui.SetCameraOverlay(Settings.Vision);
+            ui.Message(night == 1 ? Loc.T("intro_first") : Loc.F("intro_n", night), 6f);
         }
 
         void Update()
@@ -355,14 +394,14 @@ namespace GhostWard
             if (Catalog.Has(target, Evidence.Radio))
             {
                 sfx.PlayOneShot(ProceduralAudio.RadioVoice(), 1f);
-                ui.Message("Радио: " + RadioAnswers[Random.Range(0, RadioAnswers.Length)], 3f);
+                ui.Message(Loc.F("radio", Loc.T("radio_" + Random.Range(1, RadioAnswerCount + 1))), 3f);
                 glitch = 1f;
                 AddFear(4f);
             }
             else
             {
                 staticNoise.volume = 0.3f;
-                ui.Message("Радио: тишина в эфире", 2f);
+                ui.Message(Loc.T("radio_silence"), 2f);
             }
         }
 
@@ -374,13 +413,13 @@ namespace GhostWard
             namedRight = kind == target.Kind;
             if (namedRight)
             {
-                ui.Message("Ты знаешь её имя. Она слабеет — но идёт.", 3f);
+                ui.Message(Loc.T("named_right"), 3f);
                 StartHunt(true);
             }
             else
             {
                 AddFear(15f);
-                ui.Message("Ошибка. Она в ярости — и уже идёт.", 3f);
+                ui.Message(Loc.T("named_wrong"), 3f);
                 StartHunt(false, enraged: true);
             }
         }
@@ -396,8 +435,8 @@ namespace GhostWard
             hunter = Entity.Create(target, lair, cam, this, aggression, 2.5f);
             hunter.Weakened = weakened;
             entities.Add(hunter);
-            ui.SetPhase("ОХОТА", true);
-            if (!named) ui.Message("Она вышла на охоту.\nЗамри и не шуми — или защищайся.", 3.5f);
+            ui.SetPhase(Loc.T("phase_hunt"), true);
+            if (!named) ui.Message(Loc.T("hunt_start"), 3.5f);
             sfx.PlayOneShot(ProceduralAudio.Screech(), 0.35f);
         }
 
@@ -418,7 +457,7 @@ namespace GhostWard
             if (mic.Loud && heardTime <= 0f)
             {
                 heardTime = 3f;
-                ui.Message("Она тебя услышала", 1.5f);
+                ui.Message(Loc.T("heard"), 1.5f);
             }
             bool still = TurnSpeed < 10f && !pressing && (!mic.Available || !mic.Speaking);
             quietTime = still ? quietTime + dt : 0f;
@@ -438,8 +477,7 @@ namespace GhostWard
         void SharePhoto()
         {
             if (photo == null) return;
-            string text = $"Это было у меня дома. Ночь {night}. #GhostWard";
-            if (!PhotoShare.Share(photo, text)) ui.Message("Не получилось поделиться", 2f);
+            if (!PhotoShare.Share(photo, Loc.F("share_text", night))) ui.Message(Loc.T("share_fail"), 2f);
         }
 
         // ---------- камера и атмосфера ----------
@@ -474,8 +512,13 @@ namespace GhostWard
             // переключение режимов не плавное, а через короткий «сбой»
             nightVision = Mathf.MoveTowards(nightVision, nightVisionTarget, dt * 6f);
             staticNoise.volume = Mathf.Max(glitch * 0.35f, Mathf.MoveTowards(staticNoise.volume, 0f, dt * 0.5f));
-            if (gyroRig != null) gyroRig.SetLook(nightVision, glitch);
-            ui.SetGrain(0.05f + nightVision * 0.08f + glitch * 0.25f);
+            // эпизоды ночного режима: зелёное ночное видение, а если оно уже выбрано — ИК-камера
+            var style = Settings.Vision;
+            var episode = style == Vision.NightGreen ? Vision.Cctv : Vision.NightGreen;
+            if (gyroRig != null) gyroRig.SetLook(style, episode, nightVision, glitch);
+            float baseGrain = style switch { Vision.Normal => 0f, Vision.Dark => 0.05f, _ => 0.06f };
+            ui.DarkBase = style switch { Vision.Normal => 0.15f, Vision.Dark => 0.55f, _ => 0.38f };
+            ui.SetGrain(baseGrain + nightVision * 0.08f + glitch * 0.25f);
         }
 
         string DiagnosticsText()
@@ -563,10 +606,10 @@ namespace GhostWard
             ui.SetHidden(false);
             string supply = inv.Resupply();
             string verdict = banished
-                ? $"Изгнана: {target.Name}." + (namedRight ? "\nТы верно назвал её имя." : "")
-                : $"Ты дожил до рассвета, но она осталась в доме.\nЭто была: {target.Name}.";
-            if (named && !namedRight) verdict += "\nИмя ты назвал неверно.";
-            else if (banished && namedRight && !wrongItemUsed) verdict += "\nЧистая работа: ни одной ошибки.";
+                ? Loc.F("verdict_banished", target.Name) + (namedRight ? "\n" + Loc.T("verdict_named_right") : "")
+                : Loc.F("verdict_survived", target.Name);
+            if (named && !namedRight) verdict += "\n" + Loc.T("verdict_named_wrong");
+            else if (banished && namedRight && !wrongItemUsed) verdict += "\n" + Loc.T("verdict_clean");
             ui.ShowDawn(night, verdict, supply, photo);
         }
 
@@ -601,7 +644,7 @@ namespace GhostWard
             // при самой первой встрече — подсказка и картинка в дневнике; дальше игрок опознаёт сам
             if (Catalog.Seen(e.Def.Kind)) return;
             Catalog.MarkSeen(e.Def.Kind);
-            ui.Message(e.Def.Hint + "\n\nНовая запись в дневнике", 6f);
+            ui.Message(e.Def.Hint + "\n\n" + Loc.T("new_entry"), 6f);
         }
 
         public void OnThrow(Entity e)
@@ -616,7 +659,7 @@ namespace GhostWard
             ui.Jumpscare(e.Def, e.Seed, e.Def.Kind == EntityKind.Poltergeist ? 0.5f : 1f);
             sfx.PlayOneShot(ProceduralAudio.Screech(), 0.8f);
 #if UNITY_ANDROID || UNITY_IOS
-            Handheld.Vibrate();
+            if (Settings.Vibration) Handheld.Vibrate();
 #endif
         }
 
@@ -759,14 +802,14 @@ namespace GhostWard
 
             if (item == ItemKind.Iron)
             {
-                if (inv.Iron <= 0) { Empty("Железа не осталось"); return; }
+                if (inv.Iron <= 0) { Empty(Loc.F("no_more", def.Name)); return; }
                 if (Target(angle, range) == null)
                 {
-                    ui.Message(Target(30f, 6f) != null ? "Слишком далеко. Подпусти ближе…" : "Рядом никого", 1.5f);
+                    ui.Message(Loc.T(Target(30f, 6f) != null ? "too_far" : "nobody"), 1.5f);
                     return;
                 }
             }
-            if (!inv.Use(item)) { Empty($"Больше нет: {def.Name.ToLower()}"); return; }
+            if (!inv.Use(item)) { Empty(Loc.F("no_more", def.Name)); return; }
 
             switch (item)
             {
@@ -775,10 +818,10 @@ namespace GhostWard
                 case ItemKind.Mirror: sfx.PlayOneShot(ProceduralAudio.Shimmer(), 1f); ui.Flash(new Color(0.8f, 0.9f, 1f, 0.6f)); break;
                 case ItemKind.Wormwood: sfx.PlayOneShot(ProceduralAudio.Whoosh(), 1f); ui.Smoke(); break;
             }
-            ui.Supply($"{def.Name.ToLower()}: {inv.Label(item)}");
+            ui.Supply($"{def.Name}: {inv.Label(item)}");
 
             var t = Target(angle, range);
-            if (t == null) { ui.Message("Впустую…", 1.2f); return; }
+            if (t == null) { ui.Message(Loc.T("wasted"), 1.2f); return; }
             if (t.Def.Bane == item) t.Banish();
             else WrongItem(t);
         }
@@ -787,10 +830,10 @@ namespace GhostWard
         {
             if (bellCooldown > 0f) return;
             bellCooldown = 1.2f;
-            if (inv.Bell <= 0) { Empty("Колокольчик треснул"); return; }
+            if (inv.Bell <= 0) { Empty(Loc.T("bell_cracked")); return; }
             inv.Bell--;
             sfx.PlayOneShot(ProceduralAudio.BellRing(), 1f);
-            ui.Supply($"колокольчик: {inv.Bell}");
+            ui.Supply($"{Catalog.Get(ItemKind.Bell).Name}: {inv.Bell}");
 
             // мару звон будит всегда; полтергейста — если повернуться в его сторону
             bool hit = false;
@@ -819,7 +862,7 @@ namespace GhostWard
             if (on)
             {
                 inv.Battery = Mathf.Max(0f, inv.Battery - 9f * dt);
-                if (inv.Battery <= 0f) Empty("Фонарь погас");
+                if (inv.Battery <= 0f) Empty(Loc.T("lantern_out"));
             }
             ui.SetLantern(on, inv.Battery);
 
@@ -854,7 +897,7 @@ namespace GhostWard
             e.Provoke();
             AddFear(8f);
             sfx.PlayOneShot(ProceduralAudio.Fail(), 0.6f);
-            ui.Message("Не действует…", 1.5f);
+            ui.Message(Loc.T("no_effect"), 1.5f);
         }
 
         void Empty(string text)

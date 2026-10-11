@@ -9,8 +9,8 @@ namespace GhostWard
         public bool Available { get; private set; }
         public bool Denied { get; private set; }
         public float Level { get; private set; }      // 0..1 над фоном
-        public bool Speaking => Level > 0.12f;
-        public bool Loud => Level > 0.35f;
+        public bool Speaking => Level > 0.12f / Settings.MicFactor;
+        public bool Loud => Level > 0.35f / Settings.MicFactor;
 
         AudioClip clip;
         readonly float[] buffer = new float[512];

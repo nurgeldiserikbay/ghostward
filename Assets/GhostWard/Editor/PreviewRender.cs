@@ -66,7 +66,21 @@ namespace GhostWard.EditorTools
             Shoot("howto", ui => ui.DebugJournal("howto"));
         }
 
-        static void Shoot(string name, System.Action<GameUI> open)
+        // Главное меню, настройки и обучение на нескольких языках — Logs/screen_*.png
+        public static void Screens()
+        {
+            foreach (var lang in new[] { Lang.En, Lang.Ru, Lang.Kk, Lang.Es })
+            {
+                Loc.Set(lang);
+                string l = lang.ToString().ToLower();
+                Shoot($"menu_{l}", ui => ui.ShowMenu(), "screen");
+                Shoot($"settings_{l}", ui => ui.ShowSettings(), "screen");
+                Shoot($"tutorial_{l}", ui => ui.DebugTutorial(2), "screen");
+            }
+            Loc.Set(Lang.En);
+        }
+
+        static void Shoot(string name, System.Action<GameUI> open, string prefix = "journal")
         {
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             var cam = new GameObject("Cam").AddComponent<Camera>();
@@ -92,7 +106,7 @@ namespace GhostWard.EditorTools
             tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
             tex.Apply();
             RenderTexture.active = null;
-            File.WriteAllBytes($"Logs/journal_{name}.png", tex.EncodeToPNG());
+            File.WriteAllBytes($"Logs/{prefix}_{name}.png", tex.EncodeToPNG());
         }
     }
 }

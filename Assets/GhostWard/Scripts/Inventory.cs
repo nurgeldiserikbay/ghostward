@@ -20,7 +20,9 @@ namespace GhostWard
             Mirror += 1;
             Wormwood += 2;
             Battery += battery;
-            return $"Соль +3 · Железо +1 · Колокольчик +2\nЗеркало +1 · Полынь +2 · Фонарь +{Mathf.RoundToInt(battery)}%";
+            static string N(ItemKind k) => Catalog.Get(k).Name;
+            return $"{N(ItemKind.Salt)} +3 · {N(ItemKind.Iron)} +1 · {N(ItemKind.Bell)} +2\n" +
+                   $"{N(ItemKind.Mirror)} +1 · {N(ItemKind.Wormwood)} +2 · {N(ItemKind.Lantern)} +{Mathf.RoundToInt(battery)}%";
         }
 
         public int Count(ItemKind k) => k switch

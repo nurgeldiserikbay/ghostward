@@ -13,6 +13,8 @@ namespace GhostWard
 
         static readonly int ModeId = Shader.PropertyToID("_Mode");
         static readonly int GlitchId = Shader.PropertyToID("_Glitch");
+        static readonly int StyleId = Shader.PropertyToID("_Style");
+        static readonly int AltId = Shader.PropertyToID("_Alt");
 
         WebCamTexture webcam;
         Material feedMat;
@@ -154,9 +156,11 @@ namespace GhostWard
         }
 
         // вид камеры: 0 — тёмная, 1 — ночной режим; glitch — помехи рядом с сущностью
-        public void SetLook(float nightVision, float glitch)
+        public void SetLook(Vision style, Vision episodeStyle, float episode, float glitch)
         {
-            feedMat.SetFloat(ModeId, nightVision);
+            feedMat.SetFloat(StyleId, (int)style);
+            feedMat.SetFloat(AltId, (int)episodeStyle);
+            feedMat.SetFloat(ModeId, episode);
             feedMat.SetFloat(GlitchId, glitch);
         }
 
