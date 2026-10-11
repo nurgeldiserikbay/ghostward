@@ -7,44 +7,64 @@ namespace GhostWard
 {
     // Точка входа: лежит на единственном объекте сцены Main и строит всё остальное из кода.
     //
-    // Перед ночью игрок осматривает комнату — игра строит карту темноты.
-    // Ночью «режиссёр» чередует затишье (с ложными звуками) и встречи; сущности выходят из тёмных мест.
-    // Предметы применяются жестами, без выбора на экране:
-    //   соль — смахнуть вверх, зеркало — вниз, полынь — зигзаг, фонарь — зажать палец,
-    //   железо — двойное касание, колокольчик — встряхнуть.
-    // Новые виды сущностей открываются по мере того, сколько игрок продержался за игру.
-    // Страх растёт, когда сущность рядом или нападает; на 100% игра окончена. Дожил до 04:00 — рассвет.
+    // Ночь — одно «дело»: в дом приходит одна сущность.
+    //  1. Осмотр: игрок обводит комнату камерой, игра строит карту темноты.
+    //  2. Расследование: сущность невидима в логове; оттуда идут улики (иней, шёпот, стук, помехи,
+    //     дрожь компаса, силуэт в ночном режиме, ответ радио на вопрос вслух). Игрок отмечает их в дневнике
+    //     и может назвать сущность: угадал — она слабее, ошибся — охота начинается в ярости.
+    //  3. Охота: сущность выходит. Шум в микрофоне выдаёт игрока, тишина и неподвижность прячут.
+    //     Изгнать можно только тем, чего она боится. Предметы — жестами:
+    //     соль — смахнуть вверх, зеркало — вниз, полынь — зигзаг, фонарь — зажать палец,
+    //     железо — двойное касание, колокольчик — встряхнуть.
+    //  4. Рассвет: итог, фото сущности, пополнение запаса.
+    // Страх растёт от улик, близости и нападений; на 100% игра окончена.
     public class Game : MonoBehaviour
     {
-        enum Phase { Loading, Menu, Scan, Night, Dawn, Over }
+        enum Phase { Loading, Menu, Scan, Investigate, Hunt, Dawn, Over }
 
-        const float NightSeconds = 180f;
+        const float NightSeconds = 300f;
         const float FearDecay = 2.5f;
         const float EyeHeight = 1.4f;
         const float ScanCoverage = 0.85f;
         const float CeilingHeight = 2.6f;
+
+        static readonly string[] RadioAnswers = { "…здесь…", "…уходи…", "…я вижу тебя…", "…ближе…", "…мой дом…", "…не спи…" };
 
         Phase phase;
         GameUI ui;
         Camera cam;
         ArRig arRig;
         GyroRig gyroRig;
+        MicListener mic;
         AudioSource sfx, drone, heart;
         float heartTimer;
 
         readonly List<Entity> entities = new();
-        readonly HashSet<EntityKind> introduced = new();
         readonly DarknessMap map = new();
         Inventory inv;
-        int night, unlocked;
-        float nightTime, survived, fear, nextEncounter, nextFakeCue;
-        EntityKind? forcedNext;
+        int night;
+        float nightTime, fear;
+
+        // дело этой ночи
+        EntityDef target;
+        Vector3 lair;
+        Entity hunter;
+        float anger, clueTimer, fakeTimer, frostTime, staticTime, compassTime, silhouetteArmed, silhouetteCooldown;
+        float radioCooldown, radioAnswerIn = -1f, banishedTime = -1f;
+        bool named, namedRight, wrongItemUsed;
+
+        // охота: слух и затаивание
+        float quietTime, heardTime;
+
+        // фото сущности
+        Texture2D photo;
+        bool photoTaking;
 
         // вид камеры: ночной режим и помехи
         AudioSource staticNoise;
         float nightVision, nightVisionTarget, nextVisionSwitch, glitch;
 
-        // скорость поворота игрока, °/с — по ней ходит двойник
+        // скорость поворота игрока, °/с — по ней ходит двойник и по ней понятно, замер ли игрок
         public float TurnSpeed { get; private set; }
         Vector3 lastForward;
 
@@ -79,6 +99,7 @@ namespace GhostWard
             staticNoise.loop = true;
             staticNoise.volume = 0f;
             staticNoise.Play();
+            mic = gameObject.AddComponent<MicListener>();
 
             // сетка точек экрана, по которым меряем яркость при осмотре
             const int gx = 8, gy = 12;
@@ -91,11 +112,14 @@ namespace GhostWard
             ui = GameUI.Create();
             ui.StartPressed += StartGame;
             ui.NextNightPressed += StartNight;
+            ui.NamePressed += NameEntity;
+            ui.SharePressed += SharePhoto;
             ui.JournalToggled += open =>
             {
                 Time.timeScale = open ? 0f : 1f;
                 AudioListener.pause = open;
                 pressing = false;
+                ui.CanName = open && phase == Phase.Investigate && !named;
                 if (open) ui.ShowJournal(inv);
             };
 
@@ -124,7 +148,7 @@ namespace GhostWard
             }
 
             ui.ShowMenu(arRig != null
-                ? "Режим AR: сущности живут в комнате, можно ходить."
+                ? "Режим AR: сущность живёт в комнате, можно ходить."
                 : "Режим без AR: стой на месте и поворачивайся всем телом.");
             phase = Phase.Menu;
         }
@@ -136,10 +160,6 @@ namespace GhostWard
             inv = Inventory.Starting();
             night = 0;
             fear = 0f;
-            survived = 0f;
-            unlocked = Catalog.Unlocked(0f);
-            forcedNext = null;
-            introduced.Clear();
             StartNight();
         }
 
@@ -149,9 +169,14 @@ namespace GhostWard
             night++;
             fear = Mathf.Min(fear, 20f);
             pressing = false;
+            photo = null;
+            target = PickTarget();
             ui.ShowHud();
             ui.SetNight(night);
             ui.SetClock(0f);
+            ui.SetPhase("", false);
+            ui.ClearEvidence();
+            mic.Begin();
 
             // карта темноты строится заново каждую ночь: свет в комнате мог измениться
             map.Clear();
@@ -162,19 +187,49 @@ namespace GhostWard
                 ui.SetScan(0f);
                 ui.Message("Медленно обведи камерой комнату вокруг себя", 4f);
             }
-            else BeginNight();
+            else BeginInvestigation();
         }
 
-        void BeginNight()
+        // Сущность ночи: из пула, который растёт с каждой ночью; невстреченные — чаще.
+        EntityDef PickTarget()
+        {
+            int pool = Catalog.PoolForNight(night);
+            float total = 0f;
+            var weights = new float[pool];
+            for (int i = 0; i < pool; i++) total += weights[i] = Catalog.Seen(Catalog.Entities[i].Kind) ? 1f : 3f;
+            float r = Random.value * total;
+            for (int i = 0; i < pool; i++)
+            {
+                r -= weights[i];
+                if (r <= 0f) return Catalog.Entities[i];
+            }
+            return Catalog.Entities[pool - 1];
+        }
+
+        void BeginInvestigation()
         {
             ui.SetScan(-1f);
             nightTime = 0f;
-            nextEncounter = Random.Range(8f, 12f);
-            nextFakeCue = Random.Range(4f, 7f);
-            nextVisionSwitch = Random.Range(20f, 40f);
+            anger = 0f;
+            named = namedRight = wrongItemUsed = false;
+            banishedTime = -1f;
+            clueTimer = Random.Range(3f, 5f);
+            fakeTimer = Random.Range(8f, 14f);
+            frostTime = staticTime = compassTime = silhouetteArmed = 0f;
+            radioCooldown = 0f;
+            radioAnswerIn = -1f;
+            nextVisionSwitch = Random.Range(12f, 20f);
             nightVisionTarget = 0f;
-            ui.Message($"Ночь {night}", 3f);
-            phase = Phase.Night;
+
+            // логово: албасты — за спиной, остальные — по своей привычке на карте темноты
+            lair = PickPosition(target, target.Lair == Lair.Behind ? 140f : 0f, -1f);
+            if (target.Lair == Lair.Ceiling) lair.y = cam.transform.position.y - EyeHeight + CeilingHeight - 0.5f;
+
+            phase = Phase.Investigate;
+            ui.SetPhase("РАССЛЕДОВАНИЕ", false);
+            ui.Message(night == 1
+                ? "Кто-то здесь есть.\nИщи, откуда идут знаки, и отмечай улики в дневнике.\nМожно спросить вслух: «Ты здесь?»"
+                : $"Ночь {night}. Кто-то здесь есть.", 6f);
         }
 
         void Update()
@@ -182,9 +237,9 @@ namespace GhostWard
             ui.SetDiagnostics(DiagnosticsText());
             if (ui.JournalOpen) return;
 
-            if (cam != null) ui.SetMapStrip(map, cam.transform.forward, phase is Phase.Scan or Phase.Night);
+            if (cam != null) ui.SetMapStrip(map, cam.transform.forward, phase == Phase.Scan);
             if (phase == Phase.Scan) { UpdateScan(); return; }
-            if (phase != Phase.Night)
+            if (phase is not (Phase.Investigate or Phase.Hunt))
             {
                 drone.volume = Mathf.MoveTowards(drone.volume, 0.15f, Time.deltaTime);
                 staticNoise.volume = 0f;
@@ -200,39 +255,208 @@ namespace GhostWard
             lastForward = fwd;
 
             nightTime += dt;
-            survived += dt;
-            int nowUnlocked = Catalog.Unlocked(survived);
-            if (nowUnlocked > unlocked)
-            {
-                // открылся новый вид — он придёт следующим
-                unlocked = nowUnlocked;
-                forcedNext = Catalog.Entities[unlocked - 1].Kind;
-            }
-
             ui.SetClock(nightTime / NightSeconds);
-            if (nightTime >= NightSeconds) { Dawn(); return; }
+            if (nightTime >= NightSeconds) { Dawn(false); return; }
 
-            Direct(dt);
-            HandleInput(dt);
+            if (phase == Phase.Investigate) UpdateInvestigation(dt);
+            else UpdateHunt(dt);
+
             UpdateFear(dt);
             UpdateAtmosphere(dt);
             UpdateLook(dt);
-            ui.UpdateCues(cam, entities);
+            ui.SetMic(mic.Available ? mic.Level : -1f, phase == Phase.Hunt);
+            ui.UpdateCues(cam, entities, frostTime > 0f ? lair : (Vector3?)null);
         }
 
-        // Камера: тёмная, иногда переключается в ночной режим; рядом с сущностью — помехи.
+        // ---------- расследование ----------
+
+        float AngleToLair()
+        {
+            var to = lair - cam.transform.position;
+            return Vector3.Angle(cam.transform.forward, to);
+        }
+
+        void UpdateInvestigation(float dt)
+        {
+            anger += dt * (0.4f + night * 0.05f);
+            frostTime -= dt;
+            staticTime -= dt;
+            compassTime -= dt;
+            silhouetteArmed -= dt;
+            silhouetteCooldown -= dt;
+            radioCooldown -= dt;
+
+            clueTimer -= dt;
+            if (clueTimer <= 0f)
+            {
+                clueTimer = Random.Range(5f, 9f);
+                EmitClue();
+            }
+
+            // скрипы — ложная тревога, не улика
+            fakeTimer -= dt;
+            if (fakeTimer <= 0f)
+            {
+                fakeTimer = Random.Range(10f, 18f);
+                var dir = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f) * Vector3.forward;
+                AudioSource.PlayClipAtPoint(ProceduralAudio.Creak(), cam.transform.position + dir * 3f, 0.45f);
+            }
+
+            float angle = AngleToLair();
+            ui.SetCompass(cam.transform.forward, compassTime > 0f && angle < 40f ? 1f : 0f);
+            if (staticTime > 0f && angle < 35f) glitch = Mathf.Max(glitch, 0.85f);
+            if (silhouetteArmed > 0f && nightVision > 0.9f && angle < 30f && silhouetteCooldown <= 0f)
+            {
+                Apparition.Show(target, lair, cam.transform, 0.45f);
+                silhouetteArmed = 0f;
+                silhouetteCooldown = 3f;
+            }
+
+            // радио духов: игрок задаёт вопрос вслух
+            if (mic.Speaking && radioCooldown <= 0f)
+            {
+                radioCooldown = 7f;
+                radioAnswerIn = 1.3f;
+                anger += 8f;
+                sfx.PlayOneShot(ProceduralAudio.Click(), 0.6f);
+            }
+            if (radioAnswerIn > 0f)
+            {
+                radioAnswerIn -= dt;
+                if (radioAnswerIn <= 0f) RadioAnswer();
+            }
+
+            if (anger >= 100f) StartHunt(false);
+        }
+
+        void EmitClue()
+        {
+            // радио отвечает только на вопрос, остальные улики сущность подаёт сама
+            var options = new List<Evidence>();
+            foreach (var c in target.Clues) if (c != Evidence.Radio) options.Add(c);
+            var clue = options[Random.Range(0, options.Count)];
+            switch (clue)
+            {
+                case Evidence.Frost: frostTime = 5f; break;
+                case Evidence.Whisper: AudioSource.PlayClipAtPoint(ProceduralAudio.Whisper(), lair, 0.9f); break;
+                case Evidence.Knock: AudioSource.PlayClipAtPoint(ProceduralAudio.Knock(), lair, 1f); break;
+                case Evidence.Static: staticTime = 5f; break;
+                case Evidence.Compass: compassTime = 6f; break;
+                case Evidence.NightVision:
+                    silhouetteArmed = 9f;
+                    if (nightVisionTarget < 0.5f) nextVisionSwitch = Mathf.Min(nextVisionSwitch, 0.5f);
+                    break;
+            }
+            AddFear(1.5f);
+        }
+
+        void RadioAnswer()
+        {
+            if (Catalog.Has(target, Evidence.Radio))
+            {
+                sfx.PlayOneShot(ProceduralAudio.RadioVoice(), 1f);
+                ui.Message("Радио: " + RadioAnswers[Random.Range(0, RadioAnswers.Length)], 3f);
+                glitch = 1f;
+                AddFear(4f);
+            }
+            else
+            {
+                staticNoise.volume = 0.3f;
+                ui.Message("Радио: тишина в эфире", 2f);
+            }
+        }
+
+        // игрок назвал сущность в дневнике
+        void NameEntity(EntityKind kind)
+        {
+            if (phase != Phase.Investigate || named) return;
+            named = true;
+            namedRight = kind == target.Kind;
+            if (namedRight)
+            {
+                ui.Message("Ты знаешь её имя. Она слабеет — но идёт.", 3f);
+                StartHunt(true);
+            }
+            else
+            {
+                AddFear(15f);
+                ui.Message("Ошибка. Она в ярости — и уже идёт.", 3f);
+                StartHunt(false, enraged: true);
+            }
+        }
+
+        // ---------- охота ----------
+
+        void StartHunt(bool weakened, bool enraged = false)
+        {
+            phase = Phase.Hunt;
+            frostTime = staticTime = compassTime = 0f;
+            quietTime = heardTime = 0f;
+            float aggression = (1f + (night - 1) * 0.08f) * (weakened ? 0.75f : enraged ? 1.4f : 1f);
+            hunter = Entity.Create(target, lair, cam, this, aggression, 2.5f);
+            hunter.Weakened = weakened;
+            entities.Add(hunter);
+            ui.SetPhase("ОХОТА", true);
+            if (!named) ui.Message("Она вышла на охоту.\nЗамри и не шуми — или защищайся.", 3.5f);
+            sfx.PlayOneShot(ProceduralAudio.Screech(), 0.35f);
+        }
+
+        void UpdateHunt(float dt)
+        {
+            HandleInput(dt);
+
+            if (hunter == null || !hunter.Alive)
+            {
+                if (banishedTime < 0f) banishedTime = 0f;
+                banishedTime += dt;
+                if (banishedTime > 1.6f) Dawn(true);
+                return;
+            }
+
+            // шум выдаёт игрока, тишина и неподвижность прячут
+            heardTime -= dt;
+            if (mic.Loud && heardTime <= 0f)
+            {
+                heardTime = 3f;
+                ui.Message("Она тебя услышала", 1.5f);
+            }
+            bool still = TurnSpeed < 10f && !pressing && (!mic.Available || !mic.Speaking);
+            quietTime = still ? quietTime + dt : 0f;
+            bool hidden = quietTime > 2.5f && heardTime <= 0f;
+            hunter.SpeedMul = heardTime > 0f ? 2.2f : hidden ? 0.35f : 1f;
+            ui.SetHidden(hidden);
+
+            // фото: первый раз, когда сущность близко и в кадре
+            if (photo == null && !photoTaking && hunter.Visible && hunter.FlatDistance() < 3.2f &&
+                Vector3.Angle(cam.transform.forward, hunter.transform.position - cam.transform.position) < 22f)
+            {
+                photoTaking = true;
+                StartCoroutine(PhotoShare.Capture(tex => { photo = tex; photoTaking = false; ui.PhotoFlash(); }));
+            }
+        }
+
+        void SharePhoto()
+        {
+            if (photo == null) return;
+            string text = $"Это было у меня дома. Ночь {night}. #GhostWard";
+            if (!PhotoShare.Share(photo, text)) ui.Message("Не получилось поделиться", 2f);
+        }
+
+        // ---------- камера и атмосфера ----------
+
+        // Камера: тёмная, иногда переключается в ночной режим; рядом с сущностью и у логова — помехи.
         void UpdateLook(float dt)
         {
-            if (phase == Phase.Night)
+            if (phase is Phase.Investigate or Phase.Hunt)
             {
                 nextVisionSwitch -= dt;
                 if (nextVisionSwitch <= 0f)
                 {
                     bool on = nightVisionTarget < 0.5f;
                     nightVisionTarget = on ? 1f : 0f;
-                    nextVisionSwitch = on ? Random.Range(10f, 18f) : Random.Range(25f, 50f);
+                    nextVisionSwitch = on ? Random.Range(10f, 16f) : Random.Range(18f, 32f);
                     sfx.PlayOneShot(ProceduralAudio.Click(), 0.8f);
-                    glitch = 1f;
+                    glitch = Mathf.Max(glitch, 0.7f);
                 }
 
                 float near = 0f;
@@ -249,7 +473,7 @@ namespace GhostWard
 
             // переключение режимов не плавное, а через короткий «сбой»
             nightVision = Mathf.MoveTowards(nightVision, nightVisionTarget, dt * 6f);
-            staticNoise.volume = glitch * 0.35f;
+            staticNoise.volume = Mathf.Max(glitch * 0.35f, Mathf.MoveTowards(staticNoise.volume, 0f, dt * 0.5f));
             if (gyroRig != null) gyroRig.SetLook(nightVision, glitch);
             ui.SetGrain(0.05f + nightVision * 0.08f + glitch * 0.25f);
         }
@@ -257,7 +481,8 @@ namespace GhostWard
         string DiagnosticsText()
         {
             string rig = arRig != null ? arRig.Diagnostics() : gyroRig != null ? gyroRig.Diagnostics() : "старт…";
-            return map.Empty ? rig : $"{rig}\nкарта {Mathf.RoundToInt(map.Coverage * 100)}%";
+            string micState = mic == null ? "" : mic.Available ? $"\nмикрофон {mic.Level:0.00}" : mic.Denied ? "\nмикрофон запрещён" : "";
+            return (map.Empty ? rig : $"{rig}\nкарта {Mathf.RoundToInt(map.Coverage * 100)}%") + micState;
         }
 
         void UpdateScan()
@@ -269,9 +494,9 @@ namespace GhostWard
 
             if (!gyroRig.SampleLuma(samplePoints, sampleLuma))
             {
-                // камеры нет — играем без карты, сущности будут выбирать место случайно
+                // камеры нет — играем без карты, логово выбирается случайно
                 scanFailTime += 0.15f;
-                if (scanFailTime > 4f) BeginNight();
+                if (scanFailTime > 4f) BeginInvestigation();
                 return;
             }
 
@@ -289,66 +514,11 @@ namespace GhostWard
             }
 
             ui.SetScan(map.Coverage / ScanCoverage);
-            if (map.Coverage >= ScanCoverage) BeginNight();
+            if (map.Coverage >= ScanCoverage) BeginInvestigation();
         }
 
-        // «Режиссёр»: сколько сущностей одновременно и когда приходит следующая.
-        void Direct(float dt)
-        {
-            int alive = 0;
-            foreach (var e in entities) if (e.Alive) alive++;
-            int maxAlive = survived > 600f ? 3 : survived > 300f ? 2 : 1;
-
-            if (alive < maxAlive)
-            {
-                nextEncounter -= dt;
-                if (nextEncounter <= 0f)
-                {
-                    Spawn();
-                    nextEncounter = Random.Range(10f, 18f) / (1f + night * 0.1f);
-                }
-            }
-
-            // ложные звуки из тёмных мест — чтобы игрок не расслаблялся
-            nextFakeCue -= dt;
-            if (nextFakeCue <= 0f)
-            {
-                nextFakeCue = Random.Range(9f, 16f);
-                var clip = Random.value < 0.5f ? ProceduralAudio.Knock() : ProceduralAudio.Laugh();
-                var pos = PickPosition(Catalog.Get(EntityKind.Poltergeist), 40f, 3f);
-                AudioSource.PlayClipAtPoint(clip, pos, 0.35f);
-            }
-        }
-
-        void Spawn()
-        {
-            EntityDef def;
-            if (forcedNext.HasValue)
-            {
-                def = Catalog.Get(forcedNext.Value);
-                forcedNext = null;
-            }
-            else
-            {
-                // свежие виды приходят чуть чаще старых
-                float total = 0f;
-                for (int i = 0; i < unlocked; i++) total += 1f + i * 0.15f;
-                float r = Random.value * total;
-                int pick = 0;
-                for (; pick < unlocked - 1; pick++)
-                {
-                    r -= 1f + pick * 0.15f;
-                    if (r <= 0f) break;
-                }
-                def = Catalog.Entities[pick];
-            }
-            // приходят из темноты сбоку и со спины
-            var pos = PickPosition(def, 60f, -1f);
-            entities.Add(Entity.Create(def, pos, cam, this, 1f + (night - 1) * 0.1f));
-        }
-
-        // Место для сущности: тёмный сектор карты, не ближе minAngle к взгляду игрока.
-        // Расстояние: если тёмное место ниже горизонта — это пол, считаем по наклону и высоте глаз;
+        // Место для сущности: сектор карты по привычке её логова, не ближе minAngle к взгляду игрока.
+        // Расстояние: если место ниже горизонта — это пол, считаем по наклону и высоте глаз;
         // иначе это проём или дальняя стена — 3–4.5 м. maxDist > 0 ограничивает дальность.
         public Vector3 PickPosition(EntityDef def, float minAngle, float maxDist)
         {
@@ -358,7 +528,7 @@ namespace GhostWard
             if (fwd.sqrMagnitude < 1e-3f) fwd = Vector3.forward;
             fwd.Normalize();
 
-            if (!map.TryPick(fwd, minAngle, out float yaw, out float pitch))
+            if (!map.TryPick(fwd, minAngle, def.Lair, out float yaw, out float pitch))
             {
                 float viewYaw = Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg;
                 yaw = viewYaw + Random.Range(minAngle, 180f) * (Random.value < 0.5f ? -1f : 1f);
@@ -366,8 +536,8 @@ namespace GhostWard
             }
 
             float dist;
-            if (def.Kind == EntityKind.Poltergeist) dist = Random.Range(1.8f, 2.6f);
-            else if (def.Kind == EntityKind.Mara) dist = Random.Range(1.2f, 1.6f);
+            if (def.Lair == Lair.Near) dist = Random.Range(1.4f, 2.2f);
+            else if (def.Lair == Lair.Far) dist = Random.Range(3.8f, 4.8f);
             else if (pitch < -8f) dist = Mathf.Clamp(EyeHeight / Mathf.Tan(-pitch * Mathf.Deg2Rad), 2.2f, 4.5f);
             else dist = Random.Range(3.2f, 4.5f);
             if (maxDist > 0f) dist = Mathf.Min(dist, maxDist);
@@ -386,28 +556,36 @@ namespace GhostWard
             return pos;
         }
 
-        void Dawn()
+        void Dawn(bool banished)
         {
             phase = Phase.Dawn;
             ClearEntities();
+            ui.SetHidden(false);
             string supply = inv.Resupply();
-            ui.ShowDawn(night, supply);
+            string verdict = banished
+                ? $"Изгнана: {target.Name}." + (namedRight ? "\nТы верно назвал её имя." : "")
+                : $"Ты дожил до рассвета, но она осталась в доме.\nЭто была: {target.Name}.";
+            if (named && !namedRight) verdict += "\nИмя ты назвал неверно.";
+            else if (banished && namedRight && !wrongItemUsed) verdict += "\nЧистая работа: ни одной ошибки.";
+            ui.ShowDawn(night, verdict, supply, photo);
         }
 
         void GameOver()
         {
             phase = Phase.Over;
             ClearEntities();
+            ui.SetHidden(false);
             int best = Mathf.Max(night, PlayerPrefs.GetInt("bestNight", 0));
             PlayerPrefs.SetInt("bestNight", best);
             PlayerPrefs.Save();
-            ui.ShowGameOver(night, nightTime / NightSeconds, best);
+            ui.ShowGameOver(night, nightTime / NightSeconds, best, target.Name, photo);
         }
 
         void ClearEntities()
         {
             foreach (var e in entities) if (e != null) e.Vanish();
             entities.Clear();
+            hunter = null;
         }
 
         // ---------- события от сущностей ----------
@@ -420,14 +598,10 @@ namespace GhostWard
 
         public void OnManifest(Entity e)
         {
-            // при самой первой встрече — подсказка и новая запись в дневнике; дальше игрок опознаёт сам
-            if (!Catalog.Seen(e.Def.Kind))
-            {
-                Catalog.MarkSeen(e.Def.Kind);
-                ui.Message(e.Def.Hint + "\n\nНовая запись в дневнике", 6f);
-            }
-            else if (introduced.Add(e.Def.Kind) && night == 1)
-                ui.Message(e.Def.Hint, 4f);
+            // при самой первой встрече — подсказка и картинка в дневнике; дальше игрок опознаёт сам
+            if (Catalog.Seen(e.Def.Kind)) return;
+            Catalog.MarkSeen(e.Def.Kind);
+            ui.Message(e.Def.Hint + "\n\nНовая запись в дневнике", 6f);
         }
 
         public void OnThrow(Entity e)
@@ -449,7 +623,7 @@ namespace GhostWard
         void AddFear(float v)
         {
             fear = Mathf.Clamp(fear + v, 0f, 100f);
-            if (fear >= 100f && phase == Phase.Night) GameOver();
+            if (fear >= 100f && phase is Phase.Investigate or Phase.Hunt) GameOver();
         }
 
         void UpdateFear(float dt)
@@ -676,6 +850,7 @@ namespace GhostWard
 
         void WrongItem(Entity e)
         {
+            wrongItemUsed = true;
             e.Provoke();
             AddFear(8f);
             sfx.PlayOneShot(ProceduralAudio.Fail(), 0.6f);

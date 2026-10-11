@@ -184,6 +184,28 @@ namespace GhostWard
             });
         }
 
+        // «Радио духов»: искажённый голос сквозь эфир — слоги с плавающей высотой.
+        public static AudioClip RadioVoice() => Get("radiovoice", 1.8f, (t, r) =>
+        {
+            float syl = Mathf.Pow(Mathf.Max(0f, Mathf.Sin(t * Mathf.PI * 2.4f)), 2f) * (t < 1.5f ? 1f : 0f);
+            float f0 = 140f - t * 30f + Sin(5f, t) * 10f;
+            float voice = 0f;
+            for (int k = 1; k <= 6; k++)
+                voice += Sin(f0 * k, t) * Mathf.Exp(-Mathf.Pow((f0 * k - (500f + Sin(3f, t) * 300f)) / 350f, 2f));
+            float hiss = Noise(r) * 0.25f;
+            float chop = Mathf.Sin(t * 70f) > -0.6f ? 1f : 0.2f;
+            return (voice * syl * 0.7f + hiss) * chop * 0.6f;
+        });
+
+        // Скрип пола — ложная тревога, не улика.
+        public static AudioClip Creak() => Get("creak", 1.2f, (t, r) =>
+        {
+            float f = 180f + Sin(1.3f, t) * 60f + Sin(17f, t) * 12f;
+            float saw = (t * f) % 1f * 2f - 1f;
+            float env = Mathf.Sin(Mathf.Clamp01(t / 1.2f) * Mathf.PI);
+            return (saw * 0.3f + Noise(r) * 0.08f) * env * Mathf.Abs(Sin(23f, t)) * 0.5f;
+        });
+
         public static AudioClip Fail() => Get("fail", 0.35f, (t, r) =>
             Mathf.Sign(Sin(180f - t * 200f, t)) * Mathf.Exp(-t * 8f) * 0.12f);
 

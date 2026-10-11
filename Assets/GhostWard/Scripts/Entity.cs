@@ -23,7 +23,9 @@ namespace GhostWard
         public bool Visible => Current == State.Manifest && Def.Kind != EntityKind.Poltergeist;
         public bool Lit { get; set; }
         public float Exposure { get; private set; }
-        public float ExposureNeeded => Def.Kind == EntityKind.Upyr ? 2.6f : 1.6f;
+        public float ExposureNeeded => (Def.Kind == EntityKind.Upyr ? 2.6f : 1.6f) * (Weakened ? 0.5f : 1f);
+        public bool Weakened { get; set; }          // игрок верно назвал её имя
+        public float SpeedMul { get; set; } = 1f;   // затаился — медленнее, зашумел — быстрее
         public float Seed { get; private set; }
 
         static readonly int FadeId = Shader.PropertyToID("_Fade");
@@ -54,7 +56,7 @@ namespace GhostWard
             return m;
         }
 
-        public static Entity Create(EntityDef def, Vector3 position, Camera cam, Game game, float aggression)
+        public static Entity Create(EntityDef def, Vector3 position, Camera cam, Game game, float aggression, float lurk = -1f)
         {
             var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
             go.name = def.Name;
@@ -111,7 +113,7 @@ namespace GhostWard
 
             e.sparks = Effects.CreateSparks(go.transform, def.Accent);
             // мара не подкрадывается — она просто оказывается рядом
-            e.Lurk(def.Kind == EntityKind.Mara ? Random.Range(2f, 3f) : Random.Range(4f, 7f));
+            e.Lurk(lurk > 0f ? lurk : def.Kind == EntityKind.Mara ? Random.Range(2f, 3f) : Random.Range(4f, 7f));
             return e;
         }
 
@@ -228,7 +230,7 @@ namespace GhostWard
                     break;
 
                 case EntityKind.Poltergeist:
-                    nextEvent -= dt;
+                    nextEvent -= dt * SpeedMul;
                     if (nextEvent > 0f) break;
                     if (throwsLeft-- > 0)
                     {
@@ -348,7 +350,7 @@ namespace GhostWard
         {
             var dir = cam.transform.position - transform.position;
             dir.y = Planar ? 0f : dir.y * 0.4f;
-            var step = dir.normalized * (v * Time.deltaTime);
+            var step = dir.normalized * (v * SpeedMul * Time.deltaTime);
             if (Def.Kind != EntityKind.Upyr)
             {
                 var side = Vector3.Cross(Vector3.up, dir.normalized);

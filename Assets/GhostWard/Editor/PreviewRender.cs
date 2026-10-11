@@ -60,9 +60,10 @@ namespace GhostWard.EditorTools
             Catalog.MarkSeen(EntityKind.Albasty);
             Catalog.MarkSeen(EntityKind.Mara);
 
-            Shoot("list", ui => ui.DebugJournal(null, false));
-            Shoot("entry", ui => ui.DebugJournal(EntityKind.Albasty, false));
-            Shoot("items", ui => ui.DebugJournal(null, true));
+            Shoot("list", ui => ui.DebugJournal("list"));
+            Shoot("entry", ui => ui.DebugJournal("entry", EntityKind.Kikimora));
+            Shoot("clues", ui => ui.DebugJournal("clues"));
+            Shoot("howto", ui => ui.DebugJournal("howto"));
         }
 
         static void Shoot(string name, System.Action<GameUI> open)

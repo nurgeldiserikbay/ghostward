@@ -66,7 +66,6 @@ namespace GhostWard
                 var cb = new UnityEngine.Android.PermissionCallbacks();
                 cb.PermissionGranted += _ => StartWebcam();
                 cb.PermissionDenied += _ => camStatus = "разрешение отклонено";
-                cb.PermissionDeniedAndDontAskAgain += _ => camStatus = "разрешение отклонено навсегда";
                 UnityEngine.Android.Permission.RequestUserPermission(UnityEngine.Android.Permission.Camera, cb);
                 return;
             }

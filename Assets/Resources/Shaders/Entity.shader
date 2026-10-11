@@ -318,7 +318,7 @@ Shader "GhostWard/Entity"
                 alpha += glow;
 
                 // закрытая запись энциклопедии — только чёрный силуэт
-                if (_Locked > 0.5) { col = float3(0.0, 0.0, 0.0); alpha = inside * 0.9; }
+                if (_Locked > 0.5) { col = float3(0.13, 0.12, 0.15); alpha = inside * 0.9; }
 
                 float n = hash21(floor(i.uv * 28.0) + _Seed);
                 if (_Dissolve > 0.0)

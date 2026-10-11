@@ -61,8 +61,19 @@ namespace GhostWard
             return best;
         }
 
-        // Случайный сектор с перевесом в сторону самых тёмных, не ближе minAngle к направлению взгляда.
-        public bool TryPick(Vector3 viewForward, float minAngle, out float yawDeg, out float pitchDeg)
+        // вес полос высоты (снизу вверх) для каждого логова
+        static float[] Bands(Lair lair) => lair switch
+        {
+            Lair.Floor => new[] { 1f, 1f, 0.2f, 0f, 0f },
+            Lair.Ceiling => new[] { 0f, 0f, 0.1f, 0.6f, 1f },
+            Lair.DarkCorner => new[] { 0.5f, 1f, 1f, 0.3f, 0.1f },
+            Lair.Far => new[] { 0.1f, 0.6f, 1f, 0.5f, 0.1f },
+            _ => new[] { 0.25f, 1f, 1f, 0.6f, 0.25f }
+        };
+
+        // Случайный сектор с перевесом в сторону самых тёмных (для Lair.Bright — самых светлых),
+        // не ближе minAngle к направлению взгляда, с учётом высоты логова.
+        public bool TryPick(Vector3 viewForward, float minAngle, Lair lair, out float yawDeg, out float pitchDeg)
         {
             yawDeg = pitchDeg = 0f;
             if (Empty) return false;
@@ -70,6 +81,7 @@ namespace GhostWard
 
             float total = 0f;
             var weights = new float[YawCells, PitchCells];
+            var bands = Bands(lair);
             for (int y = 0; y < YawCells; y++)
             {
                 float cy = CellYaw(y);
@@ -78,9 +90,8 @@ namespace GhostWard
                 {
                     float d = Darkness(y, p);
                     if (d < 0f) continue;
-                    // потолок и пол под ногами — редко; уровень глаз и чуть ниже — чаще
-                    float band = p is 1 or 2 ? 1f : p == 3 ? 0.6f : 0.25f;
-                    float w = (0.05f + d * d * d) * band;
+                    if (lair == Lair.Bright) d = 1f - d;
+                    float w = (0.05f + d * d * d) * bands[p];
                     weights[y, p] = w;
                     total += w;
                 }

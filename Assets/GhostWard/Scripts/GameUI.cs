@@ -18,13 +18,28 @@ namespace GhostWard
         public event Action StartPressed;
         public event Action NextNightPressed;
         public event Action<bool> JournalToggled;
+        public event Action<EntityKind> NamePressed;
+        public event Action SharePressed;
+
+        // можно ли сейчас назвать сущность (идёт расследование и имя ещё не названо)
+        public bool CanName { get; set; }
 
         public bool JournalOpen => journal.activeSelf;
 
         RectTransform root, shakeRoot, journalButton;
         Font font;
         GameObject hud, menu, dawn, over, loading, journal, scan, strip;
-        GameObject journalList, journalEntry, journalItems;
+        GameObject journalList, journalEntry, journalItems, journalClues, journalHowTo, nameButton, shareButton, micRoot;
+        Text phaseText, recText, hiddenText, suspectsText, dawnSupply;
+        RawImage dawnPhoto;
+        UILine needle;
+        readonly List<(RectTransform rt, int yaw)> compassTicks = new();
+        readonly List<(Text label, int yaw)> compassLabels = new();
+        readonly Image[] micBars = new Image[5];
+        readonly bool[] marks = new bool[7];
+        readonly List<(UILine box, UILine check)> clueRows = new();
+        EntityKind openedEntry;
+        float recBlink;
         Text nightText, clockText, messageText, supplyText, diagText, menuMode, dawnText, overText, scanText;
         Text entryName, entryOrigin, entryText, entryItem, entryCount;
         RectTransform entryItemIcon, entryGestureIcon;
@@ -151,6 +166,35 @@ namespace GhostWard
             var fearLabel = Label(bar, "СТРАХ", 24, new Vector2(0.5f, 0f), new Vector2(0, -26), Dim);
             fearLabel.rectTransform.sizeDelta = new Vector2(300, 40);
 
+            phaseText = Label(hud.transform, "", 30, new Vector2(0.5f, 1f), new Vector2(0, -275), Dim);
+            phaseText.rectTransform.sizeDelta = new Vector2(600, 44);
+            BuildCompass();
+
+            recText = Label(hud.transform, "● REC", 30, new Vector2(0f, 1f), new Vector2(40, -240), new Color(0.9f, 0.1f, 0.1f));
+            recText.alignment = TextAnchor.MiddleLeft;
+            recText.rectTransform.pivot = new Vector2(0f, 0.5f);
+            recText.gameObject.SetActive(false);
+
+            // шум с микрофона — чтобы игрок учился быть тихим
+            micRoot = Rect(hud.transform, "Mic", new Vector2(0f, 0f), new Vector2(0f, 0f)).gameObject;
+            ((RectTransform)micRoot.transform).anchoredPosition = new Vector2(60, 120);
+            var micLabel = Label(micRoot.transform, "ШУМ", 24, new Vector2(0.5f, 0.5f), new Vector2(60, 40), Dim);
+            micLabel.rectTransform.sizeDelta = new Vector2(160, 36);
+            for (int i = 0; i < micBars.Length; i++)
+            {
+                var b = Rect(micRoot.transform, "Bar", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
+                b.pivot = new Vector2(0.5f, 0f);
+                b.anchoredPosition = new Vector2(i * 22, 0);
+                b.sizeDelta = new Vector2(14, 12 + i * 8);
+                micBars[i] = b.gameObject.AddComponent<Image>();
+                micBars[i].raycastTarget = false;
+            }
+            micRoot.SetActive(false);
+
+            hiddenText = Label(hud.transform, "ты затаился", 32, new Vector2(0.5f, 0.3f), Vector2.zero, Dim);
+            hiddenText.fontStyle = FontStyle.Italic;
+            hiddenText.gameObject.SetActive(false);
+
             // дневник — книжка в левом верхнем углу
             journalButton = Rect(hud.transform, "JournalButton", new Vector2(0f, 1f), new Vector2(0f, 1f));
             journalButton.sizeDelta = new Vector2(150, 150);
@@ -162,6 +206,36 @@ namespace GhostWard
             btn.transition = Selectable.Transition.None;
             btn.onClick.AddListener(() => SetJournal(true));
             Icons.Book(journalButton, Dim);
+        }
+
+        // компас: деления сторон света двигаются с поворотом; стрелка дрожит у логова (улика «Компас»)
+        void BuildCompass()
+        {
+            var rt = Rect(hud.transform, "Compass", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+            rt.anchoredPosition = new Vector2(0, -345);
+            for (int yaw = 0; yaw < 360; yaw += 15)
+            {
+                var tick = Rect(rt, "Tick", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
+                bool major = yaw % 90 == 0;
+                tick.sizeDelta = new Vector2(3, major ? 26 : 14);
+                var img = tick.gameObject.AddComponent<Image>();
+                img.color = major ? Bone : Dim;
+                img.raycastTarget = false;
+                compassTicks.Add((tick, yaw));
+                if (major)
+                {
+                    string n = yaw switch { 0 => "С", 90 => "В", 180 => "Ю", _ => "З" };
+                    var l = Label(rt, n, 26, new Vector2(0.5f, 0.5f), new Vector2(0, 32), Dim);
+                    l.rectTransform.sizeDelta = new Vector2(60, 36);
+                    compassLabels.Add((l, yaw));
+                }
+            }
+            needle = Rect(rt, "Needle", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<UILine>();
+            needle.Filled = true;
+            needle.raycastTarget = false;
+            needle.color = Bone;
+            needle.SetPoints(new[] { new Vector2(0, 8), new Vector2(10, -22), new Vector2(-10, -22) });
+            needle.rectTransform.anchoredPosition = new Vector2(0, -26);
         }
 
         void BuildScan()
@@ -226,12 +300,18 @@ namespace GhostWard
         void BuildDawn()
         {
             dawn = Panel(root, "Dawn");
-            var t = Label(dawn.transform, "РАССВЕТ", 110, new Vector2(0.5f, 0.66f), Vector2.zero, new Color(1f, 0.85f, 0.6f));
-            t.rectTransform.sizeDelta = new Vector2(1000, 150);
+            var t = Label(dawn.transform, "РАССВЕТ", 96, new Vector2(0.5f, 0.92f), Vector2.zero, new Color(1f, 0.85f, 0.6f));
+            t.rectTransform.sizeDelta = new Vector2(1000, 130);
             t.fontStyle = FontStyle.Bold;
-            dawnText = Label(dawn.transform, "", 36, new Vector2(0.5f, 0.5f), Vector2.zero, Bone);
-            dawnText.rectTransform.sizeDelta = new Vector2(940, 260);
-            Button(dawn.transform, "СЛЕДУЮЩАЯ НОЧЬ", new Vector2(0.5f, 0.3f), () => NextNightPressed?.Invoke(), true);
+            dawnPhoto = Rect(dawn.transform, "Photo", new Vector2(0.5f, 0.64f), new Vector2(0.5f, 0.64f)).gameObject.AddComponent<RawImage>();
+            dawnPhoto.rectTransform.sizeDelta = new Vector2(300, 620);
+            dawnPhoto.raycastTarget = false;
+            dawnText = Label(dawn.transform, "", 34, new Vector2(0.5f, 0.38f), Vector2.zero, Bone);
+            dawnText.rectTransform.sizeDelta = new Vector2(940, 200);
+            dawnSupply = Label(dawn.transform, "", 28, new Vector2(0.5f, 0.28f), Vector2.zero, Dim);
+            dawnSupply.rectTransform.sizeDelta = new Vector2(940, 120);
+            shareButton = Button(dawn.transform, "ПОДЕЛИТЬСЯ ФОТО", new Vector2(0.5f, 0.17f), () => SharePressed?.Invoke(), false);
+            Button(dawn.transform, "СЛЕДУЮЩАЯ НОЧЬ", new Vector2(0.5f, 0.08f), () => NextNightPressed?.Invoke(), true);
         }
 
         void BuildOver()
@@ -253,6 +333,8 @@ namespace GhostWard
             BuildJournalList();
             BuildJournalEntry();
             BuildJournalItems();
+            BuildJournalClues();
+            BuildJournalHowTo();
             journal.SetActive(false);
         }
 
@@ -291,8 +373,10 @@ namespace GhostWard
                 cards.Add((kind, pic, mat, name));
             }
 
-            Button(journalList.transform, "ПРЕДМЕТЫ", new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalItems), false);
-            Button(journalList.transform, "ЗАКРЫТЬ", new Vector2(0.5f, 0.06f), () => SetJournal(false), false);
+            Button(journalList.transform, "УЛИКИ", new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalClues), true, 310, -165);
+            Button(journalList.transform, "ПРЕДМЕТЫ", new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalItems), false, 310, 165);
+            Button(journalList.transform, "КАК ИГРАТЬ", new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalHowTo), false, 310, -165);
+            Button(journalList.transform, "ЗАКРЫТЬ", new Vector2(0.5f, 0.06f), () => SetJournal(false), false, 310, 165);
         }
 
         void BuildJournalEntry()
@@ -321,13 +405,129 @@ namespace GhostWard
             entryCount = Label(journalEntry.transform, "", 26, new Vector2(0.5f, 1f), new Vector2(230, -640), Dim);
             entryCount.rectTransform.sizeDelta = new Vector2(500, 40);
 
-            entryText = Label(journalEntry.transform, "", 32, new Vector2(0.5f, 1f), new Vector2(0, -700), Bone);
+            entryText = Label(journalEntry.transform, "", 29, new Vector2(0.5f, 1f), new Vector2(0, -690), Bone);
             entryText.rectTransform.pivot = new Vector2(0.5f, 1f);
-            entryText.rectTransform.sizeDelta = new Vector2(940, 900);
+            entryText.rectTransform.sizeDelta = new Vector2(940, 860);
             entryText.alignment = TextAnchor.UpperLeft;
             entryText.supportRichText = true;
 
+            nameButton = Button(journalEntry.transform, "ЭТО ОНА", new Vector2(0.5f, 0.135f), () =>
+            {
+                SetJournal(false);
+                NamePressed?.Invoke(openedEntry);
+            }, true);
             Button(journalEntry.transform, "НАЗАД", new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
+        }
+
+        // Улики: отмечай замеченное — ниже остаются только подходящие сущности.
+        void BuildJournalClues()
+        {
+            journalClues = Rect(journal.transform, "Clues", Vector2.zero, Vector2.one).gameObject;
+            var title = Label(journalClues.transform, "УЛИКИ", 64, new Vector2(0.5f, 0.95f), Vector2.zero, Bone);
+            title.rectTransform.sizeDelta = new Vector2(900, 100);
+            title.fontStyle = FontStyle.Bold;
+            var sub = Label(journalClues.transform, "Отмечай, что заметил этой ночью", 28, new Vector2(0.5f, 0.91f), Vector2.zero, Dim);
+            sub.rectTransform.sizeDelta = new Vector2(900, 44);
+
+            for (int i = 0; i < Catalog.Clues.Length; i++)
+            {
+                var def = Catalog.Clues[i];
+                int index = i;
+                var row = Rect(journalClues.transform, def.Name, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+                row.sizeDelta = new Vector2(1000, 140);
+                row.anchoredPosition = new Vector2(0, -270 - i * 150);
+                var bg = row.gameObject.AddComponent<Image>();
+                bg.color = new Color(0, 0, 0, 0.01f);
+                var btn = row.gameObject.AddComponent<UnityEngine.UI.Button>();
+                btn.targetGraphic = bg;
+                btn.transition = Selectable.Transition.None;
+                btn.onClick.AddListener(() => ToggleClue(index));
+
+                var box = Rect(row, "Box", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<UILine>();
+                box.rectTransform.anchoredPosition = new Vector2(-450, 0);
+                box.Closed = true;
+                box.Thickness = 4f;
+                box.color = Bone;
+                box.raycastTarget = false;
+                box.SetPoints(new[] { new Vector2(-24, 24), new Vector2(24, 24), new Vector2(24, -24), new Vector2(-24, -24) });
+                var check = Rect(row, "Check", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<UILine>();
+                check.rectTransform.anchoredPosition = new Vector2(-450, 0);
+                check.Thickness = 7f;
+                check.color = new Color(1f, 0.75f, 0.45f);
+                check.raycastTarget = false;
+                check.SetPoints(new[] { new Vector2(-14, 0), new Vector2(-4, -12), new Vector2(16, 14) });
+                check.gameObject.SetActive(false);
+
+                var icon = Rect(row, "Icon", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
+                icon.anchoredPosition = new Vector2(-350, 0);
+                icon.localScale = Vector3.one * 0.7f;
+                Icons.Clue(icon, def.Kind, Bone);
+
+                var text = Label(row, $"<b>{def.Name}</b>\n{def.HowTo}", 27, new Vector2(0.5f, 0.5f), new Vector2(110, 0), Bone);
+                text.rectTransform.sizeDelta = new Vector2(700, 130);
+                text.alignment = TextAnchor.MiddleLeft;
+                clueRows.Add((box, check));
+            }
+
+            suspectsText = Label(journalClues.transform, "", 30, new Vector2(0.5f, 1f), new Vector2(0, -1350), new Color(1f, 0.75f, 0.45f));
+            suspectsText.rectTransform.sizeDelta = new Vector2(940, 110);
+            Button(journalClues.transform, "НАЗАД", new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
+            UpdateSuspects();
+        }
+
+        void ToggleClue(int i)
+        {
+            marks[i] = !marks[i];
+            clueRows[i].check.gameObject.SetActive(marks[i]);
+            UpdateSuspects();
+        }
+
+        void UpdateSuspects()
+        {
+            var names = new List<string>();
+            foreach (var e in Catalog.Entities)
+            {
+                bool fits = true;
+                for (int i = 0; i < marks.Length; i++)
+                    if (marks[i] && !Catalog.Has(e, (Evidence)i)) fits = false;
+                if (fits) names.Add(e.Name);
+            }
+            int marked = 0;
+            foreach (var m in marks) if (m) marked++;
+            suspectsText.text = marked == 0 ? "Подходят все. Отметь хотя бы одну улику."
+                : names.Count == 0 ? "Никто не подходит — проверь отметки."
+                : (names.Count == 1 ? "Это может быть только: " : "Подходят: ") + string.Join(", ", names);
+        }
+
+        public void ClearEvidence()
+        {
+            for (int i = 0; i < marks.Length; i++)
+            {
+                marks[i] = false;
+                if (i < clueRows.Count) clueRows[i].check.gameObject.SetActive(false);
+            }
+            UpdateSuspects();
+        }
+
+        void BuildJournalHowTo()
+        {
+            journalHowTo = Rect(journal.transform, "HowTo", Vector2.zero, Vector2.one).gameObject;
+            var title = Label(journalHowTo.transform, "КАК ИГРАТЬ", 64, new Vector2(0.5f, 0.95f), Vector2.zero, Bone);
+            title.rectTransform.sizeDelta = new Vector2(900, 100);
+            title.fontStyle = FontStyle.Bold;
+            var text = Label(journalHowTo.transform,
+                "<b>1. Осмотрись.</b> Обведи камерой комнату — игра запомнит, где темно.\n\n" +
+                "<b>2. Ищи знаки.</b> Сущность прячется в логове. Иней на краю экрана, шёпот, стук, помехи, дрожь компаса, силуэт в ночном режиме подскажут, где она и кто она.\n\n" +
+                "<b>3. Спроси вслух:</b> «Ты здесь?» Радио духов ответит, если у неё есть эта улика. Каждый вопрос её злит.\n\n" +
+                "<b>4. Отмечай улики</b> на странице «Улики» — останутся один-два подозреваемых. Где кто прячется — в статье о сущности.\n\n" +
+                "<b>5. Назови её.</b> Открой статью и нажми «Это она». Угадал — она слабеет. Ошибся — охота начнётся сразу.\n\n" +
+                "<b>6. Охота.</b> Микрофон слушает: не шуми. Замри и молчи — она теряет след. Изгнать можно только тем, чего она боится.\n\n" +
+                "Скрипы пола — просто старый дом. Не всё, что слышишь, — улика.",
+                30, new Vector2(0.5f, 1f), new Vector2(0, -200), Bone);
+            text.rectTransform.pivot = new Vector2(0.5f, 1f);
+            text.rectTransform.sizeDelta = new Vector2(940, 1300);
+            text.alignment = TextAnchor.UpperLeft;
+            Button(journalHowTo.transform, "НАЗАД", new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
         }
 
         void BuildJournalItems()
@@ -373,22 +573,32 @@ namespace GhostWard
             journalList.SetActive(page == journalList);
             journalEntry.SetActive(page == journalEntry);
             journalItems.SetActive(page == journalItems);
+            journalClues.SetActive(page == journalClues);
+            journalHowTo.SetActive(page == journalHowTo);
         }
 
         void OpenEntry(EntityKind kind)
         {
-            if (!Catalog.Seen(kind)) { Message("Ты ещё не встречал её. Продержись дольше.", 2f); return; }
             var def = Catalog.Get(kind);
             var item = Catalog.Get(def.Bane);
+            bool seen = Catalog.Seen(kind);
+            openedEntry = kind;
 
             if (entryMat != null) Destroy(entryMat);
             entryMat = Entity.CreateMaterial(def, 3.3f);
+            entryMat.SetFloat("_Locked", seen ? 0f : 1f);
             entryPicture.material = entryMat;
 
+            var clues = new List<string>();
+            foreach (var c in def.Clues) clues.Add(Catalog.Get(c).Name);
             entryName.text = def.Name.ToUpper();
             entryOrigin.text = def.Origin;
             entryText.text =
-                $"{def.Lore}\n\n<b>Как узнать.</b> {def.Signs}\n\n<b>Как защититься.</b> {def.Defense}";
+                $"<b>Где прячется.</b> {def.LairText}\n\n" +
+                $"<b>Улики:</b> <color=#ffc073>{string.Join(" · ", clues)}</color>\n\n" +
+                (seen ? def.Lore : "<i>Ты её ещё не встречал. Облик и легенда откроются после встречи.</i>") +
+                $"\n\n<b>На охоте.</b> {def.Signs}\n\n<b>Как защититься.</b> {def.Defense}";
+            nameButton.SetActive(CanName);
 
             Clear(entryItemIcon);
             Clear(entryGestureIcon);
@@ -400,11 +610,16 @@ namespace GhostWard
         }
 
         // для превью из редактора: открыть дневник на нужной странице
-        public void DebugJournal(EntityKind? entry, bool items)
+        public void DebugJournal(string page, EntityKind entry = EntityKind.Ghost)
         {
             SetJournal(true);
-            if (entry.HasValue) OpenEntry(entry.Value);
-            else if (items) ShowJournalPage(journalItems);
+            switch (page)
+            {
+                case "entry": OpenEntry(entry); break;
+                case "items": ShowJournalPage(journalItems); break;
+                case "clues": ToggleClue(0); ToggleClue(1); ShowJournalPage(journalClues); break;
+                case "howto": ShowJournalPage(journalHowTo); break;
+            }
         }
 
         static void Clear(Transform t)
@@ -421,7 +636,9 @@ namespace GhostWard
                 {
                     bool seen = Catalog.Seen(c.kind);
                     c.mat.SetFloat("_Locked", seen ? 0f : 1f);
-                    c.name.text = seen ? Catalog.Get(c.kind).Name : "???";
+                    // имена и улики нужны для расследования всегда; облик открывается после встречи
+                    c.name.text = Catalog.Get(c.kind).Name;
+                    c.name.color = seen ? Bone : Dim;
                 }
                 ShowJournalPage(journalList);
             }
@@ -439,16 +656,22 @@ namespace GhostWard
             foreach (var (kind, count) in itemRows) count.text = inv != null ? inv.Label(kind) : "";
         }
 
-        public void ShowDawn(int night, string supply)
+        public void ShowDawn(int night, string verdict, string supply, Texture2D photo)
         {
-            dawnText.text = $"Ночь {night} пережита.\n\nНашлось в доме:\n{supply}";
+            dawnText.text = $"Ночь {night} позади.\n{verdict}";
+            dawnSupply.text = $"Нашлось в доме:\n{supply}";
+            dawnPhoto.texture = photo;
+            dawnPhoto.gameObject.SetActive(photo != null);
+            if (photo != null)
+                dawnPhoto.rectTransform.sizeDelta = new Vector2(620f * photo.width / photo.height, 620f);
+            shareButton.SetActive(photo != null);
             ShowOnly(dawn);
             ClearEffects();
         }
 
-        public void ShowGameOver(int night, float progress, int best)
+        public void ShowGameOver(int night, float progress, int best, string who, Texture2D photo)
         {
-            overText.text = $"Ночь {night}, {Clock(progress)}\nДольше всего: ночь {best}";
+            overText.text = $"Ночь {night}, {Clock(progress)}\nЭто была: {who}\nДольше всего: ночь {best}";
             ShowOnly(over);
             ClearEffects();
         }
@@ -509,6 +732,52 @@ namespace GhostWard
             hud.activeSelf && RectTransformUtility.RectangleContainsScreenPoint(journalButton, screen, null);
 
         public void SetDiagnostics(string text) => diagText.text = text;
+
+        public void SetPhase(string text, bool hunt)
+        {
+            phaseText.text = text;
+            phaseText.color = hunt ? new Color(0.85f, 0.15f, 0.15f) : Dim;
+            recText.gameObject.SetActive(hunt);
+        }
+
+        public void SetCompass(Vector3 forward, float agitation)
+        {
+            float yaw = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
+            foreach (var (rt, tickYaw) in compassTicks)
+            {
+                float d = Mathf.DeltaAngle(yaw, tickYaw);
+                rt.gameObject.SetActive(Mathf.Abs(d) < 90f);
+                rt.anchoredPosition = new Vector2(d / 90f * 280f, 0f);
+            }
+            foreach (var (label, labelYaw) in compassLabels)
+            {
+                float d = Mathf.DeltaAngle(yaw, labelYaw);
+                label.gameObject.SetActive(Mathf.Abs(d) < 80f);
+                label.rectTransform.anchoredPosition = new Vector2(d / 90f * 280f, 32f);
+            }
+            needle.rectTransform.localEulerAngles = new Vector3(0, 0, agitation > 0f ? UnityEngine.Random.Range(-35f, 35f) : 0f);
+            needle.color = agitation > 0f ? new Color(1f, 0.4f, 0.3f) : Bone;
+        }
+
+        // уровень шума 0..1; отрицательный — микрофона нет
+        public void SetMic(float level, bool visible)
+        {
+            micRoot.SetActive(visible && level >= 0f);
+            if (!micRoot.activeSelf) return;
+            for (int i = 0; i < micBars.Length; i++)
+            {
+                bool lit = level * micBars.Length > i + 0.2f;
+                micBars[i].color = !lit ? new Color(1, 1, 1, 0.12f) : level > 0.35f ? new Color(0.9f, 0.15f, 0.1f) : Bone;
+            }
+        }
+
+        public void SetHidden(bool hidden) => hiddenText.gameObject.SetActive(hidden && hud.activeSelf);
+
+        public void PhotoFlash()
+        {
+            Flash(new Color(1f, 1f, 1f, 0.55f));
+            Supply("снимок сохранён");
+        }
 
         public void Message(string text, float seconds = 1.6f)
         {
@@ -589,9 +858,26 @@ namespace GhostWard
         }
 
         // иней с той стороны, где сущность (если её не видно на экране)
-        public void UpdateCues(Camera cam, List<Entity> entities)
+        public void UpdateCues(Camera cam, List<Entity> entities, Vector3? lairFrost = null)
         {
             for (int i = 0; i < 4; i++) edgeTarget[i] = 0f;
+            if (lairFrost.HasValue)
+            {
+                var vp = cam.WorldToViewportPoint(lairFrost.Value);
+                var dir = new Vector2(vp.x - 0.5f, vp.y - 0.5f);
+                if (vp.z < 0f) dir = -dir;
+                bool facing = vp.z > 0f && Mathf.Abs(dir.x) < 0.5f && Mathf.Abs(dir.y) < 0.5f;
+                if (facing)
+                    for (int i = 0; i < 4; i++) edgeTarget[i] = 0.7f;   // смотришь прямо на логово — иней со всех сторон
+                else
+                {
+                    dir.Normalize();
+                    edgeTarget[0] = Mathf.Max(0f, -dir.x);
+                    edgeTarget[1] = Mathf.Max(0f, dir.x);
+                    edgeTarget[2] = Mathf.Max(0f, dir.y);
+                    edgeTarget[3] = Mathf.Max(0f, -dir.y);
+                }
+            }
             foreach (var e in entities)
             {
                 if (e == null || !e.Alive) continue;
@@ -628,6 +914,9 @@ namespace GhostWard
                 supplyTimer -= dt;
                 SetAlpha(supplyText, Mathf.Clamp01(supplyTimer / 0.4f) * 0.7f);
             }
+
+            recBlink += dt;
+            if (recText.gameObject.activeSelf) SetAlpha(recText, recBlink % 1f < 0.6f ? 1f : 0.2f);
 
             bool inNight = hud.activeSelf;
             float dark = inNight ? 0.55f + fear * 0.35f : 0f;
@@ -756,19 +1045,21 @@ namespace GhostWard
             return f;
         }
 
-        void Button(Transform parent, string text, Vector2 anchor, Action onClick, bool primary)
+        GameObject Button(Transform parent, string text, Vector2 anchor, Action onClick, bool primary, float width = 640f, float offsetX = 0f)
         {
             var rt = Rect(parent, text, anchor, anchor);
-            rt.sizeDelta = new Vector2(640, 130);
+            rt.sizeDelta = new Vector2(width, 130);
+            rt.anchoredPosition = new Vector2(offsetX, 0f);
             var img = rt.gameObject.AddComponent<Image>();
             img.color = primary ? Blood : Ink;
             var btn = rt.gameObject.AddComponent<UnityEngine.UI.Button>();
             btn.targetGraphic = img;
             btn.onClick.AddListener(() => onClick());
-            Frame(rt, 640, 130, primary ? Bone : Dim, 4f);
-            var label = Label(rt, text, 46, new Vector2(0.5f, 0.5f), Vector2.zero, Bone);
-            label.rectTransform.sizeDelta = new Vector2(620, 120);
+            Frame(rt, width, 130, primary ? Bone : Dim, 4f);
+            var label = Label(rt, text, width < 400f ? 38 : 46, new Vector2(0.5f, 0.5f), Vector2.zero, Bone);
+            label.rectTransform.sizeDelta = new Vector2(width - 20f, 120);
             label.fontStyle = FontStyle.Bold;
+            return rt.gameObject;
         }
     }
 }

@@ -190,6 +190,68 @@ namespace GhostWard
             }
         }
 
+        // значки улик для дневника
+        public static void Clue(RectTransform parent, Evidence e, Color color)
+        {
+            switch (e)
+            {
+                case Evidence.Frost:
+                    for (int i = 0; i < 3; i++)
+                    {
+                        float a = i * Mathf.PI / 3f;
+                        var d = new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * 46f;
+                        Line(parent, color, 5f, false, -d, d);
+                        var n = new Vector2(-d.y, d.x).normalized * 12f;
+                        Line(parent, color, 4f, false, d * 0.6f + n, d * 0.8f, d * 0.6f - n);
+                        Line(parent, color, 4f, false, -d * 0.6f + n, -d * 0.8f, -d * 0.6f - n);
+                    }
+                    break;
+                case Evidence.Whisper:
+                    Poly(parent, color, Diamond(new Vector2(-34, 0), 9f));
+                    for (int k = 1; k <= 3; k++)
+                    {
+                        float r = 14f + k * 16f;
+                        Line(parent, color, 4f, false, new Vector2(-34 + r * 0.5f, r * 0.8f), new Vector2(-34 + r, 0), new Vector2(-34 + r * 0.5f, -r * 0.8f));
+                    }
+                    break;
+                case Evidence.Compass:
+                    Line(parent, color, 4f, true, Ring(44f, 16));
+                    Poly(parent, new Color(1f, 0.4f, 0.3f), new List<Vector2> { new(0, 36), new(9, 0), new(-9, 0) });
+                    Poly(parent, color, new List<Vector2> { new(0, -36), new(-9, 0), new(9, 0) });
+                    break;
+                case Evidence.Static:
+                    Line(parent, color, 5f, true, new Vector2(-46, -34), new Vector2(46, -34), new Vector2(46, 34), new Vector2(-46, 34));
+                    Line(parent, color, 4f, false, new Vector2(-36, 0), new Vector2(-22, 18), new Vector2(-8, -16), new Vector2(6, 20), new Vector2(20, -14), new Vector2(36, 6));
+                    break;
+                case Evidence.Knock:
+                    for (int k = -1; k <= 1; k++)
+                        Line(parent, color, 9f, false, new Vector2(k * 26, -22), new Vector2(k * 26, 22));
+                    Line(parent, color, 3f, false, new Vector2(-50, 30), new Vector2(-40, 22));
+                    Line(parent, color, 3f, false, new Vector2(50, 30), new Vector2(40, 22));
+                    break;
+                case Evidence.Radio:
+                    Line(parent, color, 5f, true, new Vector2(-44, -30), new Vector2(44, -30), new Vector2(44, 22), new Vector2(-44, 22));
+                    Line(parent, color, 4f, false, new Vector2(20, 22), new Vector2(40, 52));
+                    Line(parent, color, 4f, true, ShiftRing(new Vector2(-18, -4), 14f, 12));
+                    for (int k = 0; k < 3; k++) Line(parent, color, 3f, false, new Vector2(10, 8 - k * 12), new Vector2(34, 8 - k * 12));
+                    break;
+                case Evidence.NightVision:
+                    Line(parent, color, 5f, false, new Vector2(-48, 0), new Vector2(-24, 22), new Vector2(24, 22), new Vector2(48, 0));
+                    Line(parent, color, 5f, false, new Vector2(-48, 0), new Vector2(-24, -22), new Vector2(24, -22), new Vector2(48, 0));
+                    Poly(parent, color, Diamond(Vector2.zero, 12f));
+                    Line(parent, color, 2f, false, new Vector2(-40, -34), new Vector2(40, -34));
+                    Line(parent, color, 2f, false, new Vector2(-40, 34), new Vector2(40, 34));
+                    break;
+            }
+        }
+
+        static Vector2[] ShiftRing(Vector2 c, float r, int n)
+        {
+            var pts = Ring(r, n);
+            for (int i = 0; i < pts.Length; i++) pts[i] += c;
+            return pts;
+        }
+
         static Vector2[] Ring(float r, int n)
         {
             var pts = new Vector2[n];

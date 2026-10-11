@@ -9,6 +9,19 @@ namespace GhostWard
 
     public enum Gesture { SwipeUp, Hold, DoubleTap, Shake, SwipeDown, Zigzag }
 
+    // Улики: у каждой сущности ровно три, комбинации не повторяются.
+    public enum Evidence { Frost, Whisper, Compass, Static, Knock, Radio, NightVision }
+
+    // Где сущность устраивает логово — откуда идут улики и откуда она выходит на охоту.
+    public enum Lair { DarkCorner, Floor, Behind, Ceiling, Bright, Near, Far }
+
+    public struct EvidenceDef
+    {
+        public Evidence Kind;
+        public string Name;
+        public string HowTo;     // как заметить
+    }
+
     public struct EntityDef
     {
         public EntityKind Kind;
@@ -22,6 +35,9 @@ namespace GhostWard
         public string Signs;      // как узнать
         public string Defense;    // как защититься
         public string Hint;       // подсказка при самой первой встрече
+        public Evidence[] Clues;  // три улики
+        public Lair Lair;
+        public string LairText;   // где появляется
     }
 
     public struct ItemDef
@@ -45,7 +61,9 @@ namespace GhostWard
                 Lore = "Душа, которая не ушла. Привязана к месту, где умерла, и не понимает, что её время кончилось. Тянется к живым, чтобы согреться, — и забирает тепло.",
                 Signs = "Шёпот, внезапный холод. Тает и возникает ближе, в другом месте.",
                 Defense = "Соль — граница, которую мёртвые не переступают. Брось горсть прямо в него.",
-                Hint = "Это призрак. Он боится соли: смахни пальцем вверх, глядя на него."
+                Hint = "Это призрак. Он боится соли: смахни пальцем вверх, глядя на него.",
+                Clues = new[] { Evidence.Frost, Evidence.Whisper, Evidence.Radio }, Lair = Lair.Far,
+                LairText = "В самом дальнем тёмном месте комнаты: у окна, в проёме двери, в конце коридора."
             },
             new EntityDef
             {
@@ -55,7 +73,9 @@ namespace GhostWard
                 Lore = "Человеческий силуэт без лица, который видят краем глаза. Живёт в темноте между мебелью и стеной. Свет для неё — как огонь.",
                 Signs = "Тяжёлое дыхание. В темноте движется быстро, на свету замирает.",
                 Defense = "Свет. Включи фонарь и держи её в луче, пока не сгорит.",
-                Hint = "Это тень. Она боится света: зажми палец — фонарь — и держи её в луче."
+                Hint = "Это тень. Она боится света: зажми палец — фонарь — и держи её в луче.",
+                Clues = new[] { Evidence.NightVision, Evidence.Static, Evidence.Frost }, Lair = Lair.DarkCorner,
+                LairText = "В самом тёмном углу — между шкафом и стеной, за дверью."
             },
             new EntityDef
             {
@@ -65,7 +85,9 @@ namespace GhostWard
                 Lore = "Женщина с длинными спутанными волосами и вывернутыми ступнями. Приходит к спящим и к роженицам, садится на грудь и душит. Издавна от неё кладут под подушку нож или иглу.",
                 Signs = "Тихий смех. Подходит, только когда на неё не смотрят. Под взглядом замирает.",
                 Defense = "Железо, но только вплотную. Не отводи взгляд, дай ей подойти и ударь.",
-                Hint = "Это албасты. Она боится железа: подпусти вплотную и коснись экрана дважды."
+                Hint = "Это албасты. Она боится железа: подпусти вплотную и коснись экрана дважды.",
+                Clues = new[] { Evidence.Whisper, Evidence.Compass, Evidence.NightVision }, Lair = Lair.Behind,
+                LairText = "Всегда за спиной: там, куда ты не смотрел, когда началась ночь."
             },
             new EntityDef
             {
@@ -75,7 +97,9 @@ namespace GhostWard
                 Lore = "«Шумный дух». Его никто не видел — только слышали стук, видели летящую посуду и сдвинутую мебель. С каждым разом бьёт сильнее.",
                 Signs = "Стук и грохот с одной стороны. Невидим.",
                 Defense = "Колокольчик. Повернись туда, откуда стучит, и позвони.",
-                Hint = "Это полтергейст. Он боится колокольчика: повернись на стук и встряхни телефон."
+                Hint = "Это полтергейст. Он боится колокольчика: повернись на стук и встряхни телефон.",
+                Clues = new[] { Evidence.Knock, Evidence.Static, Evidence.Compass }, Lair = Lair.Near,
+                LairText = "Рядом, сбоку — где стоят вещи, которые можно уронить."
             },
             new EntityDef
             {
@@ -85,7 +109,9 @@ namespace GhostWard
                 Lore = "Встретить своего двойника — к беде. Он повторяет каждое твоё движение и ждёт, когда ты ошибёшься, чтобы занять твоё место. Своего отражения не выносит.",
                 Signs = "Тёмная фигура с широкой улыбкой. Подходит, только когда ты двигаешься. Стой — и он стоит.",
                 Defense = "Зеркало. Повернись к нему и покажи отражение.",
-                Hint = "Это двойник. Он движется, пока движешься ты. Боится зеркала: смахни пальцем вниз."
+                Hint = "Это двойник. Он движется, пока движешься ты. Боится зеркала: смахни пальцем вниз.",
+                Clues = new[] { Evidence.Radio, Evidence.NightVision, Evidence.Compass }, Lair = Lair.Bright,
+                LairText = "В самом светлом месте: у лампы, окна или зеркала. Тьмы он не любит."
             },
             new EntityDef
             {
@@ -95,7 +121,9 @@ namespace GhostWard
                 Lore = "Маленькая, тощая, с длинными пальцами. Ночью бегает по потолку и стенам, прядёт, путает волосы спящим. Не выносит запаха полыни и чертополоха.",
                 Signs = "Скрежет сверху. Ползёт по потолку и падает сверху, когда рядом.",
                 Defense = "Полынь. Помаши ею перед кикиморой — дым её выгонит.",
-                Hint = "Это кикимора. Смотри наверх! Боится полыни: проведи пальцем зигзагом влево-вправо."
+                Hint = "Это кикимора. Смотри наверх! Боится полыни: проведи пальцем зигзагом влево-вправо.",
+                Clues = new[] { Evidence.Knock, Evidence.Frost, Evidence.Whisper }, Lair = Lair.Ceiling,
+                LairText = "Наверху: в углу под потолком, на шкафу."
             },
             new EntityDef
             {
@@ -105,7 +133,9 @@ namespace GhostWard
                 Lore = "Мертвец, вставший из могилы за кровью. Ходит рывками: замер — бросок — замер. Боится света, как первого луча солнца.",
                 Signs = "Хрип. Двигается рывками, бросается и замирает.",
                 Defense = "Свет. Держи в луче фонаря дольше, чем тень, — упырь крепче.",
-                Hint = "Это упырь. Бросается рывками. Боится света: зажми палец и держи его в луче."
+                Hint = "Это упырь. Бросается рывками. Боится света: зажми палец и держи его в луче.",
+                Clues = new[] { Evidence.Knock, Evidence.Static, Evidence.NightVision }, Lair = Lair.Floor,
+                LairText = "Внизу: под кроватью, под столом, у самого пола."
             },
             new EntityDef
             {
@@ -115,7 +145,9 @@ namespace GhostWard
                 Lore = "Ночной морок, от которого не пошевелиться. Сгорбленная старуха садится совсем рядом и смотрит. Чем дольше смотришь на неё в ответ, тем сильнее страх.",
                 Signs = "Появляется вплотную. Страх растёт, пока ты на неё смотришь.",
                 Defense = "Звон колокольчика будит от морока. Не смотри на неё — позвони.",
-                Hint = "Это мара. Не смотри на неё! Встряхни телефон — колокольчик разбудит."
+                Hint = "Это мара. Не смотри на неё! Встряхни телефон — колокольчик разбудит.",
+                Clues = new[] { Evidence.Radio, Evidence.Frost, Evidence.Compass }, Lair = Lair.Near,
+                LairText = "Совсем рядом, на краю зрения. Будто сидит у изголовья."
             },
         };
 
@@ -135,13 +167,33 @@ namespace GhostWard
                 Usage = "Проведи пальцем зигзагом влево-вправо", Lore = "Пучок сухой полыни. Горький дым гонит нечисть." },
         };
 
+        public static readonly EvidenceDef[] Clues =
+        {
+            new EvidenceDef { Kind = Evidence.Frost, Name = "Холод",
+                HowTo = "По краю экрана выступает иней — с той стороны, где логово." },
+            new EvidenceDef { Kind = Evidence.Whisper, Name = "Шёпот",
+                HowTo = "Тихий шёпот из одной точки. В наушниках слышно, откуда." },
+            new EvidenceDef { Kind = Evidence.Compass, Name = "Компас",
+                HowTo = "Стрелка компаса вверху дрожит, когда смотришь на логово." },
+            new EvidenceDef { Kind = Evidence.Static, Name = "Помехи",
+                HowTo = "Картинка рвётся помехами, когда камера направлена на логово." },
+            new EvidenceDef { Kind = Evidence.Knock, Name = "Стук",
+                HowTo = "Три удара из одного места. Скрипы пола — не улика." },
+            new EvidenceDef { Kind = Evidence.Radio, Name = "Радио",
+                HowTo = "Спроси вслух: «Ты здесь?» — радио духов ответит искажённым голосом." },
+            new EvidenceDef { Kind = Evidence.NightVision, Name = "Силуэт",
+                HowTo = "В ночном режиме камеры на миг виден силуэт в логове." },
+        };
+
+        public static EvidenceDef Get(Evidence e) => Clues[(int)e];
+
+        public static bool Has(EntityDef def, Evidence e) => System.Array.IndexOf(def.Clues, e) >= 0;
+
         public static EntityDef Get(EntityKind k) => Entities[(int)k];
         public static ItemDef Get(ItemKind k) => Items[(int)k];
 
-        // Сколько видов сущностей открыто: две с начала и ещё по одной за каждые 2 минуты выживания.
-        public const float UnlockSeconds = 120f;
-        public static int Unlocked(float survivedSeconds) =>
-            Mathf.Clamp(2 + Mathf.FloorToInt(survivedSeconds / UnlockSeconds), 2, Entities.Length);
+        // Сколько видов может прийти в эту ночь: три в первую, затем по одному новому за ночь.
+        public static int PoolForNight(int night) => Mathf.Clamp(2 + night, 3, Entities.Length);
 
         // запись в энциклопедии открывается после первой встречи и сохраняется между играми
         public static bool Seen(EntityKind k) => PlayerPrefs.GetInt("seen_" + k, 0) == 1;
