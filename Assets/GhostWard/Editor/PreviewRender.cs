@@ -77,6 +77,7 @@ namespace GhostWard.EditorTools
                 Shoot($"settings_{l}", ui => ui.ShowSettings(), "screen");
                 Shoot($"tutorial_{l}", ui => ui.DebugTutorial(2), "screen");
                 Shoot($"ranks_{l}", ui => ui.DebugPanel("ranks"), "screen");
+                Shoot($"trophies_{l}", ui => ui.DebugPanel("trophies"), "screen");
                 Shoot($"story_{l}", ui => ui.DebugPanel("story"), "screen");
                 Shoot($"dawn_{l}", ui => ui.DebugPanel("dawn"), "screen");
                 Shoot($"hud_{l}", ui => ui.DebugHud(Inventory.Starting(), false), "screen");

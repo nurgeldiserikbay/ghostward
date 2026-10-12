@@ -62,6 +62,11 @@ namespace GhostWard
         Phase lostIn;
         bool revivedThisNight, bonusTaken, overXpGiven;
         int nightXp;   // опыт за находки этой ночи: тайники, фото
+
+        // модификатор ночи, дело дня, трофеи
+        Modifier modifier;
+        bool dailyMode, pendingDaily, heardThisHunt;
+        float thunderTimer, thunderMask;
         GameObject stash;
         float stashTimer, stashGaze, stashLife, stashSound, eventTimer;
         int stashesThisNight;
@@ -125,6 +130,7 @@ namespace GhostWard
 
             Settings.Apply();
             Ads.Init();
+            Trophies.Unlocked += t => ui.TrophyToast(Loc.F("trophy_got", Trophies.Name(t), Trophies.Reward));
             CreateUI();
             if (Loc.Chosen) ui.ShowMenu();
             else ui.ShowLanguage();
@@ -138,10 +144,17 @@ namespace GhostWard
             ui.StartPressed += () => { Ads.OnRetry(); StartGame(); };
             ui.PlayPressed += () =>
             {
+                pendingDaily = false;
                 if (Settings.TutorialSeen) StartCoroutine(Play());
                 else ui.OpenTutorial(true);
             };
             ui.TutorialFinished += () => StartCoroutine(Play());
+            ui.DailyPressed += () =>
+            {
+                pendingDaily = true;
+                if (Settings.TutorialSeen) StartCoroutine(Play());
+                else ui.OpenTutorial(true);
+            };
             ui.MenuPressed += ToMenu;
             ui.LanguageChosen += lang =>
             {
@@ -153,7 +166,12 @@ namespace GhostWard
                 if (firstTime) ui.ShowMenu();
                 else ui.ShowSettings();
             };
-            ui.NextNightPressed += StartNight;
+            ui.NextNightPressed += () =>
+            {
+                // дело дня — одна ночь; после рассвета — в меню
+                if (dailyMode) ToMenu();
+                else StartNight();
+            };
             ui.ToolSelected += t =>
             {
                 tool = t;
@@ -210,12 +228,14 @@ namespace GhostWard
                     cam = gyroRig.Cam;
                 }
             }
+            dailyMode = pendingDaily;
             StartGame();
             ui.Message(Loc.T(arRig != null ? "mode_ar" : "mode_gyro"), 3f);
         }
 
         void ToMenu()
         {
+            dailyMode = false;
             DestroyStash();
             ClearEntities();
             phase = Phase.Menu;
@@ -251,7 +271,12 @@ namespace GhostWard
             ui.SetTool(tool);
             ui.SetProtection(inv);
             ui.CloseBag();
-            target = PickTarget();
+            target = dailyMode ? Catalog.Get(Daily.Entity) : PickTarget();
+            modifier = dailyMode ? Daily.Modifier : Modifiers.Roll(night);
+            heardThisHunt = false;
+            thunderTimer = Random.Range(10f, 18f);
+            thunderMask = 0f;
+            ui.SetModifier(modifier == Modifier.None ? "" : Modifiers.Name(modifier));
             ui.ShowHud();
             ui.SetNight(night);
             ui.SetClock(0f);
@@ -309,7 +334,10 @@ namespace GhostWard
             phase = Phase.Investigate;
             ui.SetPhase(Loc.T("phase_investigate"), false);
             ui.SetCameraOverlay(Settings.Vision);
-            ui.Message(night == 1 ? Loc.T("intro_first") : Loc.F("intro_n", night), 6f);
+            string intro = dailyMode ? Loc.T("daily_intro") : night == 1 ? Loc.T("intro_first") : Loc.F("intro_n", night);
+            if (modifier != Modifier.None)
+                intro += $"\n\n<b>{Modifiers.Name(modifier)}.</b> {Modifiers.Desc(modifier)}\n" + Loc.F("xp_bonus", Modifiers.XpFactor(modifier).ToString("0.0#"));
+            ui.Message(intro, 7f);
 
             // бонус звания «Чутьё»: одна улика этой ночи отмечена заранее
             if (Progress.Instinct) ui.MarkClue((int)target.Clues[Random.Range(0, target.Clues.Length)]);
@@ -366,7 +394,7 @@ namespace GhostWard
 
         void UpdateInvestigation(float dt)
         {
-            anger += dt * (0.4f + night * 0.05f) * (tumar ? 0.6f : 1f);
+            anger += dt * (0.4f + night * 0.05f) * (tumar ? 0.6f : 1f) * (modifier == Modifier.FullMoon ? 1.5f : 1f);
             frostTime -= dt;
             staticTime -= dt;
             compassTime -= dt;
@@ -382,7 +410,7 @@ namespace GhostWard
             }
 
             // скрипы — ложная тревога, не улика
-            fakeTimer -= dt;
+            if (modifier != Modifier.Silence) fakeTimer -= dt;
             if (fakeTimer <= 0f)
             {
                 fakeTimer = Random.Range(10f, 18f);
@@ -460,6 +488,7 @@ namespace GhostWard
             if (phase != Phase.Investigate || named) return;
             named = true;
             namedRight = kind == target.Kind;
+            if (namedRight) Trophies.OnRightName();
             if (namedRight)
             {
                 ui.Message(Loc.T("named_right"), 3f);
@@ -589,7 +618,11 @@ namespace GhostWard
 
             if (hunter == null || !hunter.Alive)
             {
-                if (banishedTime < 0f) banishedTime = 0f;
+                if (banishedTime < 0f)
+                {
+                    banishedTime = 0f;
+                    Trophies.OnBanish(!heardThisHunt);
+                }
                 banishedTime += dt;
                 if (banishedTime > 1.6f) Dawn(true);
                 return;
@@ -597,9 +630,11 @@ namespace GhostWard
 
             // шум выдаёт игрока, тишина и неподвижность прячут
             heardTime -= dt;
-            if (mic.Loud && heardTime <= 0f)
+            bool noisy = mic.Loud || modifier == Modifier.Silence && mic.Speaking;
+            if (noisy && heardTime <= 0f && thunderMask <= 0f)
             {
                 heardTime = 3f;
+                heardThisHunt = true;
                 ui.Message(Loc.T("heard"), 1.5f);
             }
             bool still = TurnSpeed < 10f && !pressing && (!mic.Available || !mic.Speaking);
@@ -613,7 +648,7 @@ namespace GhostWard
                 Vector3.Angle(cam.transform.forward, hunter.transform.position - cam.transform.position) < 22f)
             {
                 photoTaking = true;
-                StartCoroutine(PhotoShare.Capture(tex => { photo = tex; photoTaking = false; nightXp += 25; ui.PhotoFlash(); }));
+                StartCoroutine(PhotoShare.Capture(tex => { photo = tex; photoTaking = false; nightXp += 25; Trophies.OnPhoto(target.Kind); ui.PhotoFlash(); }));
             }
         }
 
@@ -663,7 +698,8 @@ namespace GhostWard
             var episode = style == Vision.NightGreen ? Vision.Cctv : Vision.NightGreen;
             if (gyroRig != null) gyroRig.SetLook(style, episode, nightVision, glitch);
             float baseGrain = style switch { Vision.Normal => 0f, Vision.Dark => 0.05f, _ => 0.06f };
-            ui.DarkBase = style switch { Vision.Normal => 0.15f, Vision.Dark => 0.55f, _ => 0.38f };
+            ui.DarkBase = style switch { Vision.Normal => 0.15f, Vision.Dark => 0.55f, _ => 0.38f }
+                          + (modifier == Modifier.NewMoon && phase is Phase.Investigate or Phase.Hunt ? 0.15f : 0f);
             ui.SetGrain(baseGrain + nightVision * 0.08f + glitch * 0.25f);
         }
 
@@ -763,9 +799,24 @@ namespace GhostWard
                      + (banished ? 150 : 0)
                      + (namedRight ? 100 : 0)
                      + (banished && namedRight && !wrongItemUsed ? 50 : 0);
+            xp = Mathf.RoundToInt(xp * Modifiers.XpFactor(modifier));
+            string extra = "";
+            if (dailyMode)
+            {
+                if (Daily.Complete())
+                {
+                    xp *= 2;
+                    Trophies.OnDaily(Daily.Streak);
+                    extra = Loc.F("daily_done", Daily.Streak);
+                }
+                else extra = Loc.T("daily_again");
+            }
+            if (banished && namedRight && !wrongItemUsed) Trophies.OnCleanNight();
+            Trophies.OnNight(night);
             bool rankUp = Progress.AddXp(xp);
             bool newPage = Progress.AddSurvivedNight();
-            ui.ShowNightProgress(xp, rankUp, newPage);
+            ui.ShowNightProgress(xp, rankUp, newPage, extra);
+            ui.SetNextNightVisible(!dailyMode);
         }
 
         void GameOver()
@@ -817,7 +868,7 @@ namespace GhostWard
         {
             if (stash == null)
             {
-                if (phase != Phase.Investigate || stashesThisNight >= 2) return;
+                if (phase != Phase.Investigate || stashesThisNight >= (modifier == Modifier.NewMoon ? 3 : 2)) return;
                 stashTimer -= dt;
                 if (stashTimer > 0f) return;
                 SpawnStash();
@@ -845,6 +896,7 @@ namespace GhostWard
             {
                 string what = inv.Stash();
                 nightXp += 25;
+                Trophies.OnStash();
                 sfx.PlayOneShot(ProceduralAudio.BellRing(), 0.3f);
                 ui.Message(Loc.F("found_item", what), 2f);
                 ui.SetProtection(inv);
@@ -895,6 +947,23 @@ namespace GhostWard
         // Время от времени: шаги за спиной, хлопок двери, дыхание у самого уха, мигание света, шёпот.
         void UpdateScares(float dt)
         {
+            thunderMask -= dt;
+            if (modifier == Modifier.Storm)
+            {
+                thunderTimer -= dt;
+                if (thunderTimer <= 0f)
+                {
+                    thunderTimer = Random.Range(15f, 28f);
+                    thunderMask = 3f;
+                    ui.Flash(new Color(0.9f, 0.92f, 1f, 0.85f));
+                    ui.Shake(0.4f);
+                    var dir = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f) * Vector3.forward;
+                    PlayAt(ProceduralAudio.Crash(), cam.transform.position + dir * 6f, 0.9f);
+                    PlayAt(ProceduralAudio.Drone(), cam.transform.position + dir * 6f, 0.6f);
+                }
+            }
+            if (modifier == Modifier.Silence) return;
+
             eventTimer -= dt;
             if (eventTimer > 0f) return;
             eventTimer = Random.Range(16f, 32f) / (1f + fear / 100f);
@@ -956,6 +1025,7 @@ namespace GhostWard
             // при самой первой встрече — подсказка и картинка в дневнике; дальше игрок опознаёт сам
             if (Catalog.Seen(e.Def.Kind)) return;
             Catalog.MarkSeen(e.Def.Kind);
+            Trophies.OnSeen();
             ui.Message(e.Def.Hint + "\n\n" + Loc.T("new_entry"), 6f);
         }
 
@@ -1183,7 +1253,7 @@ namespace GhostWard
             on &= inv.Battery > 0f;
             if (on)
             {
-                inv.Battery = Mathf.Max(0f, inv.Battery - 9f * (Progress.SlowLantern ? 0.75f : 1f) * dt);
+                inv.Battery = Mathf.Max(0f, inv.Battery - 9f * (Progress.SlowLantern ? 0.75f : 1f) * (modifier == Modifier.NewMoon ? 2f : 1f) * dt);
                 if (inv.Battery <= 0f) Empty(Loc.T("lantern_out"));
             }
             ui.SetLantern(on, inv.Battery);

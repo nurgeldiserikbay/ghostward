@@ -24,6 +24,7 @@ namespace GhostWard
         public event Action<Protect> ProtectUsed;
         public event Action SecondChancePressed;
         public event Action BonusSupplyPressed;
+        public event Action DailyPressed;
         public event Action NextNightPressed;
         public event Action<bool> JournalToggled;
         public event Action<EntityKind> NamePressed;
@@ -71,6 +72,10 @@ namespace GhostWard
         Text rankName, rankXp, dawnXp, overXp, storyPageLabel, storyBody;
         RectTransform rankFill;
         int storyPage;
+        GameObject trophies, nextNightButton;
+        Text trophyText;
+        float trophyTimer;
+        string modifierName = "";
         readonly List<(Tool tool, Image bg)> toolButtons = new();
         readonly List<(Protect kind, Text label)> bagRows = new();
         Text nightText, clockText, messageText, supplyText, diagText, dawnText, overText, scanText;
@@ -172,6 +177,11 @@ namespace GhostWard
             jumpscare.rectTransform.sizeDelta = new Vector2(1100, 1380);
             jumpscare.raycastTarget = false;
             jumpscare.gameObject.SetActive(false);
+
+            trophyText = Label(root, "", 34, new Vector2(0.5f, 0.78f), Vector2.zero, new Color(1f, 0.8f, 0.4f));
+            trophyText.rectTransform.sizeDelta = new Vector2(980, 120);
+            trophyText.fontStyle = FontStyle.Bold;
+            Outline(trophyText);
 
             flash = Overlay(root, "Flash", Texture2D.whiteTexture, new Color(0, 0, 0, 0));
             grain = Overlay(root, "Grain", Textures.Noise(), new Color(1, 1, 1, 0.05f));
@@ -493,12 +503,13 @@ namespace GhostWard
             rankXp = Label(rank, "", 24, new Vector2(0.5f, 0f), new Vector2(0, 14), Dim);
             rankXp.rectTransform.sizeDelta = new Vector2(640, 36);
 
-            Button(menu.transform, Loc.T("play"), new Vector2(0.5f, 0.47f), () => PlayPressed?.Invoke(), true);
-            Button(menu.transform, Loc.T("journal"), new Vector2(0.5f, 0.39f), () => SetJournal(true), false);
-            Button(menu.transform, Loc.T("story"), new Vector2(0.5f, 0.31f), () => OpenStory(menu, Progress.StoryUnlocked), false);
-            Button(menu.transform, Loc.T("howto"), new Vector2(0.5f, 0.23f), () => OpenTutorial(false), false);
-            Button(menu.transform, Loc.T("settings"), new Vector2(0.5f, 0.15f), () => ShowOnly(settings), false);
-            var tip = Label(menu.transform, Loc.T("tip"), 28, new Vector2(0.5f, 0.07f), Vector2.zero, Dim);
+            Button(menu.transform, Loc.T("play"), new Vector2(0.5f, 0.49f), () => PlayPressed?.Invoke(), true);
+            Button(menu.transform, Loc.T("daily"), new Vector2(0.5f, 0.415f), () => DailyPressed?.Invoke(), false);
+            Button(menu.transform, Loc.T("journal"), new Vector2(0.5f, 0.34f), () => SetJournal(true), false);
+            Button(menu.transform, Loc.T("story"), new Vector2(0.5f, 0.265f), () => OpenStory(menu, Progress.StoryUnlocked), false);
+            Button(menu.transform, Loc.T("howto"), new Vector2(0.5f, 0.19f), () => OpenTutorial(false), false);
+            Button(menu.transform, Loc.T("settings"), new Vector2(0.5f, 0.115f), () => ShowOnly(settings), false);
+            var tip = Label(menu.transform, Loc.T("tip"), 26, new Vector2(0.5f, 0.045f), Vector2.zero, Dim);
             tip.rectTransform.sizeDelta = new Vector2(900, 50);
         }
 
@@ -649,9 +660,12 @@ namespace GhostWard
         public void SetSecondChance(bool available) => secondChance.SetActive(available);
 
         // опыт за ночь, новое звание, найденная страница истории
-        public void ShowNightProgress(int xp, bool rankUp, bool newPage)
+        public void SetNextNightVisible(bool visible) => nextNightButton.SetActive(visible);
+
+        public void ShowNightProgress(int xp, bool rankUp, bool newPage, string extra = "")
         {
             string text = Loc.F("xp_gain", xp);
+            if (!string.IsNullOrEmpty(extra)) text = extra + "\n" + text;
             if (rankUp)
             {
                 int r = Progress.Rank;
@@ -827,7 +841,7 @@ namespace GhostWard
             shareButton.GetComponentInChildren<Text>().fontSize = 30;
             bonusButton = Button(dawn.transform, Loc.T("bonus_supply"), new Vector2(0.5f, 0.142f), () => BonusSupplyPressed?.Invoke(), true, 330, 175);
             bonusButton.GetComponentInChildren<Text>().fontSize = 30;
-            Button(dawn.transform, Loc.T("next_night"), new Vector2(0.5f, 0.065f), () => NextNightPressed?.Invoke(), true, 470, 120);
+            nextNightButton = Button(dawn.transform, Loc.T("next_night"), new Vector2(0.5f, 0.065f), () => NextNightPressed?.Invoke(), true, 470, 120);
             Button(dawn.transform, Loc.T("menu"), new Vector2(0.5f, 0.065f), () => MenuPressed?.Invoke(), false, 220, -255);
         }
 
@@ -1054,6 +1068,12 @@ namespace GhostWard
                 : Loc.F(names.Count == 1 ? "sus_one" : "sus_many", string.Join(", ", names));
         }
 
+        public void TrophyToast(string text)
+        {
+            trophyText.text = text;
+            trophyTimer = 4f;
+        }
+
         public void MarkClue(int i)
         {
             if (i >= 0 && i < marks.Length && !marks[i]) ToggleClue(i);
@@ -1062,7 +1082,8 @@ namespace GhostWard
         // список званий пересобирается при открытии — опыт мог вырасти
         void OpenRanks()
         {
-            Destroy(ranks);
+            if (trophies != null) trophies.SetActive(false);
+            Kill(ranks);
             BuildRanks();
             ShowOnly(ranks);
         }
@@ -1073,6 +1094,7 @@ namespace GhostWard
             switch (name)
             {
                 case "ranks": OpenRanks(); break;
+                case "trophies": OpenRanks(); OpenTrophies(); break;
                 case "story": OpenStory(menu, 1); break;
                 case "dawn":
                     ShowDawn(3, Loc.F("verdict_banished", Catalog.Get(EntityKind.Albasty).Name) + "\n" + Loc.T("verdict_named_right"),
@@ -1080,6 +1102,41 @@ namespace GhostWard
                     ShowNightProgress(410, true, true);
                     break;
             }
+        }
+
+        // Трофеи: выполненные — яркие, остальные — тусклые; за каждый — опыт.
+        void OpenTrophies()
+        {
+            if (trophies != null) Kill(trophies);
+            ranks.SetActive(false);
+            trophies = Panel(root, "Trophies");
+            trophies.GetComponent<Image>().color = new Color(0.01f, 0.008f, 0.012f, 0.99f);
+            var title = Label(trophies.transform, Loc.T("trophies"), 64, new Vector2(0.5f, 0.95f), Vector2.zero, Bone);
+            title.rectTransform.sizeDelta = new Vector2(900, 100);
+            title.fontStyle = FontStyle.Bold;
+            var all = (Trophy[])Enum.GetValues(typeof(Trophy));
+            for (int i = 0; i < all.Length; i++)
+            {
+                var t = all[i];
+                bool got = Trophies.Has(t);
+                float y = -220 - i * 135;
+                var mark = Rect(trophies.transform, "Mark", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f)).gameObject.AddComponent<UILine>();
+                mark.rectTransform.anchoredPosition = new Vector2(-450, y - 10);
+                mark.Filled = true;
+                mark.color = got ? new Color(1f, 0.75f, 0.4f) : new Color(1f, 1f, 1f, 0.12f);
+                mark.raycastTarget = false;
+                mark.SetPoints(new[] { new Vector2(0, 22), new Vector2(22, 0), new Vector2(0, -22), new Vector2(-22, 0) });
+                var name = Label(trophies.transform, Trophies.Name(t), 34, new Vector2(0.5f, 1f), new Vector2(40, y + 12), got ? Bone : Dim);
+                name.rectTransform.sizeDelta = new Vector2(860, 50);
+                name.alignment = TextAnchor.MiddleLeft;
+                name.fontStyle = FontStyle.Bold;
+                var desc = Label(trophies.transform, Trophies.Desc(t) + $"  +{Trophies.Reward} XP", 26, new Vector2(0.5f, 1f), new Vector2(40, y - 34), Dim);
+                desc.rectTransform.sizeDelta = new Vector2(860, 44);
+                desc.alignment = TextAnchor.MiddleLeft;
+            }
+            Button(trophies.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => { trophies.SetActive(false); ShowOnly(ranks); }, false);
+            trophies.transform.SetAsLastSibling();
+            trophies.SetActive(true);
         }
 
         // Звания: порог опыта и бонус каждого.
@@ -1106,7 +1163,8 @@ namespace GhostWard
                 perk.rectTransform.sizeDelta = new Vector2(940, 70);
                 perk.alignment = TextAnchor.UpperLeft;
             }
-            Button(ranks.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowMenu(), false);
+            Button(ranks.transform, Loc.T("trophies"), new Vector2(0.5f, 0.06f), OpenTrophies, true, 310, -165);
+            Button(ranks.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowMenu(), false, 310, 165);
         }
 
         // История дома: страницы дневника прежних жильцов, по одной за пережитую ночь.
@@ -1272,6 +1330,13 @@ namespace GhostWard
             }
         }
 
+        // удаление панели: в игре — обычное, в превью из редактора — сразу
+        static void Kill(GameObject go)
+        {
+            if (Application.isPlaying) Destroy(go);
+            else DestroyImmediate(go);
+        }
+
         static void Clear(Transform t)
         {
             for (int i = t.childCount - 1; i >= 0; i--)
@@ -1313,7 +1378,7 @@ namespace GhostWard
             int r = Progress.Rank;
             rankName.text = $"{Loc.T("rank_" + r)}";
             rankFill.anchorMax = new Vector2(Progress.RankProgress, 1f);
-            rankXp.text = Progress.XpLine();
+            rankXp.text = Progress.XpLine() + (Daily.Streak > 0 ? "  ·  " + Loc.F("streak", Daily.Streak) : "");
         }
         public void ShowLoading() => ShowOnly(loading);
         public void ShowHud() => ShowOnly(hud);
@@ -1334,6 +1399,7 @@ namespace GhostWard
                 dawnPhoto.rectTransform.sizeDelta = new Vector2(420f * photo.width / photo.height, 420f);
             shareButton.SetActive(photo != null);
             bonusButton.SetActive(true);
+            nextNightButton.SetActive(true);
             readButton.SetActive(false);
             dawnXp.text = "";
             ShowOnly(dawn);
@@ -1411,9 +1477,11 @@ namespace GhostWard
 
         public void SetDiagnostics(string text) => diagText.text = text;
 
+        public void SetModifier(string name) => modifierName = name;
+
         public void SetPhase(string text, bool hunt)
         {
-            phaseText.text = text;
+            phaseText.text = string.IsNullOrEmpty(text) || string.IsNullOrEmpty(modifierName) ? text : $"{text}  ·  {modifierName}";
             phaseText.color = hunt ? new Color(0.85f, 0.15f, 0.15f) : Dim;
             recText.gameObject.SetActive(hunt);
         }
@@ -1591,6 +1659,12 @@ namespace GhostWard
             {
                 supplyTimer -= dt;
                 SetAlpha(supplyText, Mathf.Clamp01(supplyTimer / 0.4f) * 0.7f);
+            }
+
+            if (trophyTimer > 0f)
+            {
+                trophyTimer -= dt;
+                SetAlpha(trophyText, Mathf.Clamp01(trophyTimer / 0.6f));
             }
 
             recBlink += dt;
