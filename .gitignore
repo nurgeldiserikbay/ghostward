@@ -15,3 +15,5 @@
 .vs/
 .vscode/
 .idea/
+/.utmp/
+/Assets/GoogleMobileAds/Resources/*.asset.meta.bak
