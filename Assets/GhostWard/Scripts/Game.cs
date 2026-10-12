@@ -113,11 +113,8 @@ namespace GhostWard
         float scanTimer, scanFailTime;
 
         // жесты
-        bool pressing, pressIgnored, moved, lanternHeld;
-        Vector2 pressStart, lastExtreme;
-        int reversals, lastDirX;
-        float pressTime, lastTapTime = -10f, bellCooldown;
-        Vector3 lastAccel;
+        readonly Gestures gestures = new();
+        float bellCooldown;
 
         IEnumerator Start()
         {
@@ -216,7 +213,7 @@ namespace GhostWard
             {
                 Time.timeScale = open ? 0f : 1f;
                 AudioListener.pause = open;
-                pressing = false;
+                gestures.Reset();
                 ui.CanName = open && phase == Phase.Investigate && !named;
                 if (open) ui.ShowJournal(inv);
             };
@@ -284,7 +281,7 @@ namespace GhostWard
             ClearEntities();
             night++;
             fear = Mathf.Min(fear, 20f);
-            pressing = false;
+            gestures.Reset();
             photo = null;
             circle = tumar = false;
             candleTime = 0f;
@@ -299,6 +296,7 @@ namespace GhostWard
             ui.CloseBag();
             target = prologue ? Catalog.Get(EntityKind.Ghost) : dailyMode ? Catalog.Get(Daily.Entity) : PickTarget();
             newCase = Know.LearnName(target.Kind);
+            EntitySounds.Prewarm(target.Kind);
             lureMatched = false;
             modifier = prologue ? Modifier.None : dailyMode ? Daily.Modifier : Modifiers.Roll(night);
             heardThisHunt = false;
@@ -393,6 +391,7 @@ namespace GhostWard
             lookHintAt = 25f;
             lureHintAt = 60f;
             if (Beginner) ui.Hint(Loc.T("h.Start"));
+            else if (!prologue && !Skills.All) ui.Hint(Loc.T("h.Practice"));
             CreateColdSpot();
 
             // бонус звания «Чутьё»: одна улика этой ночи отмечена заранее
@@ -853,15 +852,8 @@ namespace GhostWard
             {
                 lureMatched = true;
                 music.Play(Music.Stinger.Swell, 0.6f);
-                var clip = target.Kind switch
-                {
-                    EntityKind.Albasty or EntityKind.Kikimora => ProceduralAudio.Laugh(),
-                    EntityKind.Upyr => ProceduralAudio.Rasp(),
-                    EntityKind.Poltergeist => ProceduralAudio.Crash(),
-                    EntityKind.Mara => ProceduralAudio.Hum(),
-                    EntityKind.Shade => ProceduralAudio.Breath(),
-                    _ => ProceduralAudio.Whisper()
-                };
+                var clip = EntitySounds.Special(target.Kind) ?? EntitySounds.Call(target.Kind)
+                           ?? EntitySounds.Loop(target.Kind) ?? ProceduralAudio.Whisper();
                 PlayAt(clip, lair, 1f);
                 glitch = 1f;
                 anger += 15f;
@@ -933,7 +925,7 @@ namespace GhostWard
                 heardThisHunt = true;
                 ui.Message(Loc.T("heard"), 1.5f);
             }
-            bool still = TurnSpeed < 10f && !pressing && (!mic.Available || !mic.Speaking);
+            bool still = TurnSpeed < 10f && !gestures.Pressing && (!mic.Available || !mic.Speaking);
             quietTime = still ? quietTime + dt : 0f;
             bool hidden = quietTime > 2.5f && heardTime <= 0f;
             hunter.SpeedMul = heardTime > 0f ? 2.2f : hidden ? 0.35f : 1f;
@@ -1072,12 +1064,11 @@ namespace GhostWard
             var dir = Quaternion.Euler(0f, yaw, 0f) * Vector3.forward;
             var pos = camPos + dir * dist;
             float floor = camPos.y - EyeHeight;
-            pos.y = def.Kind switch
+            pos.y = def.Stance switch
             {
-                EntityKind.Shade or EntityKind.Albasty or EntityKind.Double or EntityKind.Upyr or EntityKind.Mara
-                    => floor + def.Height * 0.5f,
-                EntityKind.Kikimora => floor + CeilingHeight - def.Height * 0.5f,
-                EntityKind.Ghost => camPos.y + Mathf.Clamp(Mathf.Tan(pitch * Mathf.Deg2Rad) * dist, -0.4f, 0.8f),
+                Stance.Floor => floor + def.Height * 0.5f,
+                Stance.Ceiling => floor + CeilingHeight - def.Height * 0.5f,
+                Stance.Float => camPos.y + Mathf.Clamp(Mathf.Tan(pitch * Mathf.Deg2Rad) * dist, -0.4f, 0.8f),
                 _ => camPos.y
             };
             return pos;
@@ -1368,6 +1359,17 @@ namespace GhostWard
                 : Loc.F("remember_tale", e.Def.Name), 6f);
         }
 
+        // ночной режим или тепловизор: видно то, что не видно глазу (чёрный пёс)
+        public bool SeesHidden => nightVision > 0.5f || tool == Tool.Thermo;
+
+        // вой банши: страх и помехи, сильнее, если она в кадре
+        public void OnWail(Entity e)
+        {
+            AddFear(IsInView(e.transform.position) ? 9f : 5f);
+            glitch = 1f;
+            ui.Shake(0.35f);
+        }
+
         public void OnThrow(Entity e)
         {
             AddFear(7f);
@@ -1376,7 +1378,7 @@ namespace GhostWard
 
         public void OnAttack(Entity e)
         {
-            music.Play(Music.Stinger.Strings, e.Def.Kind == EntityKind.Poltergeist ? 0.4f : 0.8f);
+            music.Play(Music.Stinger.Strings, e.Def.Invisible ? 0.4f : 0.8f);
             if (circle)
             {
                 circle = false;
@@ -1387,9 +1389,9 @@ namespace GhostWard
                 ui.SetProtection(inv);
                 return;
             }
-            AddFear(e.Def.Kind == EntityKind.Poltergeist ? 22f : 32f);
-            ui.Jumpscare(e.Def, e.Seed, e.Def.Kind == EntityKind.Poltergeist ? 0.5f : 1f);
-            sfx.PlayOneShot(ProceduralAudio.Screech(), 0.8f);
+            AddFear(e.Def.Invisible ? 22f : 32f);
+            ui.Jumpscare(e.Def, e.Seed, e.Def.Invisible ? 0.5f : 1f);
+            sfx.PlayOneShot(EntitySounds.Attack(e.Def.Kind), 0.8f);
 #if UNITY_ANDROID || UNITY_IOS
             if (Settings.Vibration) Handheld.Vibrate();
 #endif
@@ -1437,77 +1439,10 @@ namespace GhostWard
         void HandleInput(float dt)
         {
             bellCooldown -= dt;
-            float h = Screen.height, w = Screen.width;
-
-            var pointer = Pointer.current;
-            if (pointer != null)
-            {
-                bool pressed = pointer.press.isPressed;
-                var pos = pointer.position.ReadValue();
-
-                if (pressed && !pressing)
-                {
-                    pressing = true;
-                    pressIgnored = ui.IsOverButton(pos);
-                    moved = false;
-                    lanternHeld = false;
-                    pressStart = lastExtreme = pos;
-                    reversals = 0;
-                    lastDirX = 0;
-                    pressTime = 0f;
-                }
-                else if (pressed && pressing && !pressIgnored)
-                {
-                    pressTime += dt;
-                    if ((pos - pressStart).magnitude > h * 0.03f) moved = true;
-                    // зажатый неподвижный палец — фонарь
-                    if (!moved && pressTime > 0.3f) lanternHeld = true;
-
-                    // зигзаг: считаем развороты по горизонтали с заметным размахом
-                    float dx = pos.x - lastExtreme.x;
-                    int dir = dx > 0f ? 1 : -1;
-                    if (lastDirX == 0)
-                    {
-                        if (Mathf.Abs(dx) > w * 0.08f) { lastDirX = dir; lastExtreme = pos; }
-                    }
-                    else if (dir == lastDirX) lastExtreme = pos;          // тянем дальше в ту же сторону
-                    else if (Mathf.Abs(dx) > w * 0.08f)
-                    {
-                        reversals++;
-                        lastDirX = dir;
-                        lastExtreme = pos;
-                    }
-                }
-                else if (!pressed && pressing)
-                {
-                    pressing = false;
-                    if (!pressIgnored && !lanternHeld) OnRelease(pos - pressStart);
-                    lanternHeld = false;
-                }
-            }
-
-            UpdateLantern(lanternHeld && pressing, dt);
-            if (DetectShake()) RingBell();
-        }
-
-        void OnRelease(Vector2 delta)
-        {
-            float h = Screen.height;
-            if (reversals >= 2) { Use(ItemKind.Wormwood); return; }
-            if (pressTime < 0.6f && Mathf.Abs(delta.y) > h * 0.1f && Mathf.Abs(delta.x) < Mathf.Abs(delta.y))
-            {
-                Use(delta.y > 0f ? ItemKind.Salt : ItemKind.Mirror);
-                return;
-            }
-            if (!moved && pressTime < 0.3f)
-            {
-                if (Time.time - lastTapTime < 0.35f)
-                {
-                    lastTapTime = -10f;
-                    Use(ItemKind.Iron);
-                }
-                else lastTapTime = Time.time;
-            }
+            var g = gestures.Tick(dt, Time.time, ui.IsOverButton);
+            UpdateLantern(gestures.Holding, dt);
+            if (g == ItemKind.Bell) RingBell();
+            else if (g.HasValue) Use(g.Value);
         }
 
         // сущность ближе всего к центру экрана в пределах угла и дистанции
@@ -1567,13 +1502,13 @@ namespace GhostWard
             sfx.PlayOneShot(ProceduralAudio.BellRing(), 1f);
             ui.Supply($"{Catalog.Get(ItemKind.Bell).Name}: {inv.Bell}");
 
-            // мару звон будит всегда; полтергейста — если повернуться в его сторону
+            // мару звон будит всегда; остальных, кто боится колокольчика, — если повернуться в их сторону
             bool hit = false;
             foreach (var e in entities)
             {
                 if (!e.Alive || e.Current != Entity.State.Manifest) continue;
                 if (e.Def.Kind == EntityKind.Mara) { e.Banish(); hit = true; continue; }
-                if (e.Def.Kind != EntityKind.Poltergeist) continue;
+                if (e.Def.Bane != ItemKind.Bell) continue;
                 var to = e.transform.position - cam.transform.position;
                 to.y = 0f;
                 var fwd = cam.transform.forward;
@@ -1604,23 +1539,6 @@ namespace GhostWard
                 e.Lit = e == lit;
                 if (e == lit && e.Def.Bane == ItemKind.Lantern && e.Exposure > e.ExposureNeeded) e.Banish();
             }
-        }
-
-        bool DetectShake()
-        {
-            var acc = Accelerometer.current;
-            Vector3 a;
-            if (acc != null)
-            {
-                if (!acc.enabled) InputSystem.EnableDevice(acc);
-                a = acc.acceleration.ReadValue();
-                if (a.magnitude > 4f) a /= 9.81f; // некоторые устройства отдают м/с², приводим к g
-            }
-            else a = Input.acceleration;
-
-            float jerk = (a - lastAccel).magnitude;
-            lastAccel = a;
-            return jerk > 1.4f;
         }
 
         void WrongItem(Entity e)

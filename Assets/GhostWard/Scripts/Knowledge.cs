@@ -5,7 +5,8 @@ namespace GhostWard
 {
     // Что игрок знает о сущностях — бестиарий заполняется по ходу игры.
     //  • Призрак и Тень — учебные: известны полностью с самого начала, при первой встрече подсказка, как справиться.
-    //  • Остальные открываются званиями (по одной на звание). Новая сущность приходит отдельным «делом»:
+    //  • Остальные открываются по мере роста опыта (UnlockXp; первые шесть совпадают со званиями).
+    //    Новая сущность приходит отдельным «делом»:
     //    игрок сразу узнаёт имя, суть и легенду (в легенде — намёк, чего она боится), а способ ищет сам.
     //  • Повадки — после пережитой с ней ночи; улики — каждая замеченная; приманка — если откликнулась;
     //    «Как защититься» — после изгнания.
@@ -41,10 +42,28 @@ namespace GhostWard
             }
         }
 
-        // сколько видов открыто: две учебные и по одной за каждое звание
-        public static int UnlockedCount => Mathf.Clamp(Starters.Length + Progress.Rank, Starters.Length, Catalog.Entities.Length);
+        // сколько опыта нужно, чтобы сущность начала приходить (по порядку EntityKind)
+        public static readonly int[] UnlockXp =
+        {
+            0, 0, 300, 800, 1600, 2800, 4500, 7000,
+            8500, 10000, 11500, 13000, 14700, 16400, 18200, 20000, 22000, 24000, 26000, 28000
+        };
+
+        public static int UnlockedCount
+        {
+            get
+            {
+                int xp = Progress.Xp, n = 0;
+                for (int i = 0; i < Catalog.Entities.Length && i < UnlockXp.Length; i++) if (xp >= UnlockXp[i]) n = i + 1;
+                return Mathf.Max(Starters.Length, n);
+            }
+        }
+
         public static bool Unlocked(EntityKind k) => (int)k < UnlockedCount;
-        public static int RankFor(EntityKind k) => Mathf.Max(0, (int)k - (Starters.Length - 1));
+        public static int XpFor(EntityKind k) => UnlockXp[Mathf.Min((int)k, UnlockXp.Length - 1)];
+
+        // порог следующей сущности или -1, если открыты все
+        public static int NextUnlockXp => UnlockedCount < Catalog.Entities.Length ? XpFor((EntityKind)UnlockedCount) : -1;
 
         public static bool Name(EntityKind k) => Get(Key(k, "name"));
         public static bool Habits(EntityKind k) => Get(Key(k, "habits"));
@@ -102,5 +121,29 @@ namespace GhostWard
             }
             return learned;
         }
+    }
+
+    // Какие жесты игрок отработал на тренировке в дневнике.
+    public static class Skills
+    {
+        public static bool Learned(ItemKind k) => PlayerPrefs.GetInt("learned_" + k, 0) == 1;
+
+        public static void Learn(ItemKind k)
+        {
+            PlayerPrefs.SetInt("learned_" + k, 1);
+            PlayerPrefs.Save();
+        }
+
+        public static int Count
+        {
+            get
+            {
+                int n = 0;
+                foreach (var i in Catalog.Items) if (Learned(i.Kind)) n++;
+                return n;
+            }
+        }
+
+        public static bool All => Count >= Catalog.Items.Length;
     }
 }

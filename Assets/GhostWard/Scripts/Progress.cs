@@ -8,10 +8,10 @@ namespace GhostWard
     {
         // порог опыта для каждого звания; бонусы — rank_N / perk_N в Strings.cs
         public static readonly int[] RankXp = { 0, 300, 800, 1600, 2800, 4500, 7000 };
-        public const int StoryNightPages = 10;   // по странице за пережитую ночь
-        public const int StoryPages = 11;        // + эпилог
+        public const int StoryNightPages = 20;   // по странице за пережитую ночь
+        public const int StoryPages = 21;        // + эпилог
 
-        // эпилог — после звания «Страж дома» и изгнания всех восьми
+        // эпилог — после звания «Страж дома» и изгнания всех сущностей
         public static bool EpilogueUnlocked => Rank >= RankXp.Length - 1 && Know.AllBanished;
 
         public static int Xp => PlayerPrefs.GetInt("xp", 0);
@@ -31,7 +31,7 @@ namespace GhostWard
         public static string RankName(int rank) => Loc.T($"rank_{rank}");
         // бонус звания; со второго звания — ещё и новая сущность в доме
         public static string Perk(int rank) =>
-            Loc.T($"perk_{rank}") + (rank >= 1 && rank < Catalog.Entities.Length - 1 ? " · " + Loc.T("perk_new") : "");
+            Loc.T($"perk_{rank}") + (rank >= 1 ? " · " + Loc.T("perk_new") : "");
 
         // бонусы званий
         public static bool ExtraSalt => Rank >= 1;
@@ -65,7 +65,14 @@ namespace GhostWard
             get
             {
                 int r = Rank;
-                if (r >= RankXp.Length - 1) return 1f;
+                if (r >= RankXp.Length - 1)
+                {
+                    // высшее звание — полоска показывает путь к следующей сущности
+                    int next = Know.NextUnlockXp;
+                    if (next < 0) return 1f;
+                    int prev = Know.XpFor((EntityKind)(Know.UnlockedCount - 1));
+                    return Mathf.InverseLerp(prev, next, Xp);
+                }
                 return Mathf.InverseLerp(RankXp[r], RankXp[r + 1], Xp);
             }
         }
@@ -73,7 +80,9 @@ namespace GhostWard
         public static string XpLine()
         {
             int r = Rank;
-            return r >= RankXp.Length - 1 ? Loc.T("rank_max") : Loc.F("xp_of", Xp, RankXp[r + 1]);
+            if (r < RankXp.Length - 1) return Loc.F("xp_of", Xp, RankXp[r + 1]);
+            int next = Know.NextUnlockXp;
+            return next < 0 ? Loc.T("rank_max") : Loc.F("xp_next_case", Xp, next);
         }
     }
 }

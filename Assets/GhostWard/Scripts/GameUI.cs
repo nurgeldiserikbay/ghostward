@@ -89,7 +89,22 @@ namespace GhostWard
         Material entryMat, jumpMat;
         float jumpTimer;
         readonly List<(EntityKind kind, RawImage pic, Material mat, Text name)> cards = new();
+        Text journalCount;
+        ScrollRect journalScroll;
         readonly List<(ItemKind kind, Text count)> itemRows = new();
+        readonly List<(ItemKind kind, Image bg, Text label)> practiceButtons = new();
+
+        // тренировка жестов в дневнике
+        GameObject journalPractice;
+        Text practiceTitle, practiceText, practiceStatus, learnedCount;
+        RectTransform practiceGesture, practiceBack;
+        RawImage practiceTarget;
+        Material practiceMat;
+        ItemKind practiceItem;
+        float practiceDone = -1f, practiceHold;
+        readonly Gestures practiceGestures = new();
+        AudioSource uiAudio;
+        static readonly Color Warm = new(1f, 0.75f, 0.45f);
         Inventory shownInventory;
         RectTransform fearFill, scanFill, stripMarker;
         RawImage darkness, lanternDark, lanternGlow, flash;
@@ -974,6 +989,7 @@ namespace GhostWard
             BuildJournalClues();
             BuildJournalHowTo();
             BuildJournalTools();
+            BuildJournalPractice();
             journal.SetActive(false);
         }
 
@@ -984,31 +1000,55 @@ namespace GhostWard
             title.rectTransform.sizeDelta = new Vector2(900, 110);
             title.fontStyle = FontStyle.Bold;
 
+            journalCount = Label(journalList.transform, "", 30, new Vector2(0.5f, 0.93f), new Vector2(0, -72), Dim);
+            journalCount.rectTransform.sizeDelta = new Vector2(900, 50);
+
+            // список прокручивается: сущностей много, открываются постепенно
+            var view = Rect(journalList.transform, "View", new Vector2(0f, 0.175f), new Vector2(1f, 1f));
+            view.offsetMax = new Vector2(0, -250);
+            // маска по трафарету; прозрачная подложка ловит перетаскивание и между карточками
+            view.gameObject.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.01f);
+            view.gameObject.AddComponent<Mask>().showMaskGraphic = false;
+            var content = Rect(view, "Content", new Vector2(0f, 1f), new Vector2(1f, 1f));
+            content.pivot = new Vector2(0.5f, 1f);
+            const int cols = 3, cw = 296, ch = 330, gap = 14;
+            int rows = (Catalog.Entities.Length + cols - 1) / cols;
+            content.sizeDelta = new Vector2(0, rows * (ch + gap) + gap);
+            var scroll = view.gameObject.AddComponent<ScrollRect>();
+            scroll.content = content;
+            scroll.horizontal = false;
+            scroll.movementType = ScrollRect.MovementType.Elastic;
+            scroll.scrollSensitivity = 40f;
+            journalScroll = scroll;
+
             for (int i = 0; i < Catalog.Entities.Length; i++)
             {
                 var def = Catalog.Entities[i];
-                int col = i % 2, row = i / 2;
-                var card = Rect(journalList.transform, def.Name, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
-                card.sizeDelta = new Vector2(470, 300);
-                card.anchoredPosition = new Vector2(col == 0 ? -245 : 245, -370 - row * 320);
+                int col = i % cols, row = i / cols;
+                var card = Rect(content, def.Kind.ToString(), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+                card.sizeDelta = new Vector2(cw, ch);
+                card.anchoredPosition = new Vector2((col - 1) * (cw + gap), -gap - ch * 0.5f - row * (ch + gap));
                 var bg = card.gameObject.AddComponent<Image>();
                 bg.color = Ink;
                 var btn = card.gameObject.AddComponent<UnityEngine.UI.Button>();
                 btn.targetGraphic = bg;
                 var kind = def.Kind;
                 btn.onClick.AddListener(() => OpenEntry(kind));
-                Frame(card, 470, 300, Dim, 3f);
+                Frame(card, cw, ch, Dim, 3f);
 
-                var pic = Rect(card, "Picture", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f)).gameObject.AddComponent<RawImage>();
-                pic.rectTransform.sizeDelta = new Vector2(216, 270);
-                pic.rectTransform.anchoredPosition = new Vector2(130, 0);
+                var pic = Rect(card, "Picture", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f)).gameObject.AddComponent<RawImage>();
+                pic.rectTransform.sizeDelta = new Vector2(200, 245);
+                pic.rectTransform.anchoredPosition = new Vector2(0, -135);
                 pic.raycastTarget = false;
                 var mat = Entity.CreateMaterial(def, 1.7f + i);
                 pic.material = mat;
 
-                var name = Label(card, "", 34, new Vector2(1f, 0.5f), new Vector2(-110, 0), Bone);
-                name.rectTransform.sizeDelta = new Vector2(220, 200);
+                var name = Label(card, "", 28, new Vector2(0.5f, 0f), new Vector2(0, 40), Bone);
+                name.rectTransform.sizeDelta = new Vector2(cw - 20, 70);
                 name.fontStyle = FontStyle.Bold;
+                name.resizeTextForBestFit = true;
+                name.resizeTextMinSize = 18;
+                name.resizeTextMaxSize = 28;
                 cards.Add((kind, pic, mat, name));
             }
 
@@ -1226,6 +1266,7 @@ namespace GhostWard
                 case "ranks": OpenRanks(); break;
                 case "trophies": OpenRanks(); OpenTrophies(); break;
                 case "story": OpenStory(menu, 1); break;
+                case "story19": OpenStory(menu, 19); break;
                 case "dawn":
                     ShowDawn(3, Loc.F("verdict_banished", Catalog.Get(EntityKind.Albasty).Name) + "\n" + Loc.T("verdict_named_right"),
                         Inventory.Starting().Resupply(), null);
@@ -1380,7 +1421,7 @@ namespace GhostWard
             for (int i = 0; i < Catalog.Items.Length; i++)
             {
                 var def = Catalog.Items[i];
-                float y = -250 - i * 245;
+                float y = -290 - i * 238;
                 var icon = Rect(journalItems.transform, "Icon", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
                 icon.anchoredPosition = new Vector2(-420, y);
                 icon.localScale = Vector3.one * 0.9f;
@@ -1395,21 +1436,162 @@ namespace GhostWard
                 name.alignment = TextAnchor.MiddleLeft;
                 name.fontStyle = FontStyle.Bold;
                 var body = Label(journalItems.transform, $"<color=#ffc073>{def.Usage}</color>\n{def.Lore}", 28,
-                    new Vector2(0.5f, 1f), new Vector2(110, y - 20), Dim);
-                body.rectTransform.sizeDelta = new Vector2(600, 110);
+                    new Vector2(0.5f, 1f), new Vector2(50, y - 20), Dim);
+                body.rectTransform.sizeDelta = new Vector2(480, 110);
                 body.alignment = TextAnchor.UpperLeft;
                 body.color = new Color(Bone.r, Bone.g, Bone.b, 0.75f);
-                var count = Label(journalItems.transform, "", 34, new Vector2(0.5f, 1f), new Vector2(460, y + 60), Bone);
+                var count = Label(journalItems.transform, "", 34, new Vector2(0.5f, 1f), new Vector2(410, y + 60), Bone);
                 count.rectTransform.sizeDelta = new Vector2(120, 50);
                 count.alignment = TextAnchor.MiddleRight;
                 itemRows.Add((def.Kind, count));
+
+                // попробовать жест
+                var kind = def.Kind;
+                var tb = Rect(journalItems.transform, "Practice", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+                tb.sizeDelta = new Vector2(170, 74);
+                tb.anchoredPosition = new Vector2(390, y - 40);
+                var tbg = tb.gameObject.AddComponent<Image>();
+                tbg.color = Ink;
+                var tbtn = tb.gameObject.AddComponent<UnityEngine.UI.Button>();
+                tbtn.targetGraphic = tbg;
+                tbtn.onClick.AddListener(() => OpenPractice(kind));
+                Frame(tb, 170, 74, Dim, 3f);
+                var tl = Label(tb, "", 26, new Vector2(0.5f, 0.5f), Vector2.zero, Bone);
+                tl.rectTransform.sizeDelta = new Vector2(160, 70);
+                tl.fontStyle = FontStyle.Bold;
+                tl.resizeTextForBestFit = true;
+                tl.resizeTextMinSize = 16;
+                tl.resizeTextMaxSize = 26;
+                practiceButtons.Add((kind, tbg, tl));
             }
+
+            learnedCount = Label(journalItems.transform, "", 28, new Vector2(0.5f, 0.94f), new Vector2(0, -58), Dim);
+            learnedCount.rectTransform.sizeDelta = new Vector2(900, 50);
 
             Button(journalItems.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
         }
 
+        // Тренировка: на экране сущность, которая боится предмета; верный жест — она тает, жест выучен.
+        void BuildJournalPractice()
+        {
+            journalPractice = Rect(journal.transform, "Practice", Vector2.zero, Vector2.one).gameObject;
+            practiceTitle = Label(journalPractice.transform, "", 58, new Vector2(0.5f, 0.93f), Vector2.zero, Bone);
+            practiceTitle.rectTransform.sizeDelta = new Vector2(1000, 100);
+            practiceTitle.fontStyle = FontStyle.Bold;
+            practiceTarget = Rect(journalPractice.transform, "Target", new Vector2(0.5f, 0.64f), new Vector2(0.5f, 0.64f)).gameObject.AddComponent<RawImage>();
+            practiceTarget.rectTransform.sizeDelta = new Vector2(400, 500);
+            practiceTarget.raycastTarget = false;
+            practiceGesture = Rect(journalPractice.transform, "Gesture", new Vector2(0.5f, 0.37f), new Vector2(0.5f, 0.37f));
+            practiceGesture.localScale = Vector3.one * 1.5f;
+            practiceText = Label(journalPractice.transform, "", 44, new Vector2(0.5f, 0.27f), Vector2.zero, Warm);
+            practiceText.rectTransform.sizeDelta = new Vector2(960, 110);
+            practiceText.fontStyle = FontStyle.Bold;
+            practiceStatus = Label(journalPractice.transform, "", 34, new Vector2(0.5f, 0.19f), Vector2.zero, Bone);
+            practiceStatus.rectTransform.sizeDelta = new Vector2(960, 110);
+            practiceBack = Button(journalPractice.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalItems), false)
+                .GetComponent<RectTransform>();
+            journalPractice.SetActive(false);
+
+            uiAudio = gameObject.AddComponent<AudioSource>();
+            uiAudio.ignoreListenerPause = true;   // в дневнике игра на паузе, а звук тренировки нужен
+            uiAudio.playOnAwake = false;
+        }
+
+        void OpenPractice(ItemKind kind)
+        {
+            var def = Catalog.Get(kind);
+            practiceItem = kind;
+            practiceDone = -1f;
+            practiceHold = 0f;
+            practiceGestures.Reset();
+            practiceTitle.text = Loc.F("practice_title", def.Name.ToUpper());
+            Clear(practiceGesture);
+            Icons.GestureIcon(practiceGesture, def.Gesture, Warm);
+            practiceText.text = def.Usage;
+            practiceStatus.text = Loc.T("practice_try");
+            practiceStatus.color = Dim;
+
+            // мишень — первая сущность, которая этого боится
+            var target = Catalog.Entities[0];
+            foreach (var e in Catalog.Entities) if (e.Bane == kind) { target = e; break; }
+            if (practiceMat != null) Destroy(practiceMat);
+            practiceMat = Entity.CreateMaterial(target, 5.5f);
+            practiceMat.SetFloat("_Locked", 1f);   // облик не раскрываем — просто силуэт
+            practiceTarget.material = practiceMat;
+            ShowJournalPage(journalPractice);
+        }
+
+        void TickPractice(float dt)
+        {
+            if (practiceDone >= 0f)
+            {
+                practiceDone += dt;
+                practiceMat.SetFloat("_Dissolve", Mathf.Clamp01(practiceDone / 0.9f));
+                if (practiceDone > 1.9f) { RefreshLearned(); ShowJournalPage(journalItems); }
+                return;
+            }
+
+            var g = practiceGestures.Tick(dt, Time.unscaledTime,
+                pos => RectTransformUtility.RectangleContainsScreenPoint(practiceBack, pos, null));
+
+            if (practiceItem == ItemKind.Lantern)
+            {
+                if (practiceGestures.Holding)
+                {
+                    practiceHold += dt;
+                    practiceMat.SetFloat("_Flash", 0.25f + 0.25f * Mathf.Sin(Time.unscaledTime * 40f));
+                    practiceStatus.text = Loc.T("practice_hold");
+                    practiceStatus.color = Warm;
+                    if (practiceHold > 1.2f) PracticeSucceeded();
+                    return;
+                }
+                practiceHold = 0f;
+                practiceMat.SetFloat("_Flash", 0f);
+            }
+
+            if (!g.HasValue) return;
+            if (g.Value == practiceItem) { PracticeSucceeded(); return; }
+            practiceStatus.text = Loc.F("practice_wrong", Catalog.Get(g.Value).Name);
+            practiceStatus.color = new Color(1f, 0.45f, 0.4f);
+            uiAudio.PlayOneShot(ProceduralAudio.Fail(), 0.6f * Settings.Sfx);
+        }
+
+        void PracticeSucceeded()
+        {
+            practiceDone = 0f;
+            practiceMat.SetFloat("_Flash", 0.6f);
+            Skills.Learn(practiceItem);
+            practiceStatus.text = Loc.F("practice_done", Catalog.Get(practiceItem).Name);
+            practiceStatus.color = Warm;
+            var clip = practiceItem switch
+            {
+                ItemKind.Salt => ProceduralAudio.SaltThrow(),
+                ItemKind.Iron => ProceduralAudio.IronStrike(),
+                ItemKind.Bell => ProceduralAudio.BellRing(),
+                ItemKind.Mirror => ProceduralAudio.Shimmer(),
+                ItemKind.Wormwood => ProceduralAudio.Whoosh(),
+                _ => ProceduralAudio.Banish()
+            };
+            uiAudio.PlayOneShot(clip, Settings.Sfx);
+            uiAudio.PlayOneShot(ProceduralAudio.Banish(), 0.5f * Settings.Sfx);
+        }
+
+        void RefreshLearned()
+        {
+            foreach (var (kind, bg, label) in practiceButtons)
+            {
+                bool learned = Skills.Learned(kind);
+                label.text = Loc.T(learned ? "learned" : "practice");
+                label.color = learned ? Warm : Bone;
+                bg.color = learned ? Ink : Blood;
+            }
+            learnedCount.text = Loc.F("learned_count", Skills.Count, Catalog.Items.Length);
+        }
+
         void ShowJournalPage(GameObject page)
         {
+            journalPractice.SetActive(page == journalPractice);
+            if (page == journalItems) RefreshLearned();
             journalList.SetActive(page == journalList);
             journalEntry.SetActive(page == journalEntry);
             journalItems.SetActive(page == journalItems);
@@ -1442,7 +1624,7 @@ namespace GhostWard
                 entryName.text = "???";
                 entryOrigin.text = "";
                 entryText.text = $"<i>{Loc.T("unknown_entity")}</i>" +
-                    (Know.Unlocked(kind) ? "" : "\n\n" + Loc.F("unlock_rank", Progress.RankName(Know.RankFor(kind))));
+                    (Know.Unlocked(kind) ? "" : "\n\n" + Loc.F("unlock_xp", Know.XpFor(kind)));
                 entryItem.text = entryCount.text = "";
                 ShowJournalPage(journalEntry);
                 return;
@@ -1484,6 +1666,8 @@ namespace GhostWard
                 case "items": ShowJournalPage(journalItems); break;
                 case "clues": ToggleClue(0); ToggleClue(1); ShowJournalPage(journalClues); break;
                 case "howto": ShowJournalPage(journalHowTo); break;
+                case "practice": ShowJournalPage(journalItems); OpenPractice(ItemKind.Mirror); break;
+                case "end": ShowJournalPage(journalList); journalScroll.verticalNormalizedPosition = 0f; break;
             }
         }
 
@@ -1509,15 +1693,19 @@ namespace GhostWard
             journal.SetActive(open);
             if (open)
             {
+                int found = 0;
                 foreach (var c in cards)
                 {
                     bool seen = Catalog.Seen(c.kind);
                     bool known = Know.Name(c.kind);
+                    if (known) found++;
                     c.mat.SetFloat("_Locked", seen ? 0f : 1f);
                     // до знакомства — «???»; облик открывается после встречи
                     c.name.text = known ? Catalog.Get(c.kind).Name : "???";
                     c.name.color = seen ? Bone : Dim;
                 }
+                journalCount.text = Loc.F("journal_count", found, cards.Count);
+                journalScroll.verticalNormalizedPosition = 1f;
                 ShowJournalPage(journalList);
             }
             JournalToggled?.Invoke(open);
@@ -1724,7 +1912,7 @@ namespace GhostWard
         {
             Flash(new Color(0.35f, 0f, 0f, 0.7f * strength));
             Shake(strength);
-            if (def.Kind == EntityKind.Poltergeist) return;
+            if (def.Invisible) return;
             if (jumpMat != null) Destroy(jumpMat);
             jumpMat = Entity.CreateMaterial(def, seed);
             jumpMat.SetFloat("_Flash", 0.15f);
@@ -1821,6 +2009,7 @@ namespace GhostWard
         void Update()
         {
             float dt = Time.unscaledDeltaTime;
+            if (journal.activeSelf && journalPractice.activeSelf) TickPractice(dt);
 
             if (messageTimer > 0f)
             {

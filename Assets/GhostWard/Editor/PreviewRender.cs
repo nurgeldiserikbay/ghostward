@@ -66,6 +66,25 @@ namespace GhostWard.EditorTools
             Shoot("entry_locked", ui => ui.DebugJournal("entry", EntityKind.Kikimora));
             Shoot("clues", ui => ui.DebugJournal("clues"));
             Shoot("howto", ui => ui.DebugJournal("howto"));
+
+            // новые сущности, тренировка жестов, поздняя страница истории
+            Catalog.MarkSeen(EntityKind.Zheztyrnak);
+            Know.LearnName(EntityKind.Zheztyrnak);
+            Skills.Learn(ItemKind.Salt);
+            int nights = PlayerPrefs.GetInt("nightsSurvived", 0);
+            PlayerPrefs.SetInt("nightsSurvived", 20);
+            foreach (var lang in new[] { Lang.En, Lang.Ru, Lang.Kk })
+            {
+                Loc.Set(lang);
+                string l = lang.ToString().ToLower();
+                Shoot($"list_end_{l}", ui => ui.DebugJournal("end"));
+                Shoot($"entry_new_{l}", ui => ui.DebugJournal("entry", EntityKind.Zheztyrnak));
+                Shoot($"items_{l}", ui => ui.DebugJournal("items"));
+                Shoot($"practice_{l}", ui => ui.DebugJournal("practice"));
+                Shoot($"story19_{l}", ui => ui.DebugPanel("story19"));
+            }
+            PlayerPrefs.SetInt("nightsSurvived", nights);
+            Loc.Set(Lang.En);
         }
 
         // Тепловизор на тестовом кадре (Logs/entities.png) и холодное пятно — Logs/thermal.png
@@ -184,6 +203,11 @@ namespace GhostWard.EditorTools
             var cache = typeof(Music).GetField("StingerClips", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
                 .GetValue(null) as System.Collections.IDictionary;
             foreach (System.Collections.DictionaryEntry e in cache) clips.Add((AudioClip)e.Value);
+
+            // голоса сущностей
+            foreach (EntityKind k in System.Enum.GetValues(typeof(EntityKind)))
+                foreach (var c in new[] { EntitySounds.Loop(k), EntitySounds.Call(k), EntitySounds.Special(k), EntitySounds.Attack(k) })
+                    if (c != null && !clips.Contains(c)) clips.Add(c);
 
             foreach (var clip in clips)
             {

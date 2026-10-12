@@ -11,6 +11,12 @@ namespace GhostWard
     //  кикимора — ползёт по потолку и падает сверху;
     //  упырь — рывки: замер, бросок, замер;
     //  мара — появляется рядом и сидит; страх растёт, пока на неё смотрят.
+    // Остальные ходят по одной из этих повадок (Arch) со своей особенностью:
+    //  банши — как призрак, но воет, возникая на новом месте; плакальщица — как призрак, но по полу;
+    //  чёрный пёс и гуль — как тень (пса видно только в ночном режиме или тепловизоре);
+    //  подменыш, жезтырнак, кицунэ — как албасты; корпу-секу — как упырь; мыстан — как двойник;
+    //  домовой — как полтергейст; джинн — кружит вокруг, сужая круги;
+    //  русалка — под взглядом уходит «под воду» и всплывает ближе.
     public class Entity : MonoBehaviour
     {
         public enum State { Lurking, Manifest, Attacking, Retreating, Banished }
@@ -20,7 +26,7 @@ namespace GhostWard
         public EntityDef Def { get; private set; }
         public State Current { get; private set; }
         public bool Alive => Current != State.Banished;
-        public bool Visible => Current == State.Manifest && Def.Kind != EntityKind.Poltergeist;
+        public bool Visible => Current == State.Manifest && !Def.Invisible;
         public bool Lit { get; set; }
         public float Exposure { get; private set; }
         public float ExposureNeeded => (Def.Kind == EntityKind.Upyr ? 2.6f : 1.6f) * (Weakened ? 0.5f : 1f);
@@ -42,7 +48,22 @@ namespace GhostWard
         float stateTime, speed, flash, fade, nextEvent, lurkTime, phaseTime;
         int throwsLeft;
         bool dashing, dropped;
+        float orbit, watchedTime;   // джинн: угол на круге; русалка: сколько на неё уже смотрят
         Vector3 baseScale;
+
+        // повадка, по которой ходит сущность
+        public static EntityKind ArchOf(EntityKind k) => k switch
+        {
+            EntityKind.Banshee or EntityKind.Llorona => EntityKind.Ghost,
+            EntityKind.BlackDog or EntityKind.Ghoul => EntityKind.Shade,
+            EntityKind.Changeling or EntityKind.Zheztyrnak or EntityKind.Kitsune => EntityKind.Albasty,
+            EntityKind.CorpoSeco => EntityKind.Upyr,
+            EntityKind.MystanKempir => EntityKind.Double,
+            EntityKind.Domovoi => EntityKind.Poltergeist,
+            _ => k
+        };
+
+        EntityKind Arch => ArchOf(Def.Kind);
 
         public static Material CreateMaterial(EntityDef def, float seed)
         {
@@ -78,6 +99,17 @@ namespace GhostWard
                 EntityKind.Double => 1.4f,
                 EntityKind.Kikimora => 0.45f,
                 EntityKind.Upyr => 2.2f,
+                EntityKind.Banshee => 0.22f,
+                EntityKind.Llorona => 0.35f,
+                EntityKind.BlackDog => 0.75f,
+                EntityKind.Ghoul => 0.6f,
+                EntityKind.Changeling => 0.8f,
+                EntityKind.Zheztyrnak => 1.25f,
+                EntityKind.Kitsune => 1.1f,
+                EntityKind.CorpoSeco => 1.9f,
+                EntityKind.MystanKempir => 1.2f,
+                EntityKind.Jinn => 0.35f,
+                EntityKind.Rusalka => 0.4f,
                 _ => 0f
             };
 
@@ -97,14 +129,7 @@ namespace GhostWard
             e.voice.maxDistance = 9f;
             e.voice.dopplerLevel = 0f;
             e.voice.volume = Settings.Sfx;
-            e.voice.clip = def.Kind switch
-            {
-                EntityKind.Ghost => ProceduralAudio.Whisper(),
-                EntityKind.Shade => ProceduralAudio.Breath(),
-                EntityKind.Upyr => ProceduralAudio.Rasp(),
-                EntityKind.Mara => ProceduralAudio.Hum(),
-                _ => null
-            };
+            e.voice.clip = EntitySounds.Loop(def.Kind);
             if (e.voice.clip != null)
             {
                 e.voice.loop = true;
@@ -171,17 +196,13 @@ namespace GhostWard
             if (nextEvent <= 0f)
             {
                 nextEvent = Random.Range(1.5f, 2.5f);
-                switch (Def.Kind)
-                {
-                    case EntityKind.Albasty: voice.PlayOneShot(ProceduralAudio.Laugh(), 0.7f); break;
-                    case EntityKind.Poltergeist: voice.PlayOneShot(ProceduralAudio.Knock(), 1f); break;
-                    case EntityKind.Kikimora: voice.PlayOneShot(ProceduralAudio.Scrape(), 0.9f); break;
-                }
+                var call = EntitySounds.Call(Def.Kind);
+                if (call != null) voice.PlayOneShot(call, 0.85f);
             }
             if (stateTime < lurkTime) return;
 
             SetState(State.Manifest);
-            nextEvent = Def.Kind switch
+            nextEvent = Arch switch
             {
                 EntityKind.Poltergeist => Random.Range(3f, 5f),
                 EntityKind.Mara => 14f,                 // столько она сидит, прежде чем напасть
@@ -189,16 +210,25 @@ namespace GhostWard
             };
             throwsLeft = 3;
             phaseTime = Random.Range(1f, 2f);
-            rend.enabled = Def.Kind != EntityKind.Poltergeist;
+            rend.enabled = !Def.Invisible;
+            watchedTime = 0f;
             game.OnManifest(this);
         }
 
         void TickManifest(float dt)
         {
-            if (Def.Kind != EntityKind.Poltergeist) fade = Mathf.MoveTowards(fade, 1f, dt * (Def.Kind == EntityKind.Mara ? 3f : 1f));
+            // чёрного пса видно только в ночном режиме или тепловизоре — иначе едва заметная тень
+            float maxFade = Def.Kind == EntityKind.BlackDog && !game.SeesHidden ? 0.12f : 1f;
+            if (!Def.Invisible) fade = Mathf.MoveTowards(fade, maxFade, dt * (Def.Kind == EntityKind.Mara ? 3f : 1f));
             bool watched = game.IsInView(transform.position);
 
-            switch (Def.Kind)
+            // фонарь жжёт тех, кто боится света, и останавливает их
+            if (Lit && Def.Bane == ItemKind.Lantern) { Burn(dt); dashing = false; return; }
+
+            if (Def.Kind == EntityKind.Jinn) { TickJinn(dt); return; }
+            if (Def.Kind == EntityKind.Rusalka) { TickRusalka(dt, watched); return; }
+
+            switch (Arch)
             {
                 case EntityKind.Ghost:
                     Approach(speed);
@@ -208,12 +238,13 @@ namespace GhostWard
                     {
                         Relocate(50f, Mathf.Max(1.4f, FlatDistance() * 0.85f), keepState: true);
                         nextEvent = Random.Range(5f, 8f);
+                        // банши воет, возникнув на новом месте
+                        if (Def.Kind == EntityKind.Banshee) { voice.PlayOneShot(EntitySounds.Special(Def.Kind), 1f); game.OnWail(this); }
                     }
                     break;
 
                 case EntityKind.Shade:
-                    if (Lit) Burn(dt);
-                    else Approach(speed);
+                    Approach(speed);
                     break;
 
                 case EntityKind.Albasty:
@@ -225,6 +256,8 @@ namespace GhostWard
                         {
                             Relocate(140f, FlatDistance() * 0.8f, keepState: true);
                             nextEvent = Random.Range(6f, 10f);
+                            var jump = EntitySounds.Special(Def.Kind);   // кицунэ кричит, оказавшись за спиной
+                            if (jump != null) voice.PlayOneShot(jump, 1f);
                         }
                     }
                     else if (Random.value < 0.04f) transform.position += Random.insideUnitSphere * 0.03f;
@@ -235,7 +268,7 @@ namespace GhostWard
                     if (nextEvent > 0f) break;
                     if (throwsLeft-- > 0)
                     {
-                        voice.PlayOneShot(ProceduralAudio.Crash(), 1f);
+                        voice.PlayOneShot(EntitySounds.Special(Def.Kind) ?? ProceduralAudio.Crash(), 1f);
                         game.OnThrow(this);
                         nextEvent = Random.Range(4f, 6.5f);
                     }
@@ -252,7 +285,7 @@ namespace GhostWard
                     // повторяет движения игрока: идёт, только пока тот поворачивается
                     float turn = Mathf.Clamp01(game.TurnSpeed / 60f);
                     if (turn > 0.05f) Approach(speed * turn);
-                    if (Random.value < 0.002f) voice.PlayOneShot(ProceduralAudio.Laugh(), 0.4f);
+                    if (Random.value < 0.002f) voice.PlayOneShot(EntitySounds.Call(Def.Kind) ?? ProceduralAudio.Laugh(), 0.5f);
                     break;
 
                 case EntityKind.Kikimora:
@@ -282,13 +315,17 @@ namespace GhostWard
                     break;
 
                 case EntityKind.Upyr:
-                    if (Lit) { Burn(dt); dashing = false; break; }
                     phaseTime -= dt;
                     if (phaseTime <= 0f)
                     {
                         dashing = !dashing;
                         phaseTime = dashing ? 0.5f : Random.Range(1.2f, 2.2f);
-                        if (dashing) flash = 0.3f;
+                        if (dashing)
+                        {
+                            flash = 0.3f;
+                            var snap = EntitySounds.Special(Def.Kind);   // корпу-секу: хруст сухих костей
+                            if (snap != null) voice.PlayOneShot(snap, 0.9f);
+                        }
                     }
                     if (dashing) Approach(speed);
                     break;
@@ -300,8 +337,44 @@ namespace GhostWard
                     break;
             }
 
-            if (Def.Kind is EntityKind.Poltergeist or EntityKind.Mara) return;
-            if (FlatDistance() < AttackDistance && !(Def.Kind == EntityKind.Albasty && watched)) Strike();
+            if (Arch is EntityKind.Poltergeist or EntityKind.Mara) return;
+            if (FlatDistance() < AttackDistance && !(Arch == EntityKind.Albasty && watched)) Strike();
+        }
+
+        // джинн: вихрь кружит вокруг игрока, с каждым кругом ближе
+        void TickJinn(float dt)
+        {
+            var c = cam.transform.position;
+            var off = transform.position - c;
+            float r = new Vector2(off.x, off.z).magnitude;
+            // угол берём из текущего места: после отступления джинн продолжает круг оттуда, где оказался
+            orbit = Mathf.Atan2(off.x, off.z) * Mathf.Rad2Deg + dt * (35f + 30f / Mathf.Max(r, 0.5f)) * SpeedMul;
+            r = Mathf.Max(0f, r - speed * SpeedMul * dt);
+            var p = c + Quaternion.Euler(0f, orbit, 0f) * Vector3.forward * r;
+            p.y = Mathf.Lerp(transform.position.y, c.y + Mathf.Sin(Time.time * 1.7f + Seed) * 0.25f, dt * 2f);
+            transform.position = p;
+            nextEvent -= dt;
+            if (nextEvent <= 0f) { voice.PlayOneShot(EntitySounds.Special(Def.Kind), 0.9f); nextEvent = Random.Range(4f, 7f); }
+            if (FlatDistance() < AttackDistance) Strike();
+        }
+
+        // русалка: под долгим взглядом уходит «под воду» и всплывает ближе, с другой стороны
+        void TickRusalka(float dt, bool watched)
+        {
+            watchedTime = watched ? watchedTime + dt : Mathf.Max(0f, watchedTime - dt);
+            if (watchedTime > 1.4f)
+            {
+                fade = Mathf.MoveTowards(fade, 0f, dt * 2f);
+                if (fade <= 0.01f)
+                {
+                    voice.PlayOneShot(EntitySounds.Special(Def.Kind), 0.9f);
+                    Relocate(70f, Mathf.Max(1.0f, FlatDistance() * 0.7f), keepState: true);
+                    watchedTime = 0f;
+                }
+                return;
+            }
+            Approach(speed);
+            if (FlatDistance() < AttackDistance) Strike();
         }
 
         void Burn(float dt)
@@ -317,7 +390,7 @@ namespace GhostWard
             fade = 1f;
             flash = 0.8f;
             mat.SetFloat(FlipId, 0f);
-            voice.PlayOneShot(ProceduralAudio.Screech(), 1f);
+            voice.PlayOneShot(EntitySounds.Attack(Def.Kind), 1f);
             game.OnAttack(this);
         }
 
@@ -344,15 +417,14 @@ namespace GhostWard
         // ---------- движение ----------
 
         // по полу и по потолку — без вертикального движения, по воздуху — плавно к лицу
-        bool Planar => Def.Kind is EntityKind.Shade or EntityKind.Albasty or EntityKind.Double or EntityKind.Upyr
-            || Def.Kind == EntityKind.Kikimora && !dropped;
+        bool Planar => Def.Stance == Stance.Floor || Def.Kind == EntityKind.Kikimora && !dropped;
 
         void Approach(float v)
         {
             var dir = cam.transform.position - transform.position;
             dir.y = Planar ? 0f : dir.y * 0.4f;
             var step = dir.normalized * (v * SpeedMul * Time.deltaTime);
-            if (Def.Kind != EntityKind.Upyr)
+            if (Arch != EntityKind.Upyr)
             {
                 var side = Vector3.Cross(Vector3.up, dir.normalized);
                 step += side * (Mathf.Sin(Time.time * 1.3f + Seed) * 0.15f * Time.deltaTime);
@@ -395,8 +467,8 @@ namespace GhostWard
             speed *= 1.35f;
             flash = 0.7f;
             sparks.Emit(8);
-            voice.PlayOneShot(ProceduralAudio.Laugh(), 0.8f);
-            if (Def.Kind is EntityKind.Poltergeist or EntityKind.Mara) nextEvent = Mathf.Min(nextEvent, 1.5f);
+            voice.PlayOneShot(EntitySounds.Call(Def.Kind) ?? ProceduralAudio.Laugh(), 0.9f);
+            if (Arch is EntityKind.Poltergeist or EntityKind.Mara) nextEvent = Mathf.Min(nextEvent, 1.5f);
         }
 
         public void Vanish() => Destroy(gameObject);
