@@ -17,3 +17,4 @@
 .idea/
 /.utmp/
 /Assets/GoogleMobileAds/Resources/*.asset.meta.bak
+/Assets/Resources/PerformanceTestRun*
