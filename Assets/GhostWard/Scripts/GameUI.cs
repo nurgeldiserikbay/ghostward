@@ -22,6 +22,8 @@ namespace GhostWard
         public event Action<Lang> LanguageChosen;
         public event Action<Tool> ToolSelected;
         public event Action<Protect> ProtectUsed;
+        public event Action SecondChancePressed;
+        public event Action BonusSupplyPressed;
         public event Action NextNightPressed;
         public event Action<bool> JournalToggled;
         public event Action<EntityKind> NamePressed;
@@ -50,7 +52,7 @@ namespace GhostWard
         EntityKind openedEntry;
         float recBlink;
         GameObject language, settings, tutorial;
-        Text tutTitle, tutBody, tutNext, volumeText, camTop, camBottom;
+        Text tutTitle, tutBody, tutNext, camTop, camBottom;
         RectTransform tutIcon;
         readonly List<Image> tutDots = new();
         int tutPage;
@@ -61,7 +63,9 @@ namespace GhostWard
         RectTransform toolBar, bagButton, bagPanel;
         Text readout;
         RawImage candleGlow;
-        GameObject journalTools;
+        GameObject journalTools, secondChance, bonusButton, settingsGeneral, settingsSound;
+        readonly List<(Text text, Func<float> value)> volumeTexts = new();
+        readonly List<(Image img, bool general)> settingTabs = new();
         readonly List<(Tool tool, Image bg)> toolButtons = new();
         readonly List<(Protect kind, Text label)> bagRows = new();
         Text nightText, clockText, messageText, supplyText, diagText, dawnText, overText, scanText;
@@ -483,7 +487,7 @@ namespace GhostWard
             }
         }
 
-        // Настройки: язык, вид камеры, звук, микрофон, вибрация.
+        // Настройки на двух вкладках: «Основное» (язык, вид камеры, качество) и «Звук» (громкость, микрофон, вибрация).
         void BuildSettings()
         {
             settings = Panel(root, "Settings");
@@ -492,59 +496,99 @@ namespace GhostWard
             title.rectTransform.sizeDelta = new Vector2(900, 100);
             title.fontStyle = FontStyle.Bold;
 
-            Caption(settings.transform, Loc.T("choose_lang"), 0.9f);
+            var tg = Button(settings.transform, Loc.T("tab_general"), new Vector2(0.5f, 0.885f), () => SettingsTab(true), false, 400, -210);
+            var ts = Button(settings.transform, Loc.T("tab_sound"), new Vector2(0.5f, 0.885f), () => SettingsTab(false), false, 400, 210);
+            settingTabs.Add((tg.GetComponent<Image>(), true));
+            settingTabs.Add((ts.GetComponent<Image>(), false));
+
+            settingsGeneral = Rect(settings.transform, "General", Vector2.zero, Vector2.one).gameObject;
+            settingsSound = Rect(settings.transform, "Sound", Vector2.zero, Vector2.one).gameObject;
+            var g = settingsGeneral.transform;
+            var snd = settingsSound.transform;
+
+            // язык
+            Caption(g, Loc.T("choose_lang"), 0.8f);
             for (int i = 0; i < Loc.LangNames.Length; i++)
             {
                 var lang = (Lang)i;
                 int row = i / 3, col = i % 3, inRow = row == 0 ? 3 : 2;
                 float x = (col - (inRow - 1) * 0.5f) * 320f;
-                var b = Button(settings.transform, Loc.LangNames[i], new Vector2(0.5f, 0.855f - row * 0.07f), () => LanguageChosen?.Invoke(lang), false, 300, x);
+                var b = Button(g, Loc.LangNames[i], new Vector2(0.5f, 0.755f - row * 0.07f), () => LanguageChosen?.Invoke(lang), false, 300, x);
                 b.GetComponentInChildren<Text>().fontSize = 32;
                 settingButtons.Add((b.GetComponent<Image>(), () => Loc.Current == lang));
             }
 
-            Caption(settings.transform, Loc.T("vision"), 0.725f);
+            // вид камеры
+            Caption(g, Loc.T("vision"), 0.625f);
             var visions = new[] { Vision.Normal, Vision.Dark, Vision.NightGreen, Vision.Cctv, Vision.Vhs };
             string[] keys = { "vision_normal", "vision_dark", "vision_night", "vision_cctv", "vision_vhs" };
             for (int i = 0; i < visions.Length; i++)
             {
                 var v = visions[i];
-                int row = i / 3, col = i % 3;
-                int inRow = row == 0 ? 3 : 2;
+                int row = i / 3, col = i % 3, inRow = row == 0 ? 3 : 2;
                 float x = (col - (inRow - 1) * 0.5f) * 320f;
-                string label = Loc.T(keys[i]) + (Unlocks.Has(v) ? "" : "  ▶AD");
-                var b = Button(settings.transform, label, new Vector2(0.5f, 0.675f - row * 0.07f), () => PickVision(v), false, 300, x);
+                string label = Loc.T(keys[i]) + (Unlocks.Has(v) ? "" : "  ▶");
+                var b = Button(g, label, new Vector2(0.5f, 0.575f - row * 0.07f), () => PickVision(v), false, 300, x);
                 b.GetComponentInChildren<Text>().fontSize = 30;
                 settingButtons.Add((b.GetComponent<Image>(), () => Settings.Vision == v));
             }
-            var note = Label(settings.transform, Loc.T("vision_note"), 25, new Vector2(0.5f, 0.55f), Vector2.zero, Dim);
+            var note = Label(g, Loc.T("vision_note"), 25, new Vector2(0.5f, 0.45f), Vector2.zero, Dim);
             note.rectTransform.sizeDelta = new Vector2(940, 70);
 
-            Caption(settings.transform, Loc.T("volume"), 0.5f);
-            Button(settings.transform, "−", new Vector2(0.5f, 0.45f), () => { Settings.Volume -= 0.1f; RefreshSettings(); }, false, 160, -250);
-            Button(settings.transform, "+", new Vector2(0.5f, 0.45f), () => { Settings.Volume += 0.1f; RefreshSettings(); }, false, 160, 250);
-            volumeText = Label(settings.transform, "", 44, new Vector2(0.5f, 0.45f), Vector2.zero, Bone);
-            volumeText.rectTransform.sizeDelta = new Vector2(300, 80);
+            // качество графики
+            Caption(g, Loc.T("quality"), 0.39f);
+            string[] q = { "low", "medium", "high" };
+            for (int i = 0; i < 3; i++)
+            {
+                int level = i;
+                var b = Button(g, Loc.T(q[i]), new Vector2(0.5f, 0.34f), () => { Settings.Quality = level; RefreshSettings(); }, false, 300, (i - 1) * 320f);
+                settingButtons.Add((b.GetComponent<Image>(), () => Settings.Quality == level));
+            }
+            var qn = Label(g, Loc.T("quality_note"), 25, new Vector2(0.5f, 0.285f), Vector2.zero, Dim);
+            qn.rectTransform.sizeDelta = new Vector2(940, 60);
 
-            Caption(settings.transform, Loc.T("mic"), 0.39f);
+            // звук
+            VolumeRow(snd, Loc.T("master"), 0.8f, () => Settings.Volume, v => Settings.Volume = v);
+            VolumeRow(snd, Loc.T("ambience_vol"), 0.68f, () => Settings.Ambience, v => Settings.Ambience = v);
+            VolumeRow(snd, Loc.T("sfx_vol"), 0.56f, () => Settings.Sfx, v => Settings.Sfx = v);
+
+            Caption(snd, Loc.T("mic"), 0.44f);
             string[] sens = { "low", "medium", "high" };
             for (int i = 0; i < 3; i++)
             {
                 int level = i;
-                var b = Button(settings.transform, Loc.T(sens[i]), new Vector2(0.5f, 0.34f), () => { Settings.MicSensitivity = level; RefreshSettings(); }, false, 300, (i - 1) * 320f);
+                var b = Button(snd, Loc.T(sens[i]), new Vector2(0.5f, 0.39f), () => { Settings.MicSensitivity = level; RefreshSettings(); }, false, 300, (i - 1) * 320f);
                 settingButtons.Add((b.GetComponent<Image>(), () => Settings.MicSensitivity == level));
             }
 
-            Caption(settings.transform, Loc.T("vibration"), 0.285f);
+            Caption(snd, Loc.T("vibration"), 0.31f);
             for (int i = 0; i < 2; i++)
             {
                 bool on = i == 0;
-                var b = Button(settings.transform, Loc.T(on ? "on" : "off"), new Vector2(0.5f, 0.23f), () => { Settings.Vibration = on; RefreshSettings(); }, false, 300, (i - 0.5f) * 320f);
+                var b = Button(snd, Loc.T(on ? "on" : "off"), new Vector2(0.5f, 0.26f), () => { Settings.Vibration = on; RefreshSettings(); }, false, 300, (i - 0.5f) * 320f);
                 settingButtons.Add((b.GetComponent<Image>(), () => Settings.Vibration == on));
             }
 
             Button(settings.transform, Loc.T("back"), new Vector2(0.5f, 0.08f), () => ShowOnly(menu), false);
+            SettingsTab(true);
+        }
+
+        void SettingsTab(bool general)
+        {
+            settingsGeneral.SetActive(general);
+            settingsSound.SetActive(!general);
+            foreach (var (img, isGeneral) in settingTabs) img.color = isGeneral == general ? Blood : Ink;
             RefreshSettings();
+        }
+
+        void VolumeRow(Transform parent, string caption, float y, Func<float> get, Action<float> set)
+        {
+            Caption(parent, caption, y);
+            Button(parent, "−", new Vector2(0.5f, y - 0.05f), () => { set(get() - 0.1f); RefreshSettings(); }, false, 160, -250);
+            Button(parent, "+", new Vector2(0.5f, y - 0.05f), () => { set(get() + 0.1f); RefreshSettings(); }, false, 160, 250);
+            var t = Label(parent, "", 44, new Vector2(0.5f, y - 0.05f), Vector2.zero, Bone);
+            t.rectTransform.sizeDelta = new Vector2(300, 80);
+            volumeTexts.Add((t, get));
         }
 
         void Caption(Transform parent, string text, float y)
@@ -568,10 +612,18 @@ namespace GhostWard
         void RefreshSettings()
         {
             foreach (var (img, selected) in settingButtons) img.color = selected() ? Blood : Ink;
-            volumeText.text = Mathf.RoundToInt(Settings.Volume * 100f) + "%";
+            foreach (var (text, value) in volumeTexts) text.text = Mathf.RoundToInt(value() * 100f) + "%";
         }
 
         public void ShowSettings() => ShowOnly(settings);
+
+        public void SetSecondChance(bool available) => secondChance.SetActive(available);
+
+        public void ShowBonus(string what)
+        {
+            bonusButton.SetActive(false);
+            dawnSupply.text += "\n" + Loc.F("bonus_got", what);
+        }
 
         // для превью из редактора
         public void DebugTutorial(int page)
@@ -720,7 +772,10 @@ namespace GhostWard
             dawnText.rectTransform.sizeDelta = new Vector2(940, 200);
             dawnSupply = Label(dawn.transform, "", 28, new Vector2(0.5f, 0.28f), Vector2.zero, Dim);
             dawnSupply.rectTransform.sizeDelta = new Vector2(940, 120);
-            shareButton = Button(dawn.transform, Loc.T("share_photo"), new Vector2(0.5f, 0.17f), () => SharePressed?.Invoke(), false);
+            shareButton = Button(dawn.transform, Loc.T("share_photo"), new Vector2(0.5f, 0.17f), () => SharePressed?.Invoke(), false, 330, -175);
+            shareButton.GetComponentInChildren<Text>().fontSize = 30;
+            bonusButton = Button(dawn.transform, Loc.T("bonus_supply"), new Vector2(0.5f, 0.17f), () => BonusSupplyPressed?.Invoke(), true, 330, 175);
+            bonusButton.GetComponentInChildren<Text>().fontSize = 30;
             Button(dawn.transform, Loc.T("next_night"), new Vector2(0.5f, 0.08f), () => NextNightPressed?.Invoke(), true, 470, 120);
             Button(dawn.transform, Loc.T("menu"), new Vector2(0.5f, 0.08f), () => MenuPressed?.Invoke(), false, 220, -255);
         }
@@ -733,7 +788,8 @@ namespace GhostWard
             t.fontStyle = FontStyle.Bold;
             overText = Label(over.transform, "", 40, new Vector2(0.5f, 0.5f), Vector2.zero, Bone);
             overText.rectTransform.sizeDelta = new Vector2(1000, 200);
-            Button(over.transform, Loc.T("again"), new Vector2(0.5f, 0.3f), () => StartPressed?.Invoke(), true);
+            secondChance = Button(over.transform, Loc.T("second_chance"), new Vector2(0.5f, 0.39f), () => SecondChancePressed?.Invoke(), true);
+            Button(over.transform, Loc.T("again"), new Vector2(0.5f, 0.3f), () => StartPressed?.Invoke(), false);
             Button(over.transform, Loc.T("menu"), new Vector2(0.5f, 0.21f), () => MenuPressed?.Invoke(), false);
         }
 
@@ -1114,6 +1170,7 @@ namespace GhostWard
             if (photo != null)
                 dawnPhoto.rectTransform.sizeDelta = new Vector2(620f * photo.width / photo.height, 620f);
             shareButton.SetActive(photo != null);
+            bonusButton.SetActive(true);
             ShowOnly(dawn);
             ClearEffects();
         }

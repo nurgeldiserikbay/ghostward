@@ -96,6 +96,7 @@ namespace GhostWard
             e.voice.minDistance = 0.7f;
             e.voice.maxDistance = 9f;
             e.voice.dopplerLevel = 0f;
+            e.voice.volume = Settings.Sfx;
             e.voice.clip = def.Kind switch
             {
                 EntityKind.Ghost => ProceduralAudio.Whisper(),
@@ -153,7 +154,7 @@ namespace GhostWard
                 case State.Banished:
                     mat.SetFloat(DissolveId, Mathf.Clamp01(stateTime / 0.9f));
                     transform.position += Vector3.up * dt * 0.3f;
-                    voice.volume = Mathf.Max(0f, 1f - stateTime * 2f);
+                    voice.volume = Mathf.Max(0f, 1f - stateTime * 2f) * Settings.Sfx;
                     if (stateTime > 1.4f) Destroy(gameObject);
                     break;
             }
@@ -383,7 +384,7 @@ namespace GhostWard
             fade = 1f;
             flash = 1f;
             sparks.Emit(40);
-            AudioSource.PlayClipAtPoint(ProceduralAudio.Banish(), transform.position, 1f);
+            AudioSource.PlayClipAtPoint(ProceduralAudio.Banish(), transform.position, Settings.Sfx);
             SetState(State.Banished);
         }
 
@@ -399,6 +400,15 @@ namespace GhostWard
         }
 
         public void Vanish() => Destroy(gameObject);
+
+        // «второй шанс»: сущность отступает и снова прячется
+        public void Repel()
+        {
+            if (!Alive) return;
+            rend.enabled = false;
+            transform.localScale = baseScale;
+            SetState(State.Retreating);
+        }
 
         void OnDestroy()
         {

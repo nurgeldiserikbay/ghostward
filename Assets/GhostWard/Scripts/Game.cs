@@ -58,6 +58,14 @@ namespace GhostWard
         float emf, thermo = 20f, beepTimer, candleTime;
         bool circle, tumar;
 
+        // второй шанс, припасы за рекламу, тайники, пугающие события
+        Phase lostIn;
+        bool revivedThisNight, bonusTaken;
+        GameObject stash;
+        float stashTimer, stashGaze, stashLife, stashSound, eventTimer;
+        int stashesThisNight;
+        bool stashHintShown;
+
         // охота: слух и затаивание
         float quietTime, heardTime;
 
@@ -115,6 +123,7 @@ namespace GhostWard
                     samplePoints[y * gx + x] = new Vector2((x + 0.5f) / gx, (y + 0.5f) / gy);
 
             Settings.Apply();
+            Ads.Init();
             CreateUI();
             if (Loc.Chosen) ui.ShowMenu();
             else ui.ShowLanguage();
@@ -151,6 +160,13 @@ namespace GhostWard
                 sfx.PlayOneShot(ProceduralAudio.Click(), 0.5f);
             };
             ui.ProtectUsed += UseProtection;
+            ui.SecondChancePressed += () => Ads.ShowRewarded(Revive, () => ui.Message(Loc.T("ad_unavailable"), 2f));
+            ui.BonusSupplyPressed += () => Ads.ShowRewarded(() =>
+            {
+                if (bonusTaken) return;
+                bonusTaken = true;
+                ui.ShowBonus(inv.Bonus());
+            }, () => ui.Message(Loc.T("ad_unavailable"), 2f));
             ui.NamePressed += NameEntity;
             ui.SharePressed += SharePhoto;
             ui.JournalToggled += open =>
@@ -199,6 +215,7 @@ namespace GhostWard
 
         void ToMenu()
         {
+            DestroyStash();
             ClearEntities();
             phase = Phase.Menu;
             ui.SetHidden(false);
@@ -224,6 +241,11 @@ namespace GhostWard
             photo = null;
             circle = tumar = false;
             candleTime = 0f;
+            revivedThisNight = bonusTaken = false;
+            stashesThisNight = 0;
+            stashTimer = Random.Range(30f, 50f);
+            eventTimer = Random.Range(15f, 25f);
+            DestroyStash();
             ui.SetTool(tool);
             ui.SetProtection(inv);
             ui.CloseBag();
@@ -290,6 +312,7 @@ namespace GhostWard
 
         void Update()
         {
+            sfx.volume = Settings.Sfx;
             ui.SetDiagnostics(DiagnosticsText());
             if (ui.JournalOpen) return;
 
@@ -297,7 +320,7 @@ namespace GhostWard
             if (phase == Phase.Scan) { UpdateScan(); return; }
             if (phase is not (Phase.Investigate or Phase.Hunt))
             {
-                drone.volume = Mathf.MoveTowards(drone.volume, 0.15f, Time.deltaTime);
+                drone.volume = Mathf.MoveTowards(drone.volume, 0.15f * Settings.Ambience, Time.deltaTime);
                 staticNoise.volume = 0f;
                 UpdateLook(Time.deltaTime);
                 return;
@@ -318,6 +341,8 @@ namespace GhostWard
             else UpdateHunt(dt);
             UpdateTools(dt);
             UpdateProtection(dt);
+            UpdateStash(dt);
+            UpdateScares(dt);
 
             UpdateFear(dt);
             UpdateAtmosphere(dt);
@@ -357,7 +382,7 @@ namespace GhostWard
             {
                 fakeTimer = Random.Range(10f, 18f);
                 var dir = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f) * Vector3.forward;
-                AudioSource.PlayClipAtPoint(ProceduralAudio.Creak(), cam.transform.position + dir * 3f, 0.45f);
+                PlayAt(ProceduralAudio.Creak(), cam.transform.position + dir * 3f, 0.45f);
             }
 
             float angle = AngleToLair();
@@ -396,8 +421,8 @@ namespace GhostWard
             switch (clue)
             {
                 case Evidence.Frost: frostTime = 5f; break;
-                case Evidence.Whisper: AudioSource.PlayClipAtPoint(ProceduralAudio.Whisper(), lair, 0.9f); break;
-                case Evidence.Knock: AudioSource.PlayClipAtPoint(ProceduralAudio.Knock(), lair, 1f); break;
+                case Evidence.Whisper: PlayAt(ProceduralAudio.Whisper(), lair, 0.9f); break;
+                case Evidence.Knock: PlayAt(ProceduralAudio.Knock(), lair, 1f); break;
                 case Evidence.Static: staticTime = 5f; break;
                 case Evidence.Compass: compassTime = 6f; break;
                 case Evidence.NightVision:
@@ -419,7 +444,7 @@ namespace GhostWard
             }
             else
             {
-                staticNoise.volume = 0.3f;
+                staticNoise.volume = 0.3f * Settings.Ambience;
                 ui.Message(Loc.T("radio_silence"), 2f);
             }
         }
@@ -483,7 +508,7 @@ namespace GhostWard
                     break;
                 case Tool.Radio:
                     ui.SetToolReadout(Loc.T("radio_listen"), new Color(0.86f, 0.83f, 0.76f));
-                    staticNoise.volume = Mathf.Max(staticNoise.volume, 0.08f);
+                    staticNoise.volume = Mathf.Max(staticNoise.volume, 0.08f * Settings.Ambience);
                     break;
             }
         }
@@ -627,7 +652,7 @@ namespace GhostWard
 
             // переключение режимов не плавное, а через короткий «сбой»
             nightVision = Mathf.MoveTowards(nightVision, nightVisionTarget, dt * 6f);
-            staticNoise.volume = Mathf.Max(glitch * 0.35f, Mathf.MoveTowards(staticNoise.volume, 0f, dt * 0.5f));
+            staticNoise.volume = Mathf.Max(glitch * 0.35f * Settings.Ambience, Mathf.MoveTowards(staticNoise.volume, 0f, dt * 0.5f));
             // эпизоды ночного режима: зелёное ночное видение, а если оно уже выбрано — ИК-камера
             var style = Settings.Vision;
             var episode = style == Vision.NightGreen ? Vision.Cctv : Vision.NightGreen;
@@ -646,7 +671,7 @@ namespace GhostWard
 
         void UpdateScan()
         {
-            drone.volume = Mathf.MoveTowards(drone.volume, 0.25f, Time.deltaTime * 0.3f);
+            drone.volume = Mathf.MoveTowards(drone.volume, 0.25f * Settings.Ambience, Time.deltaTime * 0.3f);
             scanTimer -= Time.deltaTime;
             if (scanTimer > 0f) return;
             scanTimer = 0.15f;
@@ -731,13 +756,161 @@ namespace GhostWard
 
         void GameOver()
         {
+            lostIn = phase;
             phase = Phase.Over;
-            ClearEntities();
+            foreach (var e in entities) if (e != null) e.gameObject.SetActive(false);
+            DestroyStash();
             ui.SetHidden(false);
+            ui.SetSecondChance(!revivedThisNight);
             int best = Mathf.Max(night, PlayerPrefs.GetInt("bestNight", 0));
             PlayerPrefs.SetInt("bestNight", best);
             PlayerPrefs.Save();
             ui.ShowGameOver(night, nightTime / NightSeconds, best, target.Name, photo);
+        }
+
+        // «Второй шанс» за наградную рекламу: игрок приходит в себя, сущность отступает. Раз за ночь.
+        void Revive()
+        {
+            if (phase != Phase.Over || revivedThisNight) return;
+            revivedThisNight = true;
+            phase = lostIn;
+            fear = 45f;
+            foreach (var e in entities)
+            {
+                if (e == null) continue;
+                e.gameObject.SetActive(true);
+                e.Repel();
+            }
+            ui.ShowHud();
+            ui.Message(Loc.T("revived"), 3f);
+        }
+
+        void PlayAt(AudioClip clip, Vector3 pos, float volume) =>
+            AudioSource.PlayClipAtPoint(clip, pos, volume * Settings.Sfx);
+
+        // ---------- тайники ----------
+
+        // Иногда в тёмном месте комнаты появляется блик: посмотри на него секунду — и найдёшь припасы.
+        void UpdateStash(float dt)
+        {
+            if (stash == null)
+            {
+                if (phase != Phase.Investigate || stashesThisNight >= 2) return;
+                stashTimer -= dt;
+                if (stashTimer > 0f) return;
+                SpawnStash();
+                return;
+            }
+
+            stashLife -= dt;
+            if (stashLife <= 0f) { DestroyStash(); return; }
+
+            var to = stash.transform.position - cam.transform.position;
+            float angle = Vector3.Angle(cam.transform.forward, to);
+            stashGaze = angle < 9f ? stashGaze + dt : Mathf.Max(0f, stashGaze - dt * 0.5f);
+            float pulse = 0.12f + 0.05f * Mathf.Sin(Time.time * 6f) + stashGaze * 0.12f;
+            stash.transform.localScale = Vector3.one * pulse;
+            stash.transform.rotation = Quaternion.LookRotation(to, Vector3.up);
+
+            stashSound -= dt;
+            if (stashSound <= 0f)
+            {
+                stashSound = 4f;
+                PlayAt(ProceduralAudio.Shimmer(), stash.transform.position, 0.25f);
+            }
+
+            if (stashGaze >= 1f)
+            {
+                string what = inv.Stash();
+                sfx.PlayOneShot(ProceduralAudio.BellRing(), 0.3f);
+                ui.Message(Loc.F("found_item", what), 2f);
+                ui.SetProtection(inv);
+                DestroyStash();
+            }
+        }
+
+        void SpawnStash()
+        {
+            stashesThisNight++;
+            stashTimer = Random.Range(45f, 70f);
+            stashLife = 30f;
+            stashGaze = 0f;
+            stashSound = 0f;
+
+            // место — тёмный угол на карте, на высоте мебели
+            var pos = PickPosition(Catalog.Get(EntityKind.Shade), 50f, 3f);
+            pos.y = cam.transform.position.y - EyeHeight + Random.Range(0.3f, 1.1f);
+            stash = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            stash.name = "Stash";
+            Destroy(stash.GetComponent<Collider>());
+            stash.transform.position = pos;
+            var mr = stash.GetComponent<MeshRenderer>();
+            mr.sharedMaterial = new Material(Shader.Find("GhostWard/Spark"));
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            var mf = stash.GetComponent<MeshFilter>();
+            var colors = new Color[mf.mesh.vertexCount];
+            for (int i = 0; i < colors.Length; i++) colors[i] = new Color(1f, 0.8f, 0.45f, 1f);
+            mf.mesh.colors = colors;
+
+            if (!stashHintShown)
+            {
+                stashHintShown = true;
+                ui.Message(Loc.T("stash_hint"), 4f);
+            }
+        }
+
+        void DestroyStash()
+        {
+            if (stash == null) return;
+            Destroy(stash.GetComponent<MeshRenderer>().sharedMaterial);
+            Destroy(stash);
+            stash = null;
+        }
+
+        // ---------- пугающие события ----------
+
+        // Время от времени: шаги за спиной, хлопок двери, дыхание у самого уха, мигание света, шёпот.
+        void UpdateScares(float dt)
+        {
+            eventTimer -= dt;
+            if (eventTimer > 0f) return;
+            eventTimer = Random.Range(16f, 32f) / (1f + fear / 100f);
+
+            var camPos = cam.transform.position;
+            var back = -cam.transform.forward;
+            back.y = 0f;
+            back.Normalize();
+            var side = Vector3.Cross(Vector3.up, back);
+            switch (Random.Range(0, 5))
+            {
+                case 0:
+                    PlayAt(ProceduralAudio.Footsteps(), camPos + back * 2.5f + side * Random.Range(-1.5f, 1.5f), 0.8f);
+                    break;
+                case 1:
+                    PlayAt(ProceduralAudio.Crash(), camPos + Quaternion.Euler(0f, Random.Range(0f, 360f), 0f) * Vector3.forward * 4.5f, 0.45f);
+                    ui.Shake(0.25f);
+                    break;
+                case 2:
+                    PlayAt(ProceduralAudio.Breath(), camPos + back * 0.5f, 0.5f);
+                    AddFear(2f);
+                    break;
+                case 3:
+                    // мигание света: экран дважды гаснет
+                    sfx.PlayOneShot(ProceduralAudio.Click(), 0.7f);
+                    ui.Flash(new Color(0f, 0f, 0f, 0.95f));
+                    StartCoroutine(SecondFlicker());
+                    break;
+                default:
+                    PlayAt(ProceduralAudio.Whisper(), camPos + side * (Random.value < 0.5f ? 0.4f : -0.4f), 0.45f);
+                    break;
+            }
+        }
+
+        IEnumerator SecondFlicker()
+        {
+            yield return new WaitForSeconds(0.35f);
+            sfx.PlayOneShot(ProceduralAudio.Click(), 0.5f);
+            ui.Flash(new Color(0f, 0f, 0f, 0.9f));
         }
 
         void ClearEntities()
@@ -814,13 +987,13 @@ namespace GhostWard
 
         void UpdateAtmosphere(float dt)
         {
-            drone.volume = Mathf.MoveTowards(drone.volume, 0.35f + fear / 100f * 0.4f, dt * 0.3f);
+            drone.volume = Mathf.MoveTowards(drone.volume, (0.35f + fear / 100f * 0.4f) * Settings.Ambience, dt * 0.3f);
 
             // сердце бьётся чаще со страхом
             heartTimer -= dt;
             if (fear > 15f && heartTimer <= 0f)
             {
-                heart.volume = Mathf.Lerp(0.2f, 0.9f, fear / 100f);
+                heart.volume = Mathf.Lerp(0.2f, 0.9f, fear / 100f) * Settings.Ambience;
                 heart.Play();
                 heartTimer = Mathf.Lerp(1.1f, 0.38f, fear / 100f);
             }

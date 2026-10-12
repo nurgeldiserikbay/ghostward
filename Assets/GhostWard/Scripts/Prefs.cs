@@ -43,7 +43,33 @@ namespace GhostWard
             set { PlayerPrefs.SetInt("tutorialSeen", value ? 1 : 0); PlayerPrefs.Save(); }
         }
 
-        public static void Apply() => AudioListener.volume = Volume;
+        // громкость атмосферы (гул, помехи, сердце) и эффектов (голоса сущностей, предметы)
+        public static float Ambience
+        {
+            get => PlayerPrefs.GetFloat("ambience", 1f);
+            set { PlayerPrefs.SetFloat("ambience", Mathf.Clamp01(value)); PlayerPrefs.Save(); }
+        }
+
+        public static float Sfx
+        {
+            get => PlayerPrefs.GetFloat("sfx", 1f);
+            set { PlayerPrefs.SetFloat("sfx", Mathf.Clamp01(value)); PlayerPrefs.Save(); }
+        }
+
+        // Качество: 0 — экономное, 1 — среднее, 2 — высокое. По умолчанию — по объёму памяти телефона.
+        public static int Quality
+        {
+            get => PlayerPrefs.GetInt("quality", SystemInfo.systemMemorySize < 3500 ? 0 : SystemInfo.systemMemorySize < 6000 ? 1 : 2);
+            set { PlayerPrefs.SetInt("quality", Mathf.Clamp(value, 0, 2)); PlayerPrefs.Save(); Apply(); }
+        }
+
+        public static void Apply()
+        {
+            AudioListener.volume = Volume;
+            Application.targetFrameRate = Quality == 0 ? 30 : 60;
+            if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline is UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset urp)
+                urp.renderScale = Quality switch { 0 => 0.6f, 1 => 0.8f, _ => 1f };
+        }
     }
 
     // Открытые платные вещи. Без своего сервера: состояние — на устройстве,
@@ -61,30 +87,6 @@ namespace GhostWard
         {
             PlayerPrefs.SetInt("unlock_" + v, 1);
             PlayerPrefs.Save();
-        }
-    }
-
-    // Реклама: пока заглушка с той же логикой, что будет у AdMob.
-    // Межстраничная — после каждого третьего «Ещё раз»; наградная — за режимы камеры и припасы.
-    public static class Ads
-    {
-        const int RetriesPerInterstitial = 3;
-        static int retries;
-
-        public static bool RewardedReady => true;
-
-        public static void ShowRewarded(Action onReward)
-        {
-            Debug.Log("[GhostWard] Наградная реклама (заглушка)");
-            onReward?.Invoke();
-        }
-
-        // вызывать при «Ещё раз» после поражения
-        public static void OnRetry()
-        {
-            retries++;
-            if (retries % RetriesPerInterstitial != 0) return;
-            Debug.Log("[GhostWard] Межстраничная реклама (заглушка)");
         }
     }
 }

@@ -40,6 +40,7 @@ namespace GhostWard.EditorTools
             SetupPlayer();
             SetupXr();
             SetupScene();
+            SetupAds();
             AssetDatabase.SaveAssets();
             Debug.Log("[GhostWard] Проект настроен");
 
@@ -146,6 +147,24 @@ namespace GhostWard.EditorTools
             arcore.requirement = ARCoreSettings.Requirement.Optional;
             arcore.depth = ARCoreSettings.Requirement.Optional;
             EditorUtility.SetDirty(arcore);
+        }
+
+        // ID приложения AdMob. Пока тестовый от Google — заменить на свой перед релизом.
+        public const string AdMobAndroidAppId = "ca-app-pub-3940256099942544~3347511713";
+
+        // Класс настроек плагина закрытый (internal), поэтому — через отражение.
+        static void SetupAds()
+        {
+            var type = System.Type.GetType("GoogleMobileAds.Editor.GoogleMobileAdsSettings, GoogleMobileAds.Editor");
+            if (type == null) { Debug.LogWarning("[GhostWard] Плагин AdMob не найден"); return; }
+            var load = type.GetMethod("LoadInstance", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+            var settings = load?.Invoke(null, null) as Object;
+            var prop = type.GetProperty("GoogleMobileAdsAndroidAppId");
+            if (settings == null || prop == null) { Debug.LogWarning("[GhostWard] Настройки AdMob недоступны"); return; }
+            if ((string)prop.GetValue(settings) == AdMobAndroidAppId) return;
+            prop.SetValue(settings, AdMobAndroidAppId);
+            EditorUtility.SetDirty(settings);
+            AssetDatabase.SaveAssets();
         }
 
         static void SetupScene()

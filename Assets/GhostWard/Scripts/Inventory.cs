@@ -40,6 +40,38 @@ namespace GhostWard
             }
         }
 
+        // припасы за наградную рекламу на рассвете
+        public string Bonus()
+        {
+            Salt += 2;
+            Iron += 1;
+            Bell += 1;
+            Mirror += 1;
+            Wormwood += 1;
+            Battery = Mathf.Min(100f, Battery + 30f);
+            Circle += 1;
+            Calm += 1;
+            static string N(ItemKind k) => Catalog.Get(k).Name;
+            static string P(Protect k) => Loc.T($"p.{k}.name");
+            return $"{N(ItemKind.Salt)} +2 · {N(ItemKind.Iron)} +1 · {N(ItemKind.Bell)} +1 · {N(ItemKind.Mirror)} +1\n" +
+                   $"{N(ItemKind.Wormwood)} +1 · {N(ItemKind.Lantern)} +30% · {P(Protect.Circle)} +1 · {P(Protect.Calm)} +1";
+        }
+
+        // находка в тайнике: одна случайная вещь; возвращает её название
+        public string Stash()
+        {
+            switch (Random.Range(0, 7))
+            {
+                case 0: Salt++; return Catalog.Get(ItemKind.Salt).Name;
+                case 1: Iron++; return Catalog.Get(ItemKind.Iron).Name;
+                case 2: Wormwood++; return Catalog.Get(ItemKind.Wormwood).Name;
+                case 3: Battery = Mathf.Min(100f, Battery + 25f); return Catalog.Get(ItemKind.Lantern).Name + " +25%";
+                case 4: Candle++; return Loc.T("p.Candle.name");
+                case 5: Circle++; return Loc.T("p.Circle.name");
+                default: Calm++; return Loc.T("p.Calm.name");
+            }
+        }
+
         // пополнение на рассвете; возвращает строку для экрана
         public string Resupply()
         {

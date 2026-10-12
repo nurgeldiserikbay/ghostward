@@ -206,6 +206,21 @@ namespace GhostWard
             return (saw * 0.3f + Noise(r) * 0.08f) * env * Mathf.Abs(Sin(23f, t)) * 0.5f;
         });
 
+        // Шаги: четыре тяжёлых шага по деревянному полу.
+        public static AudioClip Footsteps() => Get("steps", 2.4f, (t, r) =>
+        {
+            float s = 0f;
+            for (int k = 0; k < 4; k++)
+            {
+                float tk = t - k * 0.55f;
+                if (tk < 0f) continue;
+                s += (Sin(65f - tk * 30f, tk) * 0.9f + Noise(r) * 0.35f) * Mathf.Exp(-tk * 18f);
+                float creak = tk - 0.05f;
+                if (creak > 0f) s += Sin(310f + Sin(9f, creak) * 40f, creak) * Mathf.Exp(-creak * 9f) * 0.12f;
+            }
+            return s * 0.8f;
+        });
+
         // писк ЭМП-детектора
         public static AudioClip Beep() => Get("beep", 0.07f, (t, r) => Mathf.Sign(Sin(1900f, t)) * Mathf.Min(1f, (0.07f - t) * 60f) * 0.12f);
 
