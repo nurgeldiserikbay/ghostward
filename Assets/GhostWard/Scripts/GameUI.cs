@@ -74,7 +74,8 @@ namespace GhostWard
         RectTransform rankFill;
         int storyPage;
         GameObject trophies, nextNightButton;
-        Text trophyText, narrateText, hintText;
+        Text trophyText, narrateText, hintText, instructionText, instructionStep;
+        GameObject instruction;
         float trophyTimer, narrateTimer, hintTimer;
         string modifierName = "";
         readonly List<(Tool tool, Image bg)> toolButtons = new();
@@ -179,6 +180,18 @@ namespace GhostWard
             jumpscare.rectTransform.sizeDelta = new Vector2(1100, 1380);
             jumpscare.raycastTarget = false;
             jumpscare.gameObject.SetActive(false);
+
+            // инструкция пролога: шаг обучения, пока не выполнен
+            var ins = Rect(root, "Instruction", new Vector2(0.5f, 0.72f), new Vector2(0.5f, 0.72f));
+            ins.sizeDelta = new Vector2(980, 190);
+            ins.gameObject.AddComponent<Image>().color = new Color(0.02f, 0.015f, 0.02f, 0.78f);
+            Frame(ins, 980, 190, new Color(1f, 0.75f, 0.45f, 0.6f), 3f);
+            instructionStep = Label(ins, "", 24, new Vector2(1f, 1f), new Vector2(-70, -24), new Color(1f, 0.75f, 0.45f, 0.8f));
+            instructionStep.rectTransform.sizeDelta = new Vector2(120, 36);
+            instructionText = Label(ins, "", 31, new Vector2(0.5f, 0.5f), new Vector2(0, -6), new Color(1f, 0.85f, 0.6f));
+            instructionText.rectTransform.sizeDelta = new Vector2(920, 160);
+            instruction = ins.gameObject;
+            instruction.SetActive(false);
 
             // ощущение при улике и подсказка новичку — над приборами
             narrateText = Label(root, "", 36, new Vector2(0.5f, 0.37f), Vector2.zero, Bone);
@@ -669,24 +682,25 @@ namespace GhostWard
             an.rectTransform.sizeDelta = new Vector2(940, 60);
 
             // звук
-            VolumeRow(snd, Loc.T("master"), 0.8f, () => Settings.Volume, v => Settings.Volume = v);
-            VolumeRow(snd, Loc.T("ambience_vol"), 0.68f, () => Settings.Ambience, v => Settings.Ambience = v);
-            VolumeRow(snd, Loc.T("sfx_vol"), 0.56f, () => Settings.Sfx, v => Settings.Sfx = v);
+            VolumeRow(snd, Loc.T("master"), 0.82f, () => Settings.Volume, v => Settings.Volume = v);
+            VolumeRow(snd, Loc.T("music_vol"), 0.71f, () => Settings.Music, v => Settings.Music = v);
+            VolumeRow(snd, Loc.T("ambience_vol"), 0.6f, () => Settings.Ambience, v => Settings.Ambience = v);
+            VolumeRow(snd, Loc.T("sfx_vol"), 0.49f, () => Settings.Sfx, v => Settings.Sfx = v);
 
-            Caption(snd, Loc.T("mic"), 0.44f);
+            Caption(snd, Loc.T("mic"), 0.385f);
             string[] sens = { "low", "medium", "high" };
             for (int i = 0; i < 3; i++)
             {
                 int level = i;
-                var b = Button(snd, Loc.T(sens[i]), new Vector2(0.5f, 0.39f), () => { Settings.MicSensitivity = level; RefreshSettings(); }, false, 300, (i - 1) * 320f);
+                var b = Button(snd, Loc.T(sens[i]), new Vector2(0.5f, 0.335f), () => { Settings.MicSensitivity = level; RefreshSettings(); }, false, 300, (i - 1) * 320f);
                 settingButtons.Add((b.GetComponent<Image>(), () => Settings.MicSensitivity == level));
             }
 
-            Caption(snd, Loc.T("vibration"), 0.31f);
+            Caption(snd, Loc.T("vibration"), 0.265f);
             for (int i = 0; i < 2; i++)
             {
                 bool on = i == 0;
-                var b = Button(snd, Loc.T(on ? "on" : "off"), new Vector2(0.5f, 0.26f), () => { Settings.Vibration = on; RefreshSettings(); }, false, 300, (i - 0.5f) * 320f);
+                var b = Button(snd, Loc.T(on ? "on" : "off"), new Vector2(0.5f, 0.215f), () => { Settings.Vibration = on; RefreshSettings(); }, false, 300, (i - 0.5f) * 320f);
                 settingButtons.Add((b.GetComponent<Image>(), () => Settings.Vibration == on));
             }
 
@@ -1151,6 +1165,18 @@ namespace GhostWard
                 : names.Count == 0 ? Loc.T("sus_none")
                 : Loc.F(names.Count == 1 ? "sus_one" : "sus_many", string.Join(", ", names));
         }
+
+        // шаг пролога; пустой текст — спрятать
+        public void SetInstruction(string text, int step, int total)
+        {
+            instruction.SetActive(!string.IsNullOrEmpty(text));
+            instructionText.text = text;
+            instructionStep.text = total > 0 ? Loc.F("step_n", step, total) : "";
+        }
+
+        public void SetNightTitle(string title) => nightText.text = title;
+
+        public bool IsMarked(Evidence e) => marks[(int)e];
 
         public void Narrate(string text)
         {

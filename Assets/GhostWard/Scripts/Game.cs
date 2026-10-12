@@ -78,7 +78,14 @@ namespace GhostWard
         bool newCase, lureMatched;   // новая сущность этой ночью; приманка откликнулась
 
         // подсказки «чем проверить» — пока игрок новичок (первые три пережитые ночи)
-        static bool Beginner => Progress.NightsSurvived < 3;
+        bool Beginner => Progress.NightsSurvived < 3 && !prologue;
+
+        // музыка и обучающая первая ночь (пролог)
+        Music music;
+        bool prologue, nameMusicPlayed;
+        int proStep;
+        float proTimer, proIdle;
+        const int ProSteps = 8;
         GameObject stash;
         float stashTimer, stashGaze, stashLife, stashSound, eventTimer;
         int stashesThisNight;
@@ -118,6 +125,7 @@ namespace GhostWard
             Screen.orientation = ScreenOrientation.Portrait;
 
             sfx = gameObject.AddComponent<AudioSource>();
+            music = Music.Create(gameObject);
             drone = gameObject.AddComponent<AudioSource>();
             drone.clip = ProceduralAudio.Drone();
             drone.loop = true;
@@ -158,7 +166,8 @@ namespace GhostWard
             ui.PlayPressed += () =>
             {
                 pendingDaily = false;
-                if (Settings.TutorialSeen) StartCoroutine(Play());
+                // первая игра — живой пролог: обучение прямо в ночи, без страниц
+                if (Settings.TutorialSeen || !Settings.PrologueDone) StartCoroutine(Play());
                 else ui.OpenTutorial(true);
             };
             ui.TutorialFinished += () => StartCoroutine(Play());
@@ -249,6 +258,7 @@ namespace GhostWard
 
         void ToMenu()
         {
+            ui.SetInstruction("", 0, 0);
             dailyMode = false;
             DestroyStash();
             ClearEntities();
@@ -264,6 +274,7 @@ namespace GhostWard
             inv = Inventory.Starting();
             night = 0;
             fear = 0f;
+            prologue = !Settings.PrologueDone && !dailyMode;
             StartNight();
         }
 
@@ -285,18 +296,22 @@ namespace GhostWard
             ui.SetTool(tool);
             ui.SetProtection(inv);
             ui.CloseBag();
-            target = dailyMode ? Catalog.Get(Daily.Entity) : PickTarget();
+            target = prologue ? Catalog.Get(EntityKind.Ghost) : dailyMode ? Catalog.Get(Daily.Entity) : PickTarget();
             newCase = Know.LearnName(target.Kind);
             lureMatched = false;
-            modifier = dailyMode ? Daily.Modifier : Modifiers.Roll(night);
+            modifier = prologue ? Modifier.None : dailyMode ? Daily.Modifier : Modifiers.Roll(night);
             heardThisHunt = false;
-            possessedNight = night >= 2 && Random.value < 0.3f;
+            possessedNight = !prologue && night >= 2 && Random.value < 0.3f;
+            nameMusicPlayed = false;
+            proStep = 0;
+            proTimer = proIdle = 0f;
             possessionShown = animalShown = false;
             thunderTimer = Random.Range(10f, 18f);
             thunderMask = 0f;
             ui.SetModifier(modifier == Modifier.None ? "" : Modifiers.Name(modifier));
             ui.ShowHud();
             ui.SetNight(night);
+            if (prologue) ui.SetNightTitle(Loc.T("prologue"));
             ui.SetClock(0f);
             ui.SetPhase("", false);
             ui.ClearEvidence();
@@ -309,7 +324,12 @@ namespace GhostWard
             {
                 phase = Phase.Scan;
                 ui.SetScan(0f);
-                ui.Message(Loc.T("scan_msg"), 4f);
+                if (prologue)
+                {
+                    ui.Message(Loc.T("pro_intro"), 7f);
+                    Step(1);
+                }
+                else ui.Message(Loc.T("scan_msg"), 4f);
             }
             else BeginInvestigation();
         }
@@ -362,7 +382,9 @@ namespace GhostWard
             if (modifier != Modifier.None)
                 intro += $"\n\n<b>{Modifiers.Name(modifier)}.</b> {Modifiers.Desc(modifier)}\n" + Loc.F("xp_bonus", Modifiers.XpFactor(modifier).ToString("0.0#"));
             if (newCase) intro = Loc.F("new_case", target.Name);
-            ui.Message(intro, 7f);
+            if (prologue) Step(2);
+            else ui.Message(intro, 7f);
+            music.Play(Music.Stinger.Swell, newCase ? 0.6f : 0.25f);
 
             cluesShown.Clear();
             radioAnswered = radioHinted = journalHinted = lureUsed = lureHinted = false;
@@ -383,9 +405,11 @@ namespace GhostWard
             if (ui.JournalOpen) return;
 
             if (cam != null) ui.SetMapStrip(map, cam.transform.forward, phase == Phase.Scan);
-            if (phase == Phase.Scan) { UpdateScan(); return; }
+            if (phase == Phase.Scan) { music.SetScan(); UpdateScan(); return; }
             if (phase is not (Phase.Investigate or Phase.Hunt))
             {
+                if (phase == Phase.Over) music.SetSilence();
+                else music.SetMenu();
                 drone.volume = Mathf.MoveTowards(drone.volume, 0.15f * Settings.Ambience, Time.deltaTime);
                 staticNoise.volume = 0f;
                 UpdateLook(Time.deltaTime);
@@ -399,12 +423,14 @@ namespace GhostWard
             TurnSpeed = Mathf.Lerp(TurnSpeed, Vector3.Angle(fwd, lastForward) / Mathf.Max(dt, 1e-3f), dt * 8f);
             lastForward = fwd;
 
-            nightTime += dt;
+            if (!prologue) nightTime += dt;
             ui.SetClock(nightTime / NightSeconds);
             if (nightTime >= NightSeconds) { Dawn(false); return; }
 
             if (phase == Phase.Investigate) UpdateInvestigation(dt);
             else UpdateHunt(dt);
+            if (prologue) UpdatePrologue(dt);
+            UpdateMusic();
             UpdateTools(dt);
             UpdateProtection(dt);
             UpdateStash(dt);
@@ -417,6 +443,78 @@ namespace GhostWard
             ui.UpdateCues(cam, entities, frostTime > 0f ? lair : (Vector3?)null);
         }
 
+        // ---------- музыка ----------
+
+        void UpdateMusic()
+        {
+            float near = 0f;
+            foreach (var e in entities)
+                if (e != null && e.Alive && e.Current != Entity.State.Lurking)
+                    near = Mathf.Max(near, Mathf.Clamp01(1f - (e.FlatDistance() - 0.8f) / 3f));
+            if (phase == Phase.Investigate) music.SetInvestigation(anger / 100f, fear / 100f);
+            else if (phase == Phase.Hunt) music.SetHunt(near, fear / 100f);
+        }
+
+        // ---------- пролог: обучение прямо в первой ночи ----------
+
+        void Step(int n)
+        {
+            proStep = n;
+            proTimer = proIdle = 0f;
+            ui.SetInstruction(Loc.T(n == 6 && !mic.Available ? "pro_6" : $"pro_{n}"), n, ProSteps);
+            if (n > 1) sfx.PlayOneShot(ProceduralAudio.Click(), 0.4f);
+        }
+
+        // каждый шаг ждёт действия игрока; проиграть нельзя, злость не растёт до шага «назови её»
+        void UpdatePrologue(float dt)
+        {
+            float angle = AngleToLair();
+            bool aimed = angle < 35f;
+            proIdle += dt;
+            switch (proStep)
+            {
+                case 2:     // повернуться на шёпот
+                    proTimer = aimed ? proTimer + dt : 0f;
+                    if (proTimer > 1f) Step(3);
+                    break;
+                case 3:     // ЭМП
+                    proTimer = tool == Tool.Emf && aimed && emf >= 1.8f ? proTimer + dt : 0f;
+                    if (proTimer > 1.2f) Step(4);
+                    break;
+                case 4:     // тепловизор
+                    proTimer = tool == Tool.Thermo && aimed ? proTimer + dt : 0f;
+                    if (proTimer > 1.5f) Step(5);
+                    break;
+                case 5:     // отметить «Холод»
+                    if (ui.IsMarked(Evidence.Frost)) Step(6);
+                    break;
+                case 6:     // отметить «Шёпот» и спросить радио
+                    // без микрофона радио «ловит голос» по касанию экрана
+                    if (tool == Tool.Radio && (!mic.Available) && radioCooldown <= 0f && proIdle > 1f)
+                    {
+                        ui.Hint(Loc.T("pro_6b"));
+                        var p = UnityEngine.InputSystem.Pointer.current;
+                        if (p != null && p.press.wasPressedThisFrame && !ui.IsOverButton(p.position.ReadValue()))
+                        {
+                            radioCooldown = 7f;
+                            radioAnswerIn = 1.3f;
+                        }
+                    }
+                    if (radioAnswered) Step(7);
+                    break;
+                case 7:     // назвать — охота начнётся в NameEntity
+                    if (phase == Phase.Hunt) Step(8);
+                    break;
+            }
+
+            // долго стоит на месте — мягко напомнить, куда смотреть
+            if (proStep >= 2 && proStep <= 4 && proIdle > 15f)
+            {
+                proIdle = 0f;
+                ui.Hint(Loc.F("h.Look", Direction(lair)));
+            }
+        }
+
         // ---------- расследование ----------
 
         float AngleToLair()
@@ -427,7 +525,8 @@ namespace GhostWard
 
         void UpdateInvestigation(float dt)
         {
-            anger += dt * (0.4f + night * 0.05f) * (tumar ? 0.6f : 1f) * (modifier == Modifier.FullMoon ? 1.5f : 1f);
+            if (!prologue)
+                anger += dt * (0.4f + night * 0.05f) * (tumar ? 0.6f : 1f) * (modifier == Modifier.FullMoon ? 1.5f : 1f);
             frostTime -= dt;
             staticTime -= dt;
             compassTime -= dt;
@@ -510,6 +609,7 @@ namespace GhostWard
             var options = new List<Evidence>();
             foreach (var c in target.Clues) if (c != Evidence.Radio) options.Add(c);
             var clue = options[Random.Range(0, options.Count)];
+            if (prologue) clue = proStep >= 4 && proStep <= 5 ? Evidence.Frost : Evidence.Whisper;
             switch (clue)
             {
                 case Evidence.Frost: frostTime = 5f; break;
@@ -603,6 +703,7 @@ namespace GhostWard
             if (possessedNight && gyroRig.PersonInView && !possessionShown)
             {
                 possessionShown = true;
+                music.Play(Music.Stinger.Strings, 0.35f);
                 ui.Narrate(Loc.T("n.Possessed"));
                 sfx.PlayOneShot(ProceduralAudio.Whisper(), 0.6f * Settings.Sfx);
                 AddFear(5f);
@@ -742,6 +843,7 @@ namespace GhostWard
             if (target.Lure == l)
             {
                 lureMatched = true;
+                music.Play(Music.Stinger.Swell, 0.6f);
                 var clip = target.Kind switch
                 {
                     EntityKind.Albasty or EntityKind.Kikimora => ProceduralAudio.Laugh(),
@@ -982,6 +1084,7 @@ namespace GhostWard
             if (named && !namedRight) verdict += "\n" + Loc.T("verdict_named_wrong");
             else if (banished && namedRight && !wrongItemUsed) verdict += "\n" + Loc.T("verdict_clean");
             ui.ShowDawn(night, verdict, supply, photo);
+            music.Play(Music.Stinger.Dawn, 0.8f);
 
             // опыт за ночь: дожил, изгнал, назвал верно, без ошибок, находки
             int xp = 100 + 20 * night + nightXp
@@ -1008,6 +1111,15 @@ namespace GhostWard
             extra = JoinLines(extra, JournalLine(Know.Record(target.Kind, NightClues(), lureMatched, true, banished)));
             if (banished && newCase) extra = JoinLines(extra, Loc.F("defense_learned", Catalog.Get(target.Bane).Name));
             if (Know.UnlockedCount > unlockedBefore) extra = JoinLines(extra, Loc.T("new_unlocked"));
+            if (prologue)
+            {
+                // пролог пройден: дальше обычные ночи; объясняем, куда расти
+                prologue = false;
+                Settings.PrologueDone = true;
+                Settings.TutorialSeen = true;
+                ui.SetInstruction("", 0, 0);
+                extra = JoinLines(Loc.T("pro_dawn"), extra);
+            }
             ui.ShowNightProgress(xp, rankUp, newPage, extra);
             ui.SetNextNightVisible(!dailyMode);
         }
@@ -1170,7 +1282,7 @@ namespace GhostWard
                     PlayAt(ProceduralAudio.Drone(), cam.transform.position + dir * 6f, 0.6f);
                 }
             }
-            if (modifier == Modifier.Silence) return;
+            if (modifier == Modifier.Silence || prologue) return;
 
             eventTimer -= dt;
             if (eventTimer > 0f) return;
@@ -1232,6 +1344,11 @@ namespace GhostWard
         public void OnManifest(Entity e)
         {
             // при самой первой встрече — подсказка и картинка в дневнике; дальше игрок опознаёт сам
+            if (!nameMusicPlayed)
+            {
+                nameMusicPlayed = true;
+                music.Play(Music.Stinger.Boom, 0.7f);
+            }
             if (Catalog.Seen(e.Def.Kind)) return;
             Catalog.MarkSeen(e.Def.Kind);
             Trophies.OnSeen();
@@ -1248,6 +1365,7 @@ namespace GhostWard
 
         public void OnAttack(Entity e)
         {
+            music.Play(Music.Stinger.Strings, e.Def.Kind == EntityKind.Poltergeist ? 0.4f : 0.8f);
             if (circle)
             {
                 circle = false;
@@ -1268,7 +1386,7 @@ namespace GhostWard
 
         void AddFear(float v)
         {
-            fear = Mathf.Clamp(fear + v, 0f, 100f);
+            fear = Mathf.Clamp(fear + v, 0f, prologue ? 85f : 100f);
             if (fear >= 100f && phase is Phase.Investigate or Phase.Hunt) GameOver();
         }
 

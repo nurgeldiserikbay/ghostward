@@ -166,6 +166,58 @@ namespace GhostWard.EditorTools
             }
         }
 
+        // Музыка и акценты в WAV — Logs/audio/*.wav, с проверкой на тишину, перегруз и NaN
+        public static void Audio()
+        {
+            Directory.CreateDirectory("Logs/audio");
+            var host = new GameObject("Music");
+            Music.Create(host);
+            var clips = new System.Collections.Generic.List<AudioClip>();
+            foreach (var s in host.GetComponents<AudioSource>()) if (s.clip != null) clips.Add(s.clip);
+            var m = host.GetComponent<Music>();
+            foreach (Music.Stinger st in System.Enum.GetValues(typeof(Music.Stinger)))
+            {
+                m.Play(st);
+                var src = host.GetComponents<AudioSource>()[^1];
+            }
+            // акценты кешируются внутри Music — достаём через отражение
+            var cache = typeof(Music).GetField("StingerClips", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+                .GetValue(null) as System.Collections.IDictionary;
+            foreach (System.Collections.DictionaryEntry e in cache) clips.Add((AudioClip)e.Value);
+
+            foreach (var clip in clips)
+            {
+                var data = new float[clip.samples * clip.channels];
+                clip.GetData(data, 0);
+                float peak = 0f, sum = 0f;
+                int bad = 0;
+                foreach (var v in data)
+                {
+                    if (float.IsNaN(v) || float.IsInfinity(v)) { bad++; continue; }
+                    peak = Mathf.Max(peak, Mathf.Abs(v));
+                    sum += v * v;
+                }
+                float rms = Mathf.Sqrt(sum / Mathf.Max(1, data.Length));
+                Debug.Log($"[GhostWard] {clip.name}: {clip.length:0.0} с, пик {peak:0.00}, RMS {rms:0.000}, NaN {bad}");
+                WriteWav($"Logs/audio/{clip.name}.wav", data, clip.frequency);
+            }
+        }
+
+        static void WriteWav(string path, float[] data, int rate)
+        {
+            using var fs = new FileStream(path, FileMode.Create);
+            using var bw = new BinaryWriter(fs);
+            int bytes = data.Length * 2;
+            bw.Write(System.Text.Encoding.ASCII.GetBytes("RIFF"));
+            bw.Write(36 + bytes);
+            bw.Write(System.Text.Encoding.ASCII.GetBytes("WAVEfmt "));
+            bw.Write(16); bw.Write((short)1); bw.Write((short)1);
+            bw.Write(rate); bw.Write(rate * 2); bw.Write((short)2); bw.Write((short)16);
+            bw.Write(System.Text.Encoding.ASCII.GetBytes("data"));
+            bw.Write(bytes);
+            foreach (var v in data) bw.Write((short)(Mathf.Clamp(float.IsNaN(v) ? 0f : v, -1f, 1f) * 32767));
+        }
+
         // Главное меню, настройки и обучение на нескольких языках — Logs/screen_*.png
         public static void Screens()
         {

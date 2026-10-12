@@ -64,6 +64,19 @@ namespace GhostWard
             set { PlayerPrefs.SetFloat("ambience", Mathf.Clamp01(value)); PlayerPrefs.Save(); }
         }
 
+        public static float Music
+        {
+            get => PlayerPrefs.GetFloat("music", 0.8f);
+            set { PlayerPrefs.SetFloat("music", Mathf.Clamp01(value)); PlayerPrefs.Save(); }
+        }
+
+        // обучающая первая ночь пройдена
+        public static bool PrologueDone
+        {
+            get => PlayerPrefs.GetInt("prologueDone", 0) == 1;
+            set { PlayerPrefs.SetInt("prologueDone", value ? 1 : 0); PlayerPrefs.Save(); }
+        }
+
         public static float Sfx
         {
             get => PlayerPrefs.GetFloat("sfx", 1f);
