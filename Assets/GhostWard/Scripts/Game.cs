@@ -70,10 +70,11 @@ namespace GhostWard
 
         // подсказки и тепловизор
         readonly HashSet<Evidence> cluesShown = new();
-        bool radioAnswered, radioHinted, journalHinted;
-        float radioHintAt;
+        bool radioAnswered, radioHinted, journalHinted, lureUsed, lureHinted;
+        float radioHintAt, lookHintAt, lureHintAt;
         GameObject coldSpot;
         Material coldMat;
+        bool possessedNight, possessionShown, animalShown;
 
         // подсказки «чем проверить» — пока игрок новичок (первые три пережитые ночи)
         static bool Beginner => Progress.NightsSurvived < 3;
@@ -189,6 +190,7 @@ namespace GhostWard
                 sfx.PlayOneShot(ProceduralAudio.Click(), 0.5f);
             };
             ui.ProtectUsed += UseProtection;
+            ui.LureUsed += UseLure;
             ui.SecondChancePressed += () => Ads.ShowRewarded(Revive, () => ui.Message(Loc.T("ad_unavailable"), 2f));
             ui.BonusSupplyPressed += () => Ads.ShowRewarded(() =>
             {
@@ -284,6 +286,8 @@ namespace GhostWard
             target = dailyMode ? Catalog.Get(Daily.Entity) : PickTarget();
             modifier = dailyMode ? Daily.Modifier : Modifiers.Roll(night);
             heardThisHunt = false;
+            possessedNight = night >= 2 && Random.value < 0.3f;
+            possessionShown = animalShown = false;
             thunderTimer = Random.Range(10f, 18f);
             thunderMask = 0f;
             ui.SetModifier(modifier == Modifier.None ? "" : Modifiers.Name(modifier));
@@ -351,8 +355,11 @@ namespace GhostWard
             ui.Message(intro, 7f);
 
             cluesShown.Clear();
-            radioAnswered = radioHinted = journalHinted = false;
+            radioAnswered = radioHinted = journalHinted = lureUsed = lureHinted = false;
             radioHintAt = 45f;
+            lookHintAt = 25f;
+            lureHintAt = 60f;
+            if (Beginner) ui.Hint(Loc.T("h.Start"));
             CreateColdSpot();
 
             // бонус звания «Чутьё»: одна улика этой ночи отмечена заранее
@@ -465,7 +472,25 @@ namespace GhostWard
                 ui.Hint(Loc.T("h.Radio"));
             }
 
+            if (Beginner)
+            {
+                // долго не смотрел в сторону логова — подтолкнуть
+                lookHintAt = angle < 35f ? 25f : lookHintAt - dt;
+                if (lookHintAt <= 0f)
+                {
+                    lookHintAt = 25f;
+                    ui.Hint(Loc.F("h.Look", Direction(lair)));
+                }
+                lureHintAt -= dt;
+                if (lureHintAt <= 0f && !lureUsed && !lureHinted && !journalHinted)
+                {
+                    lureHinted = true;
+                    ui.Hint(Loc.T("h.Lure"));
+                }
+            }
+
             UpdateColdSpot(dt);
+            UpdateThermalLife();
             if (anger >= 100f) StartHunt(false);
         }
 
@@ -554,6 +579,24 @@ namespace GhostWard
             coldMat.SetFloat("_Alpha", a);
             var dir = coldSpot.transform.position - cam.transform.position;
             if (dir.sqrMagnitude > 1e-4f) coldSpot.transform.rotation = Quaternion.LookRotation(dir, Vector3.up);
+        }
+
+        // тепловизор видит живых: животное подсказывает, где логово; «одержимый» человек — холодный
+        void UpdateThermalLife()
+        {
+            if (gyroRig == null || tool != Tool.Thermo) return;
+            if (gyroRig.AnimalInView && !animalShown)
+            {
+                animalShown = true;
+                ui.Narrate(Loc.F("n.Animal", Direction(lair)));
+            }
+            if (possessedNight && gyroRig.PersonInView && !possessionShown)
+            {
+                possessionShown = true;
+                ui.Narrate(Loc.T("n.Possessed"));
+                sfx.PlayOneShot(ProceduralAudio.Whisper(), 0.6f * Settings.Sfx);
+                AddFear(5f);
+            }
         }
 
         void RadioAnswer()
@@ -676,6 +719,42 @@ namespace GhostWard
             ui.CloseBag();
         }
 
+        // Приманка: «своя» сущность откликается из логова (звук, помехи, улика), но злится сильнее.
+        void UseLure(Lure l)
+        {
+            if (phase != Phase.Investigate) { ui.Message(Loc.T("no_effect"), 1.5f); return; }
+            if (!inv.Use(l)) { Empty(Loc.F("no_more", Loc.T($"l.{l}.name"))); return; }
+            lureUsed = true;
+            ui.SetProtection(inv);
+            ui.CloseBag();
+            sfx.PlayOneShot(ProceduralAudio.Click(), 0.6f);
+
+            if (target.Lure == l)
+            {
+                var clip = target.Kind switch
+                {
+                    EntityKind.Albasty or EntityKind.Kikimora => ProceduralAudio.Laugh(),
+                    EntityKind.Upyr => ProceduralAudio.Rasp(),
+                    EntityKind.Poltergeist => ProceduralAudio.Crash(),
+                    EntityKind.Mara => ProceduralAudio.Hum(),
+                    EntityKind.Shade => ProceduralAudio.Breath(),
+                    _ => ProceduralAudio.Whisper()
+                };
+                PlayAt(clip, lair, 1f);
+                glitch = 1f;
+                anger += 15f;
+                AddFear(4f);
+                ui.Narrate(Loc.F("lure_yes", Direction(lair)));
+                if (Beginner) ui.Hint(Loc.T("h.LureYes"));
+                clueTimer = Mathf.Min(clueTimer, 1.5f);   // и сразу подаст улику
+            }
+            else
+            {
+                anger += 3f;
+                ui.Narrate(Loc.T("lure_no"));
+            }
+        }
+
         void UpdateProtection(float dt)
         {
             if (candleTime > 0f)
@@ -791,7 +870,11 @@ namespace GhostWard
             bool thermal = tool == Tool.Thermo && phase is Phase.Investigate or Phase.Hunt;
             var style = thermal ? Vision.Thermal : Settings.Vision;
             var episode = Settings.Vision == Vision.NightGreen ? Vision.Cctv : Vision.NightGreen;
-            if (gyroRig != null) gyroRig.SetLook(style, episode, nightVision, glitch);
+            if (gyroRig != null)
+            {
+                gyroRig.SetThermalSeg(thermal, possessedNight);
+                gyroRig.SetLook(style, episode, nightVision, glitch);
+            }
             float baseGrain = style switch { Vision.Normal => 0f, Vision.Dark => 0.05f, _ => 0.06f };
             ui.DarkBase = style switch { Vision.Normal => 0.15f, Vision.Dark => 0.55f, Vision.Thermal => 0.2f, _ => 0.38f }
                           + (modifier == Modifier.NewMoon && phase is Phase.Investigate or Phase.Hunt ? 0.15f : 0f);

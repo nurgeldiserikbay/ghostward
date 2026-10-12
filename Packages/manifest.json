@@ -35,7 +35,8 @@
     "com.unity.modules.video": "1.0.0",
     "com.unity.modules.xr": "1.0.0",
     "com.google.ads.mobile": "11.5.0",
-    "com.google.external-dependency-manager": "1.2.190"
+    "com.google.external-dependency-manager": "1.2.190",
+    "com.unity.ai.inference": "2.6.1"
   },
   "scopedRegistries": [
     {

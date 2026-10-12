@@ -22,6 +22,7 @@ namespace GhostWard
         public event Action<Lang> LanguageChosen;
         public event Action<Tool> ToolSelected;
         public event Action<Protect> ProtectUsed;
+        public event Action<Lure> LureUsed;
         public event Action SecondChancePressed;
         public event Action BonusSupplyPressed;
         public event Action DailyPressed;
@@ -78,6 +79,7 @@ namespace GhostWard
         string modifierName = "";
         readonly List<(Tool tool, Image bg)> toolButtons = new();
         readonly List<(Protect kind, Text label)> bagRows = new();
+        readonly List<(Lure kind, Text label)> lureRows = new();
         Text nightText, clockText, messageText, supplyText, diagText, dawnText, overText, scanText;
         Text entryName, entryOrigin, entryText, entryItem, entryCount;
         RectTransform entryItemIcon, entryGestureIcon;
@@ -329,10 +331,31 @@ namespace GhostWard
             Icons.Bag(bagButton, Dim);
 
             bagPanel = Rect(hud.transform, "BagPanel", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
-            bagPanel.sizeDelta = new Vector2(820, 720);
-            bagPanel.anchoredPosition = new Vector2(0, 40);
+            bagPanel.sizeDelta = new Vector2(820, 1300);
+            bagPanel.anchoredPosition = new Vector2(0, 60);
             bagPanel.gameObject.AddComponent<Image>().color = new Color(0.02f, 0.015f, 0.02f, 0.93f);
-            Frame(bagPanel, 820, 720, Dim, 3f);
+            Frame(bagPanel, 820, 1300, Dim, 3f);
+            // крестик: панель перекрывает кнопку сумки, закрывать надо отсюда
+            var close = Rect(bagPanel, "Close", new Vector2(1f, 1f), new Vector2(1f, 1f));
+            close.sizeDelta = new Vector2(110, 110);
+            close.anchoredPosition = new Vector2(-55, -55);
+            var cbg = close.gameObject.AddComponent<Image>();
+            cbg.color = new Color(0, 0, 0, 0.01f);
+            var cbtn = close.gameObject.AddComponent<UnityEngine.UI.Button>();
+            cbtn.targetGraphic = cbg;
+            cbtn.transition = Selectable.Transition.None;
+            cbtn.onClick.AddListener(CloseBag);
+            var x1 = Rect(close, "X1", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<UILine>();
+            x1.Thickness = 6f;
+            x1.color = Bone;
+            x1.raycastTarget = false;
+            x1.SetPoints(new[] { new Vector2(-20, -20), new Vector2(20, 20) });
+            var x2 = Rect(close, "X2", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<UILine>();
+            x2.Thickness = 6f;
+            x2.color = Bone;
+            x2.raycastTarget = false;
+            x2.SetPoints(new[] { new Vector2(-20, 20), new Vector2(20, -20) });
+
             var bt = Label(bagPanel, Loc.T("bag"), 40, new Vector2(0.5f, 1f), new Vector2(0, -50), Bone);
             bt.rectTransform.sizeDelta = new Vector2(700, 60);
             bt.fontStyle = FontStyle.Bold;
@@ -341,23 +364,51 @@ namespace GhostWard
             {
                 var k = kinds[i];
                 var row = Rect(bagPanel, k.ToString(), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
-                row.sizeDelta = new Vector2(760, 140);
-                row.anchoredPosition = new Vector2(0, -170 - i * 150);
+                row.sizeDelta = new Vector2(760, 125);
+                row.anchoredPosition = new Vector2(0, -160 - i * 135);
                 var rbg = row.gameObject.AddComponent<Image>();
                 rbg.color = Ink;
                 var rbtn = row.gameObject.AddComponent<UnityEngine.UI.Button>();
                 rbtn.targetGraphic = rbg;
                 rbtn.onClick.AddListener(() => ProtectUsed?.Invoke(k));
-                Frame(row, 760, 140, Dim, 2f);
+                Frame(row, 760, 125, Dim, 2f);
                 var icon = Rect(row, "Icon", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f));
                 icon.anchoredPosition = new Vector2(80, 0);
-                icon.localScale = Vector3.one * 0.85f;
+                icon.localScale = Vector3.one * 0.8f;
                 Icons.ProtectIcon(icon, k, Bone);
                 var label = Label(row, "", 30, new Vector2(0f, 0.5f), new Vector2(170, 0), Bone);
                 label.rectTransform.pivot = new Vector2(0f, 0.5f);
                 label.rectTransform.sizeDelta = new Vector2(570, 130);
                 label.alignment = TextAnchor.MiddleLeft;
                 bagRows.Add((k, label));
+            }
+
+            // приманки: проверить догадку — «своя» сущность откликнется
+            var lt = Label(bagPanel, Loc.T("lures"), 36, new Vector2(0.5f, 1f), new Vector2(0, -735), Bone);
+            lt.rectTransform.sizeDelta = new Vector2(700, 56);
+            lt.fontStyle = FontStyle.Bold;
+            var lures = new[] { Lure.Photo, Lure.Yarn, Lure.Meat, Lure.MusicBox };
+            for (int i = 0; i < lures.Length; i++)
+            {
+                var k = lures[i];
+                var row = Rect(bagPanel, k.ToString(), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+                row.sizeDelta = new Vector2(760, 125);
+                row.anchoredPosition = new Vector2(0, -830 - i * 135);
+                var rbg = row.gameObject.AddComponent<Image>();
+                rbg.color = Ink;
+                var rbtn = row.gameObject.AddComponent<UnityEngine.UI.Button>();
+                rbtn.targetGraphic = rbg;
+                rbtn.onClick.AddListener(() => LureUsed?.Invoke(k));
+                Frame(row, 760, 125, Dim, 2f);
+                var icon = Rect(row, "Icon", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f));
+                icon.anchoredPosition = new Vector2(80, 0);
+                icon.localScale = Vector3.one * 0.8f;
+                Icons.LureIcon(icon, k, Bone);
+                var label = Label(row, "", 28, new Vector2(0f, 0.5f), new Vector2(170, 0), Bone);
+                label.rectTransform.pivot = new Vector2(0f, 0.5f);
+                label.rectTransform.sizeDelta = new Vector2(570, 120);
+                label.alignment = TextAnchor.MiddleLeft;
+                lureRows.Add((k, label));
             }
             bagPanel.gameObject.SetActive(false);
         }
@@ -378,6 +429,8 @@ namespace GhostWard
             if (inv == null) return;
             foreach (var (k, label) in bagRows)
                 label.text = $"<b>{Loc.T($"p.{k}.name")}</b>  ×{inv.Count(k)}\n<size=24>{Loc.T($"p.{k}.desc")}</size>";
+            foreach (var (k, label) in lureRows)
+                label.text = $"<b>{Loc.T($"l.{k}.name")}</b>  ×{inv.Count(k)}\n<size=22>{Loc.T($"l.{k}.desc")}</size>";
         }
 
         public void CloseBag() => bagPanel.gameObject.SetActive(false);
@@ -1324,7 +1377,8 @@ namespace GhostWard
             entryOrigin.text = def.Origin;
             entryText.text =
                 $"<b>{Loc.T("hides")}</b> {def.LairText}\n\n" +
-                $"<b>{Loc.T("clues_label")}</b> <color=#ffc073>{string.Join(" · ", clues)}</color>\n\n" +
+                $"<b>{Loc.T("clues_label")}</b> <color=#ffc073>{string.Join(" · ", clues)}</color>\n" +
+                $"<b>{Loc.T("lure_label")}</b> {Loc.T($"l.{def.Lure}.name")}\n\n" +
                 (seen ? def.Lore : $"<i>{Loc.T("unknown")}</i>") +
                 $"\n\n<b>{Loc.T("on_hunt")}</b> {def.Signs}\n\n<b>{Loc.T("defense")}</b> {def.Defense}";
             nameButton.SetActive(CanName);

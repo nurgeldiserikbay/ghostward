@@ -249,6 +249,38 @@ namespace GhostWard
             }
         }
 
+        // приманки
+        public static void LureIcon(RectTransform parent, Lure l, Color color)
+        {
+            switch (l)
+            {
+                case Lure.Photo:
+                    Line(parent, color, 5f, true, new Vector2(-34, -42), new Vector2(34, -42), new Vector2(34, 42), new Vector2(-34, 42));
+                    Line(parent, color, 4f, true, ShiftRing(new Vector2(0, 12), 13f, 12));
+                    Line(parent, color, 4f, false, new Vector2(-20, -28), new Vector2(-10, -6), new Vector2(10, -6), new Vector2(20, -28));
+                    break;
+                case Lure.Yarn:
+                    Line(parent, color, 5f, true, Ring(34f, 16));
+                    Line(parent, color, 3f, false, new Vector2(-28, 16), new Vector2(26, -18));
+                    Line(parent, color, 3f, false, new Vector2(-22, -24), new Vector2(30, 6));
+                    Line(parent, color, 3f, false, new Vector2(-32, -2), new Vector2(10, 30));
+                    Line(parent, color, 3f, false, new Vector2(30, -22), new Vector2(48, -40), new Vector2(40, -52));
+                    break;
+                case Lure.Meat:
+                    Poly(parent, new Color(0.75f, 0.2f, 0.2f), new List<Vector2> { new(-30, 10), new(-10, 34), new(26, 26), new(38, -6), new(18, -30), new(-22, -24) });
+                    Line(parent, color, 8f, false, new Vector2(-8, 0), new Vector2(-46, -36));
+                    Poly(parent, color, Diamond(new Vector2(-50, -40), 8f));
+                    break;
+                case Lure.MusicBox:
+                    Line(parent, color, 5f, true, new Vector2(-38, -32), new Vector2(38, -32), new Vector2(38, 18), new Vector2(-38, 18));
+                    Line(parent, color, 5f, false, new Vector2(-38, 18), new Vector2(-28, 36), new Vector2(28, 36), new Vector2(38, 18));
+                    Line(parent, color, 4f, false, new Vector2(38, -8), new Vector2(54, -8));
+                    Line(parent, color, 4f, false, new Vector2(54, -18), new Vector2(54, 2));
+                    Poly(parent, color, Diamond(new Vector2(0, -7), 7f));
+                    break;
+            }
+        }
+
         public static void Bag(RectTransform parent, Color color)
         {
             Line(parent, color, 5f, true, new Vector2(-38, -36), new Vector2(38, -36), new Vector2(30, 22), new Vector2(-30, 22));

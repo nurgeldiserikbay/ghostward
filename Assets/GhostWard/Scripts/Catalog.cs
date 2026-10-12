@@ -25,6 +25,7 @@ namespace GhostWard
         public float Height;      // м
         public Evidence[] Clues;  // три улики
         public Lair Lair;
+        public Lure Lure;          // на какую приманку откликается
 
         string Key(string field) => Loc.T($"e.{Kind}.{field}");
         public string Name => Key("name");
@@ -56,28 +57,28 @@ namespace GhostWard
     {
         public static readonly EntityDef[] Entities =
         {
-            new EntityDef { Kind = EntityKind.Ghost, Bane = ItemKind.Salt, Height = 1.2f,
+            new EntityDef { Kind = EntityKind.Ghost, Lure = Lure.Photo, Bane = ItemKind.Salt, Height = 1.2f,
                 Body = new Color(0.78f, 0.84f, 0.9f), Accent = new Color(0.55f, 0.75f, 1f),
                 Clues = new[] { Evidence.Frost, Evidence.Whisper, Evidence.Radio }, Lair = Lair.Far },
-            new EntityDef { Kind = EntityKind.Shade, Bane = ItemKind.Lantern, Height = 1.8f,
+            new EntityDef { Kind = EntityKind.Shade, Lure = Lure.MusicBox, Bane = ItemKind.Lantern, Height = 1.8f,
                 Body = new Color(0.02f, 0.015f, 0.03f), Accent = new Color(1f, 0.2f, 0.12f),
                 Clues = new[] { Evidence.NightVision, Evidence.Static, Evidence.Frost }, Lair = Lair.DarkCorner },
-            new EntityDef { Kind = EntityKind.Albasty, Bane = ItemKind.Iron, Height = 1.8f,
+            new EntityDef { Kind = EntityKind.Albasty, Lure = Lure.Yarn, Bane = ItemKind.Iron, Height = 1.8f,
                 Body = new Color(0.66f, 0.68f, 0.6f), Accent = new Color(0.95f, 0.85f, 0.35f),
                 Clues = new[] { Evidence.Whisper, Evidence.Compass, Evidence.NightVision }, Lair = Lair.Behind },
-            new EntityDef { Kind = EntityKind.Poltergeist, Bane = ItemKind.Bell, Height = 1.2f,
+            new EntityDef { Kind = EntityKind.Poltergeist, Lure = Lure.Meat, Bane = ItemKind.Bell, Height = 1.2f,
                 Body = new Color(0.55f, 0.65f, 0.55f), Accent = new Color(0.4f, 1f, 0.5f),
                 Clues = new[] { Evidence.Knock, Evidence.Static, Evidence.Compass }, Lair = Lair.Near },
-            new EntityDef { Kind = EntityKind.Double, Bane = ItemKind.Mirror, Height = 1.75f,
+            new EntityDef { Kind = EntityKind.Double, Lure = Lure.Photo, Bane = ItemKind.Mirror, Height = 1.75f,
                 Body = new Color(0.08f, 0.07f, 0.08f), Accent = new Color(0.95f, 0.95f, 0.9f),
                 Clues = new[] { Evidence.Radio, Evidence.NightVision, Evidence.Compass }, Lair = Lair.Bright },
-            new EntityDef { Kind = EntityKind.Kikimora, Bane = ItemKind.Wormwood, Height = 1.1f,
+            new EntityDef { Kind = EntityKind.Kikimora, Lure = Lure.Yarn, Bane = ItemKind.Wormwood, Height = 1.1f,
                 Body = new Color(0.4f, 0.42f, 0.32f), Accent = new Color(0.85f, 1f, 0.3f),
                 Clues = new[] { Evidence.Knock, Evidence.Frost, Evidence.Whisper }, Lair = Lair.Ceiling },
-            new EntityDef { Kind = EntityKind.Upyr, Bane = ItemKind.Lantern, Height = 1.7f,
+            new EntityDef { Kind = EntityKind.Upyr, Lure = Lure.Meat, Bane = ItemKind.Lantern, Height = 1.7f,
                 Body = new Color(0.55f, 0.5f, 0.52f), Accent = new Color(1f, 0.1f, 0.1f),
                 Clues = new[] { Evidence.Knock, Evidence.Static, Evidence.NightVision }, Lair = Lair.Floor },
-            new EntityDef { Kind = EntityKind.Mara, Bane = ItemKind.Bell, Height = 1.3f,
+            new EntityDef { Kind = EntityKind.Mara, Lure = Lure.MusicBox, Bane = ItemKind.Bell, Height = 1.3f,
                 Body = new Color(0.25f, 0.24f, 0.3f), Accent = new Color(0.7f, 0.6f, 1f),
                 Clues = new[] { Evidence.Radio, Evidence.Frost, Evidence.Compass }, Lair = Lair.Near },
         };

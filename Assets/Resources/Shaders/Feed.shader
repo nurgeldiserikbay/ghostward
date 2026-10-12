@@ -1,5 +1,7 @@
 // Видео с камеры в режиме гироскопа. Вид задаётся настройкой (_Style) и эпизодами ночного режима (_Alt, _Mode):
-// 0 — обычный, 1 — тёмный, 2 — зелёное ночное видение, 3 — ИК-камера наблюдения, 4 — VHS.
+// 0 — обычный, 1 — тёмный, 2 — зелёное ночное видение, 3 — ИК-камера наблюдения, 4 — VHS, 5 — тепловизор.
+// В тепловизоре маска нейросети (_SegTex: R — человек, G — животное) делает живых горячими;
+// _ColdPerson — «одержимость»: человек холодный, как сущность.
 // _Glitch — помехи у логова и рядом с сущностью.
 Shader "GhostWard/Feed"
 {
@@ -10,6 +12,11 @@ Shader "GhostWard/Feed"
         _Alt ("Episode style", Float) = 2
         _Mode ("Episode blend", Range(0, 1)) = 0
         _Glitch ("Glitch", Range(0, 1)) = 0
+        _SegTex ("Segmentation", 2D) = "black" {}
+        _SegOn ("Segmentation on", Float) = 0
+        _SegAngle ("Segmentation angle", Float) = 0
+        _SegMirror ("Segmentation mirror", Float) = 0
+        _ColdPerson ("Cold person", Float) = 0
     }
 
     SubShader
@@ -30,6 +37,19 @@ Shader "GhostWard/Feed"
             sampler2D _MainTex;
             float4 _MainTex_TexelSize;
             float _Style, _Alt, _Mode, _Glitch;
+            sampler2D _SegTex;
+            float _SegOn, _SegAngle, _SegMirror, _ColdPerson;
+
+            // координата кадра камеры → координата выпрямленного кадра, на котором считалась маска
+            float2 segUv(float2 t)
+            {
+                float2 q = t;
+                if (_SegMirror > 0.5) q.y = 1.0 - q.y;
+                float a = radians(-_SegAngle);
+                float c = cos(a), s = sin(a);
+                float2 d = q - 0.5;
+                return 0.5 + float2(d.x * c - d.y * s, d.x * s + d.y * c);
+            }
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; fixed4 color : COLOR; };
             struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; fixed4 color : COLOR; float4 screen : TEXCOORD1; };
@@ -98,6 +118,17 @@ Shader "GhostWard/Feed"
                     h += luma(tex2D(_MainTex, uv + float2(0, o.y)).rgb) * 0.15;
                     h += luma(tex2D(_MainTex, uv - float2(0, o.y)).rgb) * 0.15;
                     h = saturate(h * 1.3 + grain * 0.04);
+                    if (_SegOn > 0.5)
+                    {
+                        // живые — горячие на холодном фоне комнаты; «одержимый» человек — ледяной
+                        float2 m = tex2D(_SegTex, segUv(uv)).rg;
+                        h *= 0.55;   // комната остывает, чтобы живые выделялись
+                        float person = smoothstep(0.25, 0.7, m.r);
+                        float animal = smoothstep(0.25, 0.7, m.g);
+                        float hot = 0.78 + 0.12 * lum + grain * 0.05;
+                        h = lerp(h, _ColdPerson > 0.5 ? 0.06 + 0.05 * lum : hot, person);
+                        h = lerp(h, hot - 0.05, animal);
+                    }
                     float3 c0 = float3(0.02, 0.0, 0.08), c1 = float3(0.1, 0.05, 0.6), c2 = float3(0.6, 0.05, 0.6);
                     float3 c3 = float3(0.95, 0.2, 0.1), c4 = float3(1.0, 0.75, 0.1), c5 = float3(1.0, 1.0, 0.85);
                     float3 th = h < 0.2 ? lerp(c0, c1, h / 0.2)

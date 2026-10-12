@@ -18,6 +18,11 @@ namespace GhostWard
 
         WebCamTexture webcam;
         Material feedMat;
+        ThermalSeg seg;
+        bool coldPerson;
+
+        public bool PersonInView => seg != null && seg.PersonInView;
+        public bool AnimalInView => seg != null && seg.AnimalInView;
         RawImage background;
         RectTransform canvasRect;
         Vector2 editorLook;
@@ -37,6 +42,8 @@ namespace GhostWard
             go.transform.position = new Vector3(0f, 1.4f, 0f);
             go.AddComponent<AudioListener>();
             Input.gyro.enabled = true;
+            rig.seg = go.AddComponent<ThermalSeg>();
+            rig.seg.Init();
             rig.CreateBackground();
             return rig;
         }
@@ -94,6 +101,8 @@ namespace GhostWard
         {
             UpdateRotation();
             FitBackground();
+            if (webcam != null && webcam.width >= 32)
+                seg.Tick(webcam, webcam.videoRotationAngle, webcam.videoVerticallyMirrored);
         }
 
         // гироскоп: сначала датчик Input System, если его нет — старый Input.gyro
@@ -162,6 +171,22 @@ namespace GhostWard
             feedMat.SetFloat(AltId, (int)episodeStyle);
             feedMat.SetFloat(ModeId, episode);
             feedMat.SetFloat(GlitchId, glitch);
+            bool segOn = seg != null && seg.Running && seg.Mask != null && style == Vision.Thermal;
+            feedMat.SetFloat("_SegOn", segOn ? 1f : 0f);
+            if (segOn)
+            {
+                feedMat.SetTexture("_SegTex", seg.Mask);
+                feedMat.SetFloat("_SegAngle", webcam != null ? webcam.videoRotationAngle : 0);
+                feedMat.SetFloat("_SegMirror", webcam != null && webcam.videoVerticallyMirrored ? 1f : 0f);
+                feedMat.SetFloat("_ColdPerson", coldPerson ? 1f : 0f);
+            }
+        }
+
+        // тепловизор с распознаванием живых; coldPerson — «одержимость»: человек холодный
+        public void SetThermalSeg(bool on, bool coldPerson)
+        {
+            this.coldPerson = coldPerson;
+            if (seg != null) seg.SetActive(on);
         }
 
         public string Diagnostics() => $"гироскоп: {gyroSource}\nкамера: {camStatus}";

@@ -8,12 +8,25 @@ namespace GhostWard
     // Средства защиты — в сумке; тратятся сразу при выборе.
     public enum Protect { Circle, Candle, Tumar, Calm }
 
+    // Приманки: каждая привлекает две сущности (Lure в EntityDef). Тратятся при использовании.
+    public enum Lure { Photo, Yarn, Meat, MusicBox }
+
     // Запас предметов игрока. Фонарь меряется зарядом в процентах, остальное — штуками.
     public class Inventory
     {
         public int Salt, Iron, Bell, Mirror, Wormwood;
         public float Battery;
         public int Circle, Candle, Tumar, Calm;
+        public readonly int[] Lures = { 1, 1, 1, 1 };
+
+        public int Count(Lure l) => Lures[(int)l];
+
+        public bool Use(Lure l)
+        {
+            if (Lures[(int)l] <= 0) return false;
+            Lures[(int)l]--;
+            return true;
+        }
 
         // стартовый запас с бонусами званий
         public static Inventory Starting() => new()
@@ -89,6 +102,7 @@ namespace GhostWard
             Circle += 1;
             Candle += 1;
             Calm += 1;
+            for (int i = 0; i < Lures.Length; i++) Lures[i] = System.Math.Max(Lures[i], 1);
             static string N(ItemKind k) => Catalog.Get(k).Name;
             static string P(Protect k) => Loc.T($"p.{k}.name");
             return $"{N(ItemKind.Salt)} +3 · {N(ItemKind.Iron)} +1 · {N(ItemKind.Bell)} +2\n" +

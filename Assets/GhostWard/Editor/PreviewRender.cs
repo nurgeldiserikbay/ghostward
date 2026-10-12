@@ -107,6 +107,63 @@ namespace GhostWard.EditorTools
             File.WriteAllBytes("Logs/thermal.png", tex.EncodeToPNG());
         }
 
+        // Проверка нейросети тепловизора на картинках из папки (-testImg <папка>) — Logs/seg_*.png
+        public static void ThermalSegTest()
+        {
+            var args = System.Environment.GetCommandLineArgs();
+            int at = System.Array.IndexOf(args, "-testImg");
+            if (at < 0 || at + 1 >= args.Length) { Debug.LogError("[GhostWard] нужен -testImg <папка>"); return; }
+
+            foreach (var file in Directory.GetFiles(args[at + 1]))
+            {
+                EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+                var src = new Texture2D(2, 2);
+                src.LoadImage(File.ReadAllBytes(file));
+
+                var seg = new GameObject("Seg").AddComponent<ThermalSeg>();
+                seg.Init();
+                seg.SetActive(true);
+                seg.Tick(src, 0, false);
+                Debug.Log($"[GhostWard] {Path.GetFileName(file)}: человек={seg.PersonInView} животное={seg.AnimalInView}");
+
+                foreach (bool cold in new[] { false, true })
+                {
+                    var cam = new GameObject("Cam").AddComponent<Camera>();
+                    cam.orthographic = true;
+                    cam.orthographicSize = 0.5f;
+                    cam.clearFlags = CameraClearFlags.SolidColor;
+                    cam.backgroundColor = Color.black;
+                    cam.transform.position = new Vector3(0, 0, -5);
+                    float aspect = (float)src.width / src.height;
+                    var rt = new RenderTexture(Mathf.RoundToInt(500 * aspect), 500, 24, RenderTextureFormat.ARGB32);
+                    cam.targetTexture = rt;
+                    cam.aspect = aspect;
+
+                    var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                    quad.transform.localScale = new Vector3(aspect, 1f, 1f);
+                    var m = new Material(Shader.Find("GhostWard/Feed"));
+                    m.mainTexture = src;
+                    m.SetFloat("_Style", 5f);
+                    m.SetFloat("_SegOn", 1f);
+                    m.SetTexture("_SegTex", seg.Mask);
+                    m.SetFloat("_ColdPerson", cold ? 1f : 0f);
+                    quad.GetComponent<MeshRenderer>().sharedMaterial = m;
+
+                    var request = new RenderPipeline.StandardRequest { destination = rt };
+                    if (RenderPipeline.SupportsRenderRequest(cam, request)) RenderPipeline.SubmitRenderRequest(cam, request);
+                    else cam.Render();
+                    RenderTexture.active = rt;
+                    var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+                    tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+                    tex.Apply();
+                    RenderTexture.active = null;
+                    File.WriteAllBytes($"Logs/seg_{Path.GetFileNameWithoutExtension(file)}{(cold ? "_cold" : "")}.png", tex.EncodeToPNG());
+                    Object.DestroyImmediate(cam.gameObject);
+                    Object.DestroyImmediate(quad);
+                }
+            }
+        }
+
         // Главное меню, настройки и обучение на нескольких языках — Logs/screen_*.png
         public static void Screens()
         {
