@@ -45,7 +45,8 @@ namespace GhostWard
         GameObject journalList, journalEntry, journalItems, journalClues, journalHowTo, nameButton, shareButton, micRoot;
         Text phaseText, recText, hiddenText, suspectsText, dawnSupply;
         RawImage dawnPhoto;
-        UILine needle;
+        UILine needle, compassMark;
+        bool huntEdges;
         readonly List<(RectTransform rt, int yaw)> compassTicks = new();
         readonly List<(Text label, int yaw)> compassLabels = new();
         readonly Image[] micBars = new Image[5];
@@ -492,6 +493,13 @@ namespace GhostWard
             needle.color = Bone;
             needle.SetPoints(new[] { new Vector2(0, 8), new Vector2(10, -22), new Vector2(-10, -22) });
             needle.rectTransform.anchoredPosition = new Vector2(0, -26);
+
+            // метка «оно там»: после улики — к логову, на охоте — к сущности
+            compassMark = Rect(rt, "Mark", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<UILine>();
+            compassMark.Filled = true;
+            compassMark.raycastTarget = false;
+            compassMark.SetPoints(new[] { new Vector2(0, -14), new Vector2(14, 10), new Vector2(-14, 10) });
+            compassMark.gameObject.SetActive(false);
         }
 
         void BuildScan()
@@ -1634,11 +1642,24 @@ namespace GhostWard
             phaseText.text = string.IsNullOrEmpty(text) || string.IsNullOrEmpty(modifierName) ? text : $"{text}  ·  {modifierName}";
             phaseText.color = hunt ? new Color(0.85f, 0.15f, 0.15f) : Dim;
             recText.gameObject.SetActive(hunt);
+            huntEdges = hunt;
         }
 
-        public void SetCompass(Vector3 forward, float agitation)
+        // markYaw — направление на цель (градусы); за краем шкалы метка прижимается к краю
+        public void SetCompass(Vector3 forward, float agitation, float? markYaw = null, bool hunt = false)
         {
             float yaw = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
+            compassMark.gameObject.SetActive(markYaw.HasValue);
+            if (markYaw.HasValue)
+            {
+                float d = Mathf.DeltaAngle(yaw, markYaw.Value);
+                bool edge = Mathf.Abs(d) > 90f;
+                compassMark.rectTransform.anchoredPosition = new Vector2(Mathf.Clamp(d, -90f, 90f) / 90f * 280f, 20f);
+                float pulse = 0.65f + 0.35f * Mathf.Sin(Time.unscaledTime * (hunt ? 9f : 4f));
+                var c = hunt ? new Color(0.95f, 0.15f, 0.12f) : Frost;
+                c.a = edge ? pulse * 0.6f : pulse;
+                compassMark.color = c;
+            }
             foreach (var (rt, tickYaw) in compassTicks)
             {
                 float d = Mathf.DeltaAngle(yaw, tickYaw);
@@ -1787,6 +1808,7 @@ namespace GhostWard
                 dir.Normalize();
 
                 float strength = Mathf.Clamp01(1.2f - e.FlatDistance() / 4.5f) * (e.Current == Entity.State.Lurking ? 0.5f : 1f);
+                if (huntEdges) strength = Mathf.Max(strength, 0.4f);   // на охоте сторона видна всегда
                 edgeTarget[0] = Mathf.Max(edgeTarget[0], Mathf.Max(0f, -dir.x) * strength);
                 edgeTarget[1] = Mathf.Max(edgeTarget[1], Mathf.Max(0f, dir.x) * strength);
                 edgeTarget[2] = Mathf.Max(edgeTarget[2], Mathf.Max(0f, dir.y) * strength);
@@ -1838,8 +1860,11 @@ namespace GhostWard
 
             for (int i = 0; i < 4; i++)
             {
+                // на охоте кромка красная и пульсирует, тем чаще, чем ближе сущность
                 float target = inNight ? edgeTarget[i] * 0.75f : 0f;
-                SetAlpha(edges[i], Mathf.MoveTowards(edges[i].color.a, target, dt * 1.5f));
+                if (huntEdges) target *= 0.55f + 0.45f * Mathf.Sin(Time.unscaledTime * (3f + edgeTarget[i] * 6f));
+                var ec = huntEdges ? new Color(0.8f, 0.05f, 0.05f) : Frost;
+                edges[i].color = new Color(ec.r, ec.g, ec.b, Mathf.MoveTowards(edges[i].color.a, target, dt * (huntEdges ? 4f : 1.5f)));
             }
 
             grain.uvRect = new Rect(UnityEngine.Random.value, UnityEngine.Random.value, 6f, 10f);

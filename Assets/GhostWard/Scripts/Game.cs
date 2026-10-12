@@ -50,6 +50,7 @@ namespace GhostWard
         Vector3 lair;
         Entity hunter;
         float anger, clueTimer, fakeTimer, frostTime, staticTime, compassTime, silhouetteArmed, silhouetteCooldown;
+        float markTime;   // сколько ещё компас показывает метку логова после улики
         float radioCooldown, radioAnswerIn = -1f, banishedTime = -1f;
         bool named, namedRight, wrongItemUsed;
 
@@ -551,7 +552,8 @@ namespace GhostWard
             }
 
             float angle = AngleToLair();
-            ui.SetCompass(cam.transform.forward, 0f);
+            markTime -= dt;
+            ui.SetCompass(cam.transform.forward, 0f, markTime > 0f ? (float?)YawTo(lair) : null);
             if (staticTime > 0f && angle < 35f) glitch = Mathf.Max(glitch, 0.85f);
             if (silhouetteArmed > 0f && nightVision > 0.9f && angle < 30f && silhouetteCooldown <= 0f)
             {
@@ -623,10 +625,17 @@ namespace GhostWard
                     break;
             }
             AddFear(1.5f);
+            markTime = Beginner ? 9f : 6f;
 
             ui.Narrate(Loc.F("n." + clue, Direction(lair)));
             if (cluesShown.Add(clue) && Beginner) ui.Hint(Loc.T("h." + clue));
             CheckJournalHint();
+        }
+
+        float YawTo(Vector3 pos)
+        {
+            var to = pos - cam.transform.position;
+            return Mathf.Atan2(to.x, to.z) * Mathf.Rad2Deg;
         }
 
         // где логово относительно взгляда: впереди, слева, справа, за спиной, сверху, снизу
@@ -858,6 +867,7 @@ namespace GhostWard
                 anger += 15f;
                 AddFear(4f);
                 ui.Narrate(Loc.F("lure_yes", Direction(lair)));
+                markTime = 8f;
                 if (Beginner) ui.Hint(Loc.T("h.LureYes"));
                 clueTimer = Mathf.Min(clueTimer, 1.5f);   // и сразу подаст улику
             }
@@ -928,6 +938,7 @@ namespace GhostWard
             bool hidden = quietTime > 2.5f && heardTime <= 0f;
             hunter.SpeedMul = heardTime > 0f ? 2.2f : hidden ? 0.35f : 1f;
             ui.SetHidden(hidden);
+            ui.SetCompass(cam.transform.forward, 0f, YawTo(hunter.transform.position), true);
 
             // фото: первый раз, когда сущность близко и в кадре
             if (photo == null && !photoTaking && hunter.Visible && hunter.FlatDistance() < 3.2f &&

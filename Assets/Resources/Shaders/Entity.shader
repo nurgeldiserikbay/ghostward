@@ -301,8 +301,10 @@ Shader "GhostWard/Entity"
                 col = lerp(col, float3(0.02, 0.02, 0.025), hair);
 
                 float alpha = inside * lerp(0.4, opacity, saturate((p.y - bottom) * 2.2));
-                float rimK = shape == 1 || shape == 4 ? 0.25 : 0.45;
-                col = lerp(col, _Color.rgb * 0.8, rim * rimK);
+                float rimK = shape == 1 || shape == 4 ? 0.5 : 0.6;
+                // контур светлее самой сущности — чтобы тёмные (тень, двойник) читались на тёмной комнате
+                float3 rimCol = lerp(_Color.rgb, float3(0.72, 0.78, 0.86), 0.4);
+                col = lerp(col, rimCol, rim * rimK);
                 alpha = max(alpha, rim * rimK);
 
                 holes *= inside;
@@ -313,8 +315,8 @@ Shader "GhostWard/Entity"
                 alpha = max(alpha, cores * inside);
 
                 float edge = saturate(min(min(i.uv.x, 1.0 - i.uv.x), min(i.uv.y, 1.0 - i.uv.y)) * 10.0);
-                float glow = exp(-max(d, 0.0) * 30.0) * (1.0 - inside) * (shape == 1 || shape == 4 ? 0.08 : 0.14) * edge;
-                col = lerp(col, _Color.rgb, glow / max(alpha + glow, 1e-3));
+                float glow = exp(-max(d, 0.0) * 30.0) * (1.0 - inside) * (shape == 1 || shape == 4 ? 0.2 : 0.24) * edge;
+                col = lerp(col, rimCol, glow / max(alpha + glow, 1e-3));
                 alpha += glow;
 
                 // закрытая запись энциклопедии — только чёрный силуэт
