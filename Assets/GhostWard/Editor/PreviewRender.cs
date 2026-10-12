@@ -66,6 +66,47 @@ namespace GhostWard.EditorTools
             Shoot("howto", ui => ui.DebugJournal("howto"));
         }
 
+        // Тепловизор на тестовом кадре (Logs/entities.png) и холодное пятно — Logs/thermal.png
+        public static void Thermal()
+        {
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            var cam = new GameObject("Cam").AddComponent<Camera>();
+            cam.orthographic = true;
+            cam.orthographicSize = 0.5f;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = Color.black;
+            cam.transform.position = new Vector3(0, 0, -5);
+            var rt = new RenderTexture(800, 500, 24, RenderTextureFormat.ARGB32);
+            cam.targetTexture = rt;
+            cam.aspect = 1.6f;
+
+            var src = new Texture2D(2, 2);
+            src.LoadImage(File.ReadAllBytes("Logs/entities.png"));
+            var feed = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            feed.transform.localScale = new Vector3(1.6f, 1f, 1f);
+            var m = new Material(Shader.Find("GhostWard/Feed"));
+            m.mainTexture = src;
+            m.SetFloat("_Style", 5f);
+            feed.GetComponent<MeshRenderer>().sharedMaterial = m;
+
+            var spot = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            spot.transform.position = new Vector3(0.45f, -0.1f, -1f);
+            spot.transform.localScale = Vector3.one * 0.35f;
+            var sm = new Material(Shader.Find("GhostWard/ColdSpot"));
+            sm.SetFloat("_Alpha", 0.9f);
+            spot.GetComponent<MeshRenderer>().sharedMaterial = sm;
+
+            var request = new RenderPipeline.StandardRequest { destination = rt };
+            if (RenderPipeline.SupportsRenderRequest(cam, request)) RenderPipeline.SubmitRenderRequest(cam, request);
+            else cam.Render();
+            RenderTexture.active = rt;
+            var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            tex.Apply();
+            RenderTexture.active = null;
+            File.WriteAllBytes("Logs/thermal.png", tex.EncodeToPNG());
+        }
+
         // Главное меню, настройки и обучение на нескольких языках — Logs/screen_*.png
         public static void Screens()
         {

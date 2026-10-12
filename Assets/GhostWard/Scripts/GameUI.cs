@@ -73,8 +73,8 @@ namespace GhostWard
         RectTransform rankFill;
         int storyPage;
         GameObject trophies, nextNightButton;
-        Text trophyText;
-        float trophyTimer;
+        Text trophyText, narrateText, hintText;
+        float trophyTimer, narrateTimer, hintTimer;
         string modifierName = "";
         readonly List<(Tool tool, Image bg)> toolButtons = new();
         readonly List<(Protect kind, Text label)> bagRows = new();
@@ -177,6 +177,15 @@ namespace GhostWard
             jumpscare.rectTransform.sizeDelta = new Vector2(1100, 1380);
             jumpscare.raycastTarget = false;
             jumpscare.gameObject.SetActive(false);
+
+            // ощущение при улике и подсказка новичку — над приборами
+            narrateText = Label(root, "", 36, new Vector2(0.5f, 0.37f), Vector2.zero, Bone);
+            narrateText.rectTransform.sizeDelta = new Vector2(960, 70);
+            narrateText.fontStyle = FontStyle.Italic;
+            Outline(narrateText);
+            hintText = Label(root, "", 27, new Vector2(0.5f, 0.32f), Vector2.zero, new Color(1f, 0.75f, 0.45f));
+            hintText.rectTransform.sizeDelta = new Vector2(940, 90);
+            Outline(hintText);
 
             trophyText = Label(root, "", 34, new Vector2(0.5f, 0.78f), Vector2.zero, new Color(1f, 0.8f, 0.4f));
             trophyText.rectTransform.sizeDelta = new Vector2(980, 120);
@@ -1068,6 +1077,18 @@ namespace GhostWard
                 : Loc.F(names.Count == 1 ? "sus_one" : "sus_many", string.Join(", ", names));
         }
 
+        public void Narrate(string text)
+        {
+            narrateText.text = text;
+            narrateTimer = 4f;
+        }
+
+        public void Hint(string text)
+        {
+            hintText.text = text;
+            hintTimer = 6f;
+        }
+
         public void TrophyToast(string text)
         {
             trophyText.text = text;
@@ -1660,6 +1681,12 @@ namespace GhostWard
                 supplyTimer -= dt;
                 SetAlpha(supplyText, Mathf.Clamp01(supplyTimer / 0.4f) * 0.7f);
             }
+
+            bool night = hud.activeSelf;
+            narrateTimer -= dt;
+            hintTimer -= dt;
+            SetAlpha(narrateText, night ? Mathf.Clamp01(narrateTimer / 0.8f) : 0f);
+            SetAlpha(hintText, night ? Mathf.Clamp01(hintTimer / 0.8f) : 0f);
 
             if (trophyTimer > 0f)
             {

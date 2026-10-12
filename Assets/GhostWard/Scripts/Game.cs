@@ -67,6 +67,16 @@ namespace GhostWard
         Modifier modifier;
         bool dailyMode, pendingDaily, heardThisHunt;
         float thunderTimer, thunderMask;
+
+        // подсказки и тепловизор
+        readonly HashSet<Evidence> cluesShown = new();
+        bool radioAnswered, radioHinted, journalHinted;
+        float radioHintAt;
+        GameObject coldSpot;
+        Material coldMat;
+
+        // подсказки «чем проверить» — пока игрок новичок (первые три пережитые ночи)
+        static bool Beginner => Progress.NightsSurvived < 3;
         GameObject stash;
         float stashTimer, stashGaze, stashLife, stashSound, eventTimer;
         int stashesThisNight;
@@ -337,7 +347,13 @@ namespace GhostWard
             string intro = dailyMode ? Loc.T("daily_intro") : night == 1 ? Loc.T("intro_first") : Loc.F("intro_n", night);
             if (modifier != Modifier.None)
                 intro += $"\n\n<b>{Modifiers.Name(modifier)}.</b> {Modifiers.Desc(modifier)}\n" + Loc.F("xp_bonus", Modifiers.XpFactor(modifier).ToString("0.0#"));
+            if (!Catalog.Seen(target.Kind)) intro += "\n\n" + Loc.T("new_presence");
             ui.Message(intro, 7f);
+
+            cluesShown.Clear();
+            radioAnswered = radioHinted = journalHinted = false;
+            radioHintAt = 45f;
+            CreateColdSpot();
 
             // бонус звания «Чутьё»: одна улика этой ночи отмечена заранее
             if (Progress.Instinct) ui.MarkClue((int)target.Clues[Random.Range(0, target.Clues.Length)]);
@@ -442,6 +458,14 @@ namespace GhostWard
                 if (radioAnswerIn <= 0f) RadioAnswer();
             }
 
+            radioHintAt -= dt;
+            if (Beginner && radioHintAt <= 0f && !radioHinted && !radioAnswered && Catalog.Has(target, Evidence.Radio))
+            {
+                radioHinted = true;
+                ui.Hint(Loc.T("h.Radio"));
+            }
+
+            UpdateColdSpot(dt);
             if (anger >= 100f) StartHunt(false);
         }
 
@@ -464,6 +488,72 @@ namespace GhostWard
                     break;
             }
             AddFear(1.5f);
+
+            ui.Narrate(Loc.F("n." + clue, Direction(lair)));
+            if (cluesShown.Add(clue) && Beginner) ui.Hint(Loc.T("h." + clue));
+            CheckJournalHint();
+        }
+
+        // где логово относительно взгляда: впереди, слева, справа, за спиной, сверху, снизу
+        string Direction(Vector3 pos)
+        {
+            var to = pos - cam.transform.position;
+            float pitch = Mathf.Asin(Mathf.Clamp(to.normalized.y, -1f, 1f)) * Mathf.Rad2Deg;
+            if (pitch > 25f) return Loc.T("dir_up");
+            if (pitch < -25f) return Loc.T("dir_down");
+            var fwd = cam.transform.forward;
+            float d = Mathf.DeltaAngle(Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg, Mathf.Atan2(to.x, to.z) * Mathf.Rad2Deg);
+            if (Mathf.Abs(d) < 45f) return Loc.T("dir_front");
+            if (Mathf.Abs(d) > 135f) return Loc.T("dir_back");
+            return Loc.T(d > 0f ? "dir_right" : "dir_left");
+        }
+
+        // все самостоятельные улики показаны — подсказать радио или дневник
+        void CheckJournalHint()
+        {
+            if (!Beginner || journalHinted) return;
+            int selfClues = 0;
+            foreach (var c in target.Clues) if (c != Evidence.Radio) selfClues++;
+            if (cluesShown.Count < selfClues) return;
+            if (Catalog.Has(target, Evidence.Radio) && !radioAnswered)
+            {
+                if (!radioHinted) { radioHinted = true; ui.Hint(Loc.T("h.Radio")); }
+                return;
+            }
+            journalHinted = true;
+            ui.Hint(Loc.T("h.Journal"));
+        }
+
+        // холодное пятно в логове — видно в тепловизоре, если у сущности есть улика «Холод»
+        void CreateColdSpot()
+        {
+            DestroyColdSpot();
+            coldSpot = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            coldSpot.name = "ColdSpot";
+            Destroy(coldSpot.GetComponent<Collider>());
+            coldSpot.transform.position = lair;
+            coldSpot.transform.localScale = Vector3.one * 1.4f;
+            coldMat = new Material(Shader.Find("GhostWard/ColdSpot"));
+            var mr = coldSpot.GetComponent<MeshRenderer>();
+            mr.sharedMaterial = coldMat;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
+
+        void DestroyColdSpot()
+        {
+            if (coldSpot != null) Destroy(coldSpot);
+            if (coldMat != null) Destroy(coldMat);
+            coldSpot = null;
+        }
+
+        void UpdateColdSpot(float dt)
+        {
+            if (coldSpot == null) return;
+            bool show = tool == Tool.Thermo && phase == Phase.Investigate && Catalog.Has(target, Evidence.Frost);
+            float a = Mathf.MoveTowards(coldMat.GetFloat("_Alpha"), show ? 0.9f : 0f, dt * 2f);
+            coldMat.SetFloat("_Alpha", a);
+            var dir = coldSpot.transform.position - cam.transform.position;
+            if (dir.sqrMagnitude > 1e-4f) coldSpot.transform.rotation = Quaternion.LookRotation(dir, Vector3.up);
         }
 
         void RadioAnswer()
@@ -472,6 +562,9 @@ namespace GhostWard
             {
                 sfx.PlayOneShot(ProceduralAudio.RadioVoice(), 1f);
                 ui.Message(Loc.F("radio", Loc.T("radio_" + Random.Range(1, RadioAnswerCount + 1))), 3f);
+                if (!radioAnswered && Beginner) ui.Hint(Loc.T("h.RadioYes"));
+                radioAnswered = true;
+                CheckJournalHint();
                 glitch = 1f;
                 AddFear(4f);
             }
@@ -600,6 +693,7 @@ namespace GhostWard
 
         void StartHunt(bool weakened, bool enraged = false)
         {
+            DestroyColdSpot();
             phase = Phase.Hunt;
             frostTime = staticTime = compassTime = 0f;
             quietTime = heardTime = 0f;
@@ -694,11 +788,12 @@ namespace GhostWard
             nightVision = Mathf.MoveTowards(nightVision, nightVisionTarget, dt * 6f);
             staticNoise.volume = Mathf.Max(glitch * 0.35f * Settings.Ambience, Mathf.MoveTowards(staticNoise.volume, 0f, dt * 0.5f));
             // эпизоды ночного режима: зелёное ночное видение, а если оно уже выбрано — ИК-камера
-            var style = Settings.Vision;
-            var episode = style == Vision.NightGreen ? Vision.Cctv : Vision.NightGreen;
+            bool thermal = tool == Tool.Thermo && phase is Phase.Investigate or Phase.Hunt;
+            var style = thermal ? Vision.Thermal : Settings.Vision;
+            var episode = Settings.Vision == Vision.NightGreen ? Vision.Cctv : Vision.NightGreen;
             if (gyroRig != null) gyroRig.SetLook(style, episode, nightVision, glitch);
             float baseGrain = style switch { Vision.Normal => 0f, Vision.Dark => 0.05f, _ => 0.06f };
-            ui.DarkBase = style switch { Vision.Normal => 0.15f, Vision.Dark => 0.55f, _ => 0.38f }
+            ui.DarkBase = style switch { Vision.Normal => 0.15f, Vision.Dark => 0.55f, Vision.Thermal => 0.2f, _ => 0.38f }
                           + (modifier == Modifier.NewMoon && phase is Phase.Investigate or Phase.Hunt ? 0.15f : 0f);
             ui.SetGrain(baseGrain + nightVision * 0.08f + glitch * 0.25f);
         }
@@ -1007,6 +1102,7 @@ namespace GhostWard
 
         void ClearEntities()
         {
+            DestroyColdSpot();
             foreach (var e in entities) if (e != null) e.Vanish();
             entities.Clear();
             hunter = null;

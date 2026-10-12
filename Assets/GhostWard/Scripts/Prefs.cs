@@ -4,7 +4,7 @@ using UnityEngine;
 namespace GhostWard
 {
     // Вид камеры. Normal и Dark бесплатны, остальные открываются покупкой или за рекламу.
-    public enum Vision { Normal, Dark, NightGreen, Cctv, Vhs }
+    public enum Vision { Normal, Dark, NightGreen, Cctv, Vhs, Thermal }   // Thermal — только у прибора, не в настройках
 
     // Настройки игрока: хранятся на устройстве.
     public static class Settings

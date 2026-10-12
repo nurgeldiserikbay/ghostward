@@ -88,6 +88,26 @@ Shader "GhostWard/Feed"
                     return (ir * float3(0.9, 0.95, 0.95)) * vig;
                 }
 
+                if (style == 5)
+                {
+                    // тепловизор: размытая «температура» из яркости → палитра чёрный–синий–фиолетовый–красный–жёлтый
+                    float2 o = _MainTex_TexelSize.xy * 5.0;
+                    float h = lum * 0.4;
+                    h += luma(tex2D(_MainTex, uv + float2(o.x, 0)).rgb) * 0.15;
+                    h += luma(tex2D(_MainTex, uv - float2(o.x, 0)).rgb) * 0.15;
+                    h += luma(tex2D(_MainTex, uv + float2(0, o.y)).rgb) * 0.15;
+                    h += luma(tex2D(_MainTex, uv - float2(0, o.y)).rgb) * 0.15;
+                    h = saturate(h * 1.3 + grain * 0.04);
+                    float3 c0 = float3(0.02, 0.0, 0.08), c1 = float3(0.1, 0.05, 0.6), c2 = float3(0.6, 0.05, 0.6);
+                    float3 c3 = float3(0.95, 0.2, 0.1), c4 = float3(1.0, 0.75, 0.1), c5 = float3(1.0, 1.0, 0.85);
+                    float3 th = h < 0.2 ? lerp(c0, c1, h / 0.2)
+                              : h < 0.4 ? lerp(c1, c2, (h - 0.2) / 0.2)
+                              : h < 0.6 ? lerp(c2, c3, (h - 0.4) / 0.2)
+                              : h < 0.8 ? lerp(c3, c4, (h - 0.6) / 0.2)
+                              : lerp(c4, c5, (h - 0.8) / 0.2);
+                    return th * saturate(1.2 - dot(v, v) * 1.5);
+                }
+
                 // VHS: расслоение цвета, полоса трекинга, приглушённые цвета
                 float band = 1.0 - smoothstep(0.0, 0.04, abs(frac(sp.y * 0.6 - t * 0.07) - 0.5));
                 float2 j = float2((hash21(float2(floor(sp.y * 200.0), floor(t * 30.0))) - 0.5) * 0.02 * band, 0.0);
