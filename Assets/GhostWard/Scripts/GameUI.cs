@@ -649,6 +649,25 @@ namespace GhostWard
             var qn = Label(g, Loc.T("quality_note"), 25, new Vector2(0.5f, 0.285f), Vector2.zero, Dim);
             qn.rectTransform.sizeDelta = new Vector2(940, 60);
 
+            // режим AR: авто без Маркета, выкл, или явная установка сервисов AR
+            Caption(g, Loc.T("ar"), 0.235f);
+            for (int i = 0; i < 2; i++)
+            {
+                int mode = i;
+                var b = Button(g, Loc.T(mode == 0 ? "ar_auto" : "off"), new Vector2(0.5f, 0.185f), () => { Settings.ArMode = mode; RefreshSettings(); }, false, 300, (i - 1) * 320f);
+                settingButtons.Add((b.GetComponent<Image>(), () => Settings.ArMode == mode));
+            }
+            var install = Button(g, Loc.T("ar_install"), new Vector2(0.5f, 0.185f), () =>
+            {
+                Settings.ArMode = 0;
+                Settings.ArInstallRequested = true;
+                RefreshSettings();
+                Message(Loc.T("ar_restart"), 3f);
+            }, false, 300, 320f);
+            install.GetComponentInChildren<Text>().fontSize = 30;
+            var an = Label(g, Loc.T("ar_note"), 23, new Vector2(0.5f, 0.135f), Vector2.zero, Dim);
+            an.rectTransform.sizeDelta = new Vector2(940, 60);
+
             // звук
             VolumeRow(snd, Loc.T("master"), 0.8f, () => Settings.Volume, v => Settings.Volume = v);
             VolumeRow(snd, Loc.T("ambience_vol"), 0.68f, () => Settings.Ambience, v => Settings.Ambience = v);

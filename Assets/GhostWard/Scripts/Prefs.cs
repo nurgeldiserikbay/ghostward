@@ -37,6 +37,20 @@ namespace GhostWard
             set { PlayerPrefs.SetInt("vibration", value ? 1 : 0); PlayerPrefs.Save(); }
         }
 
+        // 0 — авто (AR, только если сервисы AR уже установлены), 1 — выключен
+        public static int ArMode
+        {
+            get => PlayerPrefs.GetInt("arMode", 0);
+            set { PlayerPrefs.SetInt("arMode", value); PlayerPrefs.Save(); }
+        }
+
+        // игрок сам попросил установить сервисы AR — предложим при следующей инициализации камеры
+        public static bool ArInstallRequested
+        {
+            get => PlayerPrefs.GetInt("arInstall", 0) == 1;
+            set { PlayerPrefs.SetInt("arInstall", value ? 1 : 0); PlayerPrefs.Save(); }
+        }
+
         public static bool TutorialSeen
         {
             get => PlayerPrefs.GetInt("tutorialSeen", 0) == 1;

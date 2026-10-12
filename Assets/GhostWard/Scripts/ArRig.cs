@@ -16,7 +16,6 @@ namespace GhostWard
         public Camera Cam { get; private set; }
         public bool ReceivingFrames => frames > 0;
 
-        const string InstallFailedKey = "arInstallFailed";
 
         GameObject sessionGo;
         ARCameraManager cameraManager;
@@ -35,10 +34,10 @@ namespace GhostWard
                 yield break;
             }
 
-            // Был отказ при прошлой установке сервисов AR — телефон их не поддерживает, сразу в режим гироскопа.
-            if (PlayerPrefs.GetInt(InstallFailedKey, 0) == 1)
+            // AR выключен в настройках — сразу режим гироскопа
+            if (Settings.ArMode == 1)
             {
-                log("AR: сервисы AR недоступны на этом телефоне");
+                log("AR: выключен в настройках");
                 StopXr();
                 done(null);
                 yield break;
@@ -46,16 +45,18 @@ namespace GhostWard
 
             var sessionGo = new GameObject("AR Session");
             var session = sessionGo.AddComponent<ARSession>();
-            session.attemptUpdate = false; // установку предлагаем сами и только один раз
+            session.attemptUpdate = false; // сами в Маркет не отправляем
             sessionGo.AddComponent<ARInputManager>();
 
+            // На части телефонов ARCore отвечает «нужно установить», хотя телефон не поддерживается, —
+            // Маркет тогда показывает «устройство несовместимо». Поэтому установку предлагаем,
+            // только если игрок сам нажал «Установить AR» в настройках; иначе тихо уходим в гироскоп.
             yield return ARSession.CheckAvailability();
-            if (ARSession.state == ARSessionState.NeedsInstall)
+            if (ARSession.state == ARSessionState.NeedsInstall && Settings.ArInstallRequested)
             {
+                Settings.ArInstallRequested = false;
                 log("AR: установка сервисов AR");
                 yield return ARSession.Install();
-                if (ARSession.state < ARSessionState.Ready) PlayerPrefs.SetInt(InstallFailedKey, 1);
-                PlayerPrefs.Save();
             }
 
             float timeout = 10f;
