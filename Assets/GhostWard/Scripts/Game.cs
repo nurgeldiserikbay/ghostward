@@ -60,7 +60,8 @@ namespace GhostWard
 
         // второй шанс, припасы за рекламу, тайники, пугающие события
         Phase lostIn;
-        bool revivedThisNight, bonusTaken;
+        bool revivedThisNight, bonusTaken, overXpGiven;
+        int nightXp;   // опыт за находки этой ночи: тайники, фото
         GameObject stash;
         float stashTimer, stashGaze, stashLife, stashSound, eventTimer;
         int stashesThisNight;
@@ -241,7 +242,8 @@ namespace GhostWard
             photo = null;
             circle = tumar = false;
             candleTime = 0f;
-            revivedThisNight = bonusTaken = false;
+            revivedThisNight = bonusTaken = overXpGiven = false;
+            nightXp = 0;
             stashesThisNight = 0;
             stashTimer = Random.Range(30f, 50f);
             eventTimer = Random.Range(15f, 25f);
@@ -308,6 +310,9 @@ namespace GhostWard
             ui.SetPhase(Loc.T("phase_investigate"), false);
             ui.SetCameraOverlay(Settings.Vision);
             ui.Message(night == 1 ? Loc.T("intro_first") : Loc.F("intro_n", night), 6f);
+
+            // бонус звания «Чутьё»: одна улика этой ночи отмечена заранее
+            if (Progress.Instinct) ui.MarkClue((int)target.Clues[Random.Range(0, target.Clues.Length)]);
         }
 
         void Update()
@@ -608,7 +613,7 @@ namespace GhostWard
                 Vector3.Angle(cam.transform.forward, hunter.transform.position - cam.transform.position) < 22f)
             {
                 photoTaking = true;
-                StartCoroutine(PhotoShare.Capture(tex => { photo = tex; photoTaking = false; ui.PhotoFlash(); }));
+                StartCoroutine(PhotoShare.Capture(tex => { photo = tex; photoTaking = false; nightXp += 25; ui.PhotoFlash(); }));
             }
         }
 
@@ -752,6 +757,15 @@ namespace GhostWard
             if (named && !namedRight) verdict += "\n" + Loc.T("verdict_named_wrong");
             else if (banished && namedRight && !wrongItemUsed) verdict += "\n" + Loc.T("verdict_clean");
             ui.ShowDawn(night, verdict, supply, photo);
+
+            // опыт за ночь: дожил, изгнал, назвал верно, без ошибок, находки
+            int xp = 100 + 20 * night + nightXp
+                     + (banished ? 150 : 0)
+                     + (namedRight ? 100 : 0)
+                     + (banished && namedRight && !wrongItemUsed ? 50 : 0);
+            bool rankUp = Progress.AddXp(xp);
+            bool newPage = Progress.AddSurvivedNight();
+            ui.ShowNightProgress(xp, rankUp, newPage);
         }
 
         void GameOver()
@@ -766,6 +780,14 @@ namespace GhostWard
             PlayerPrefs.SetInt("bestNight", best);
             PlayerPrefs.Save();
             ui.ShowGameOver(night, nightTime / NightSeconds, best, target.Name, photo);
+
+            // за проигранную ночь — немного опыта за пройденное время (один раз за ночь)
+            if (!overXpGiven)
+            {
+                overXpGiven = true;
+                int xp = Mathf.RoundToInt(nightTime / NightSeconds * 60f) + nightXp;
+                ui.ShowNightProgress(xp, Progress.AddXp(xp), false);
+            }
         }
 
         // «Второй шанс» за наградную рекламу: игрок приходит в себя, сущность отступает. Раз за ночь.
@@ -822,6 +844,7 @@ namespace GhostWard
             if (stashGaze >= 1f)
             {
                 string what = inv.Stash();
+                nightXp += 25;
                 sfx.PlayOneShot(ProceduralAudio.BellRing(), 0.3f);
                 ui.Message(Loc.F("found_item", what), 2f);
                 ui.SetProtection(inv);
@@ -1160,7 +1183,7 @@ namespace GhostWard
             on &= inv.Battery > 0f;
             if (on)
             {
-                inv.Battery = Mathf.Max(0f, inv.Battery - 9f * dt);
+                inv.Battery = Mathf.Max(0f, inv.Battery - 9f * (Progress.SlowLantern ? 0.75f : 1f) * dt);
                 if (inv.Battery <= 0f) Empty(Loc.T("lantern_out"));
             }
             ui.SetLantern(on, inv.Battery);

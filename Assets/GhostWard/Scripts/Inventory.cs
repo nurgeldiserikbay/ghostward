@@ -15,10 +15,14 @@ namespace GhostWard
         public float Battery;
         public int Circle, Candle, Tumar, Calm;
 
+        // стартовый запас с бонусами званий
         public static Inventory Starting() => new()
         {
-            Salt = 4, Battery = 100f, Iron = 2, Bell = 3, Mirror = 2, Wormwood = 2,
-            Circle = 1, Candle = 2, Tumar = 1, Calm = 1
+            Salt = 4 + (Progress.ExtraSalt ? 1 : 0), Battery = 100f, Iron = 2, Bell = 3, Mirror = 2, Wormwood = 2,
+            Circle = 1 + (Progress.ExtraCircle ? 1 : 0),
+            Candle = 2 + (Progress.ExtraCandle ? 1 : 0),
+            Tumar = 1 + (Progress.ExtraTumar ? 1 : 0),
+            Calm = 1
         };
 
         public int Count(Protect p) => p switch
