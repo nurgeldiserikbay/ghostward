@@ -14,8 +14,9 @@ namespace GhostWard
 
         const int Rate = 22050;
 
-        AudioSource menu, pad, tension, pulse, stingers;
-        float menuTarget, padTarget, tensionTarget, pulseTarget;
+        AudioSource menu, pad, tension, pulse, stingers, theme;
+        float menuTarget, padTarget, tensionTarget, pulseTarget, themeTarget;
+        EntityKind? themeKind;
         static readonly Dictionary<Stinger, AudioClip> StingerClips = new();
 
         public static Music Create(GameObject host)
@@ -26,6 +27,7 @@ namespace GhostWard
             m.tension = m.Loop(Tension());
             m.pulse = m.Loop(HuntPulse());
             m.stingers = host.AddComponent<AudioSource>();
+            m.theme = m.Loop(null);
             return m;
         }
 
@@ -40,16 +42,40 @@ namespace GhostWard
         }
 
         // уровни 0..1: страх, близость сущности, злость
-        public void SetMenu() { menuTarget = 0.55f; padTarget = 0f; tensionTarget = 0f; pulseTarget = 0f; }
-        public void SetSilence() { menuTarget = 0f; padTarget = 0.15f; tensionTarget = 0f; pulseTarget = 0f; }
-        public void SetScan() { menuTarget = 0f; padTarget = 0.35f; tensionTarget = 0f; pulseTarget = 0f; }
+        public void SetMenu() { menuTarget = 0.55f; padTarget = 0f; tensionTarget = 0f; pulseTarget = 0f; themeTarget = 0f; }
+        public void SetSilence() { menuTarget = 0f; padTarget = 0.15f; tensionTarget = 0f; pulseTarget = 0f; themeTarget = 0f; }
+        public void SetScan() { menuTarget = 0f; padTarget = 0.35f; tensionTarget = 0f; pulseTarget = 0f; themeTarget = 0f; }
+
+        // Тема сущности этой ночи: трек Resources/Music/<Kind> (например, из Suno), а если его нет — синтезированный мотив.
+        // Синтез занимает заметное время, поэтому считается в фоновом потоке; звучит, как только готов.
+        public void SetTheme(EntityKind k)
+        {
+            if (themeKind == k) return;
+            themeKind = k;
+            theme.Stop();
+            theme.volume = 0f;
+            var file = Resources.Load<AudioClip>("Music/" + k);
+            if (file != null) { StartTheme(file); return; }
+            themeTask = System.Threading.Tasks.Task.Run(() => EntityThemeData(k));
+            themeTaskKind = k;
+        }
+
+        System.Threading.Tasks.Task<float[]> themeTask;
+        EntityKind themeTaskKind;
+
+        void StartTheme(AudioClip clip)
+        {
+            theme.clip = clip;
+            theme.Play();
+        }
 
         public void SetInvestigation(float anger, float fear)
         {
             menuTarget = 0f;
-            padTarget = 0.45f;
+            padTarget = 0.3f;
             tensionTarget = Mathf.Clamp01(anger * anger * 0.3f + fear * 0.2f);
             pulseTarget = 0f;
+            themeTarget = 0.4f * (1f - anger * 0.4f);   // со злостью мотив тонет в напряжении
         }
 
         public void SetHunt(float near, float fear)
@@ -58,6 +84,7 @@ namespace GhostWard
             padTarget = 0.3f;
             tensionTarget = Mathf.Clamp01(0.12f + near * 0.45f + fear * 0.15f);
             pulseTarget = 0.5f;
+            themeTarget = 0.22f * (1f - near);
         }
 
         public void Play(Stinger s, float volume = 1f)
@@ -78,12 +105,19 @@ namespace GhostWard
 
         void Update()
         {
+            if (themeTask != null && themeTask.IsCompleted)
+            {
+                if (themeTask.Status == System.Threading.Tasks.TaskStatus.RanToCompletion && themeKind == themeTaskKind)
+                    StartTheme(Make("theme_" + themeTaskKind, themeTask.Result));
+                themeTask = null;
+            }
             float dt = Time.unscaledDeltaTime;
             float k = Settings.Music;
             menu.volume = Mathf.MoveTowards(menu.volume, menuTarget * k, dt * 0.4f);
             pad.volume = Mathf.MoveTowards(pad.volume, padTarget * k, dt * 0.25f);
             tension.volume = Mathf.MoveTowards(tension.volume, tensionTarget * k, dt * 0.35f);
             pulse.volume = Mathf.MoveTowards(pulse.volume, pulseTarget * k, dt * 0.5f);
+            theme.volume = Mathf.MoveTowards(theme.volume, themeTarget * k, dt * 0.2f);
         }
 
         // ---------- синтез ----------
@@ -154,6 +188,174 @@ namespace GhostWard
             foreach (var v in d) m = Mathf.Max(m, Mathf.Abs(v));
             float k = peak / m;
             for (int i = 0; i < d.Length; i++) d[i] *= k;
+        }
+
+        // ---------- темы сущностей ----------
+
+        enum Voice { MusicBox, Bell, Pluck, Flute, Choir, Organ, Cello, Metal, Piano, Theremin }
+
+        static readonly int[] Minor = { 0, 2, 3, 5, 7, 8, 10 }, Phrygian = { 0, 1, 3, 5, 7, 8, 10 },
+            Locrian = { 0, 1, 3, 5, 6, 8, 10 }, Penta = { 0, 3, 5, 7, 10 }, Whole = { 0, 2, 4, 6, 8, 10 },
+            Hijaz = { 0, 1, 4, 5, 7, 8, 10 }, Hirajoshi = { 0, 2, 3, 7, 8 }, Pelog = { 0, 1, 3, 7, 8 },
+            Dorian = { 0, 2, 3, 5, 7, 9, 10 }, Romanian = { 0, 2, 3, 6, 7, 9, 10 }, Chinese = { 0, 2, 4, 7, 9 };
+
+        // инструмент, лад, темп (удары в минуту), сдвиг тоники от A3 в полутонах
+        static (Voice voice, int[] scale, float bpm, int root) ThemeOf(EntityKind k) => k switch
+        {
+            EntityKind.Ghost => (Voice.MusicBox, Minor, 60, 0),
+            EntityKind.Shade => (Voice.Cello, Locrian, 48, -12),
+            EntityKind.Albasty => (Voice.Pluck, Penta, 66, -5),
+            EntityKind.Poltergeist => (Voice.Piano, Whole, 72, 2),
+            EntityKind.Double => (Voice.MusicBox, Locrian, 54, -2),
+            EntityKind.Kikimora => (Voice.Flute, Phrygian, 70, 3),
+            EntityKind.Upyr => (Voice.Cello, Phrygian, 50, -10),
+            EntityKind.Mara => (Voice.Choir, Dorian, 44, -7),
+            EntityKind.Banshee => (Voice.Choir, Dorian, 50, 0),
+            EntityKind.Domovoi => (Voice.Organ, Minor, 58, -5),
+            EntityKind.Changeling => (Voice.MusicBox, Dorian, 64, 5),
+            EntityKind.BlackDog => (Voice.Bell, Locrian, 40, -12),
+            EntityKind.Rusalka => (Voice.Choir, Minor, 52, 3),
+            EntityKind.Zheztyrnak => (Voice.Pluck, Hijaz, 70, -3),
+            EntityKind.Llorona => (Voice.Pluck, Minor, 56, -2),
+            EntityKind.Ghoul => (Voice.Flute, Hijaz, 52, -5),
+            EntityKind.Kitsune => (Voice.Flute, Hirajoshi, 48, 2),
+            EntityKind.CorpoSeco => (Voice.Pluck, Phrygian, 62, -7),
+            EntityKind.MystanKempir => (Voice.Cello, Penta, 46, -9),
+            EntityKind.Jinn => (Voice.Theremin, Hijaz, 50, -4),
+            EntityKind.Lechuza => (Voice.Flute, Minor, 58, 0),
+            EntityKind.Pontianak => (Voice.Metal, Pelog, 50, 0),
+            EntityKind.BabaYaga => (Voice.Organ, Phrygian, 64, -8),
+            EntityKind.Shurale => (Voice.Flute, Penta, 72, -2),
+            EntityKind.Cucuy => (Voice.MusicBox, Whole, 50, -3),
+            EntityKind.Kuchisake => (Voice.Pluck, Hirajoshi, 54, 4),
+            EntityKind.BloodyMary => (Voice.Piano, Minor, 52, -4),
+            EntityKind.Ubyr => (Voice.Theremin, Penta, 46, -6),
+            EntityKind.Chupacabra => (Voice.Pluck, Phrygian, 76, -9),
+            EntityKind.Jiangshi => (Voice.Bell, Chinese, 60, 1),
+            EntityKind.Strigoi => (Voice.Organ, Romanian, 52, -6),
+            EntityKind.Karakoncolos => (Voice.Choir, Locrian, 40, -10),
+            EntityKind.Tunda => (Voice.Flute, Dorian, 56, -1),
+            EntityKind.Aswang => (Voice.Metal, Pelog, 66, -3),
+            EntityKind.Vodyanoy => (Voice.Cello, Minor, 44, -14),
+            EntityKind.Abaasy => (Voice.Theremin, Penta, 42, -12),
+            EntityKind.MulaSemCabeca => (Voice.Pluck, Phrygian, 80, -5),
+            EntityKind.Penanggalan => (Voice.Metal, Pelog, 46, 5),
+            EntityKind.BellWitch => (Voice.Organ, Dorian, 50, 0),
+            EntityKind.ZhalmauyzKempir => (Voice.Choir, Penta, 46, -9),
+            _ => (Voice.MusicBox, Minor, 60, 0)
+        };
+
+        // одна нота инструмента: dt — время от начала ноты
+        static float Tone(Voice v, float f, float dt, float t)
+        {
+            switch (v)
+            {
+                case Voice.MusicBox:
+                    return (Sin(f, dt) + 0.4f * Sin(f * 2.01f, dt) + 0.25f * Sin(f * 4.18f, dt) * Mathf.Exp(-dt * 6f)) * Mathf.Exp(-dt * 2.2f);
+                case Voice.Bell:
+                    return (Sin(f, dt) + 0.6f * Sin(f * 2.76f, dt) + 0.4f * Sin(f * 5.4f, dt) * Mathf.Exp(-dt * 2f) + 0.3f * Sin(f * 0.5f, dt)) * Mathf.Exp(-dt * 0.9f);
+                case Voice.Pluck:
+                {
+                    float s = 0f;
+                    for (int h = 1; h <= 6; h++) s += Sin(f * h * (1f + 0.002f * h), dt) * Mathf.Exp(-dt * (2f + h * 1.4f)) / h;
+                    return s * 1.4f;
+                }
+                case Voice.Flute:
+                {
+                    float att = Mathf.Min(1f, dt * 6f), rel = Mathf.Exp(-Mathf.Max(0f, dt - 0.9f) * 3f);
+                    float vib = 1f + 0.008f * Sin(5f, dt) * Mathf.Min(1f, dt * 2f);
+                    return (Sin(f * vib, dt) + 0.15f * Sin(f * 2f * vib, dt) + 0.08f * Sin(f * 3f, dt)) * att * rel;
+                }
+                case Voice.Choir:
+                {
+                    float att = Mathf.Min(1f, dt * 1.2f), rel = Mathf.Exp(-Mathf.Max(0f, dt - 1.6f) * 1.5f);
+                    float s = 0f;
+                    for (int c = -1; c <= 1; c++)
+                    {
+                        float fc = f * (1f + c * 0.006f) * (1f + 0.005f * Sin(4.6f + c, dt));
+                        s += Sin(fc, dt) + 0.5f * Sin(fc * 2f, dt) + 0.35f * Sin(fc * 3f, dt) * (0.6f + 0.4f * Sin(0.7f, t));
+                    }
+                    return s * 0.3f * att * rel;
+                }
+                case Voice.Organ:
+                {
+                    float att = Mathf.Min(1f, dt * 10f), rel = Mathf.Exp(-Mathf.Max(0f, dt - 1.2f) * 2.5f);
+                    float s = Sin(f, dt) + 0.7f * Sin(f * 2f, dt) + 0.5f * Sin(f * 3f, dt) + 0.3f * Sin(f * 4f, dt) + 0.4f * Sin(f * 0.5f, dt);
+                    return s * 0.45f * att * rel * (0.9f + 0.1f * Sin(6f, dt));
+                }
+                case Voice.Cello:
+                {
+                    float att = Mathf.Min(1f, dt * 2.5f), rel = Mathf.Exp(-Mathf.Max(0f, dt - 1.8f) * 1.6f);
+                    float vib = 1f + 0.007f * Sin(5.2f, dt);
+                    float s = 0f;
+                    for (int h = 1; h <= 7; h++) s += Sin(f * h * vib, dt) / (h * h * 0.6f + 0.4f);
+                    return s * 0.5f * att * rel;
+                }
+                case Voice.Metal:
+                    return (Sin(f, dt) + 0.7f * Sin(f * 2.4f, dt) + 0.5f * Sin(f * 3.9f, dt) * Mathf.Exp(-dt * 3f) + 0.3f * Sin(f * 5.4f, dt) * Mathf.Exp(-dt * 6f))
+                           * Mathf.Exp(-dt * 1.4f) * (1f + 0.25f * Sin(3.5f, dt));
+                case Voice.Piano:
+                {
+                    float s = Sin(f, dt) + 0.5f * Sin(f * 2.003f, dt) + 0.3f * Sin(f * 3.01f, dt) + 0.2f * Sin(f * 1.007f, dt);
+                    return s * Mathf.Exp(-dt * 1.6f) * Mathf.Min(1f, dt * 300f) * 0.8f;
+                }
+                default:   // терменвокс: чистый тон, скользящий к ноте
+                {
+                    float att = Mathf.Min(1f, dt * 3f), rel = Mathf.Exp(-Mathf.Max(0f, dt - 1.5f) * 2f);
+                    float glide = 1f - 0.06f * Mathf.Exp(-dt * 6f);
+                    return (Sin(f * glide * (1f + 0.012f * Sin(6.5f, dt)), dt) + 0.1f * Sin(f * 2f, dt)) * att * rel;
+                }
+            }
+        }
+
+        // Мотив: 8–12 нот из лада с паузами, повтор с вариацией, под ним — тихий бурдон на тонике.
+        static AudioClip EntityTheme(EntityKind k) => Make("theme_" + k, EntityThemeData(k));
+
+        static float[] EntityThemeData(EntityKind k)
+        {
+            var (voice, scale, bpm, root) = ThemeOf(k);
+            var rng = new System.Random(1000 + (int)k * 7919);
+            float beat = 60f / bpm;
+            int count = 8 + rng.Next(5);
+            var notes = new List<(float start, int semi, float vel)>();
+            float time = 0f;
+            int degree = rng.Next(scale.Length);
+            for (int rep = 0; rep < 2; rep++)
+            {
+                var r2 = new System.Random(1000 + (int)k * 7919);   // второй проход — тот же мотив...
+                for (int i = 0; i < count; i++)
+                {
+                    int step = r2.Next(-2, 3);
+                    degree = Mathf.Clamp(degree + step, 0, scale.Length * 2 - 1);
+                    int semi = root + scale[degree % scale.Length] + 12 * (degree / scale.Length);
+                    if (rep == 1 && i == count - 1) semi += 1;            // ...но в конце нота «не туда»
+                    float dur = beat * (r2.NextDouble() < 0.3 ? 2f : 1f);
+                    if (r2.NextDouble() < 0.2) time += beat;               // пауза
+                    notes.Add((time, semi, 0.7f + 0.3f * (float)r2.NextDouble()));
+                    time += dur;
+                }
+                time += beat * 4f;                                          // тишина между фразами
+            }
+            float len = Mathf.Max(16f, time + beat * 4f);
+            float droneF = Note(root - 12);
+            int first = 0;
+            var d = Render(len, (t, r) =>
+            {
+                float wow = 1f + 0.004f * Sin(0.23f, t);
+                float s = 0f;
+                // ноты идут по порядку: считаем только те, что звучат сейчас (не дольше 4 с)
+                while (first < notes.Count && t - notes[first].start > 4f) first++;
+                for (int n = first; n < notes.Count && notes[n].start <= t; n++)
+                {
+                    var (start, semi, vel) = notes[n];
+                    s += Tone(voice, Note(semi) * wow, t - start, t) * vel;
+                }
+                float drone = (Sin(droneF, t) + 0.3f * Sin(droneF * 1.5f, t)) * 0.12f * (0.6f + 0.4f * Sin(1f / len, t));
+                return s * 0.3f + drone + ((float)r.NextDouble() * 2f - 1f) * 0.006f;
+            }, 2000 + (int)k);
+            d = Reverb(d, 0.5f, 0.86f, true);
+            Normalize(d, 0.5f);
+            return d;
         }
 
         // Тема меню: колыбельная на расстроенной музыкальной шкатулке, плёнка чуть «плывёт».

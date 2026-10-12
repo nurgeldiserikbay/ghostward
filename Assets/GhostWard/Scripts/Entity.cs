@@ -54,28 +54,85 @@ namespace GhostWard
         // повадка, по которой ходит сущность
         public static EntityKind ArchOf(EntityKind k) => k switch
         {
-            EntityKind.Banshee or EntityKind.Llorona => EntityKind.Ghost,
-            EntityKind.BlackDog or EntityKind.Ghoul => EntityKind.Shade,
-            EntityKind.Changeling or EntityKind.Zheztyrnak or EntityKind.Kitsune => EntityKind.Albasty,
-            EntityKind.CorpoSeco => EntityKind.Upyr,
+            EntityKind.Banshee or EntityKind.Llorona or EntityKind.Tunda or EntityKind.Pontianak or EntityKind.Karakoncolos
+                => EntityKind.Ghost,
+            EntityKind.BlackDog or EntityKind.Ghoul or EntityKind.Cucuy or EntityKind.ZhalmauyzKempir or EntityKind.BabaYaga
+                => EntityKind.Shade,
+            EntityKind.Changeling or EntityKind.Zheztyrnak or EntityKind.Kitsune or EntityKind.Aswang or EntityKind.Shurale
+                => EntityKind.Albasty,
+            EntityKind.CorpoSeco or EntityKind.Chupacabra or EntityKind.MulaSemCabeca or EntityKind.Jiangshi
+                or EntityKind.Abaasy or EntityKind.Strigoi => EntityKind.Upyr,
             EntityKind.MystanKempir => EntityKind.Double,
-            EntityKind.Domovoi => EntityKind.Poltergeist,
+            EntityKind.Domovoi or EntityKind.BellWitch => EntityKind.Poltergeist,
+            EntityKind.Lechuza => EntityKind.Kikimora,
+            EntityKind.Kuchisake => EntityKind.Mara,
+            EntityKind.Penanggalan or EntityKind.Ubyr => EntityKind.Jinn,
+            EntityKind.BloodyMary or EntityKind.Vodyanoy => EntityKind.Rusalka,
             _ => k
         };
 
         EntityKind Arch => ArchOf(Def.Kind);
 
+        // Облик: фотореалистичная картинка Resources/Entities/<Kind> (шейдер EntityPhoto с эффектами плёнки),
+        // а пока её нет — процедурный силуэт. У новых видов без своего силуэта — похожий из первых двадцати.
         public static Material CreateMaterial(EntityDef def, float seed)
         {
+            var picture = Picture(def.Kind);
+            if (picture != null)
+            {
+                var pm = new Material(Shader.Find("GhostWard/EntityPhoto"));
+                pm.SetTexture("_MainTex", picture);
+                // PNG с прозрачностью — фон уже вырезан; иначе вырезаем почти чистый чёрный
+                pm.SetFloat("_Key", UnityEngine.Experimental.Rendering.GraphicsFormatUtility.HasAlphaChannel(picture.graphicsFormat) ? 0f : 1f);
+                pm.SetColor("_Color", def.Accent);
+                pm.SetFloat("_Seed", seed);
+                return pm;
+            }
+
             var m = new Material(Shader.Find("GhostWard/Entity"));
             m.SetColor("_Body", def.Body);
             m.SetColor("_Color", def.Accent);
-            // номера силуэтов в шейдере: у албасты и полтергейста они переставлены относительно EntityKind
-            int shape = def.Kind switch { EntityKind.Albasty => 3, EntityKind.Poltergeist => 2, _ => (int)def.Kind };
-            m.SetFloat("_Shape", shape);
+            m.SetFloat("_Shape", Silhouette(def.Kind));
             m.SetFloat("_Seed", seed);
             return m;
         }
+
+        static readonly System.Collections.Generic.Dictionary<EntityKind, Texture2D> Pictures = new();
+
+        public static Texture2D Picture(EntityKind k)
+        {
+            if (!Pictures.TryGetValue(k, out var tex))
+                Pictures[k] = tex = Resources.Load<Texture2D>("Entities/" + k);
+            return tex;
+        }
+
+        // номер процедурного силуэта (у албасты и полтергейста переставлены относительно EntityKind)
+        static int Silhouette(EntityKind k) => k switch
+        {
+            EntityKind.Albasty => 3,
+            EntityKind.Poltergeist => 2,
+            EntityKind.Lechuza => 5,
+            EntityKind.Pontianak => 12,
+            EntityKind.BabaYaga => 18,
+            EntityKind.Shurale => 1,
+            EntityKind.Cucuy => 1,
+            EntityKind.Kuchisake => 3,
+            EntityKind.BloodyMary => 14,
+            EntityKind.Ubyr => 19,
+            EntityKind.Chupacabra => 15,
+            EntityKind.Jiangshi => 17,
+            EntityKind.Strigoi => 6,
+            EntityKind.Karakoncolos => 9,
+            EntityKind.Tunda => 0,
+            EntityKind.Aswang => 15,
+            EntityKind.Vodyanoy => 9,
+            EntityKind.Abaasy => 6,
+            EntityKind.MulaSemCabeca => 11,
+            EntityKind.Penanggalan => 8,
+            EntityKind.BellWitch => 14,
+            EntityKind.ZhalmauyzKempir => 18,
+            _ => (int)k
+        };
 
         public static Entity Create(EntityDef def, Vector3 position, Camera cam, Game game, float aggression, float lurk = -1f)
         {
@@ -110,12 +167,30 @@ namespace GhostWard
                 EntityKind.MystanKempir => 1.2f,
                 EntityKind.Jinn => 0.35f,
                 EntityKind.Rusalka => 0.4f,
+                EntityKind.Lechuza => 0.55f,
+                EntityKind.Pontianak => 0.3f,
+                EntityKind.BabaYaga => 0.5f,
+                EntityKind.Shurale => 1.3f,
+                EntityKind.Cucuy => 0.65f,
+                EntityKind.BloodyMary => 0.45f,
+                EntityKind.Ubyr => 0.45f,
+                EntityKind.Chupacabra => 2.4f,
+                EntityKind.Jiangshi => 1.6f,
+                EntityKind.Strigoi => 2.0f,
+                EntityKind.Karakoncolos => 0.3f,
+                EntityKind.Tunda => 0.32f,
+                EntityKind.Aswang => 1.15f,
+                EntityKind.Vodyanoy => 0.38f,
+                EntityKind.Abaasy => 1.8f,
+                EntityKind.MulaSemCabeca => 2.6f,
+                EntityKind.Penanggalan => 0.5f,
+                EntityKind.ZhalmauyzKempir => 0.55f,
                 _ => 0f
             };
 
             e.mat = CreateMaterial(def, e.Seed);
             e.mat.SetFloat(FadeId, 0f);
-            e.mat.SetFloat(FlipId, def.Kind == EntityKind.Kikimora ? 1f : 0f);
+            e.mat.SetFloat(FlipId, ArchOf(def.Kind) == EntityKind.Kikimora ? 1f : 0f);
             e.rend = go.GetComponent<MeshRenderer>();
             e.rend.sharedMaterial = e.mat;
             e.rend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -139,7 +214,7 @@ namespace GhostWard
 
             e.sparks = Effects.CreateSparks(go.transform, def.Accent);
             // мара не подкрадывается — она просто оказывается рядом
-            e.Lurk(lurk > 0f ? lurk : def.Kind == EntityKind.Mara ? Random.Range(2f, 3f) : Random.Range(4f, 7f));
+            e.Lurk(lurk > 0f ? lurk : ArchOf(def.Kind) == EntityKind.Mara ? Random.Range(2f, 3f) : Random.Range(4f, 7f));
             return e;
         }
 
@@ -153,7 +228,7 @@ namespace GhostWard
             fade = 0f;
             dropped = false;
             nextEvent = Random.Range(0.5f, 1.5f);
-            if (Def.Kind == EntityKind.Kikimora) mat.SetFloat(FlipId, 1f);
+            if (Arch == EntityKind.Kikimora) mat.SetFloat(FlipId, 1f);
         }
 
         void SetState(State s)
@@ -219,14 +294,14 @@ namespace GhostWard
         {
             // чёрного пса видно только в ночном режиме или тепловизоре — иначе едва заметная тень
             float maxFade = Def.Kind == EntityKind.BlackDog && !game.SeesHidden ? 0.12f : 1f;
-            if (!Def.Invisible) fade = Mathf.MoveTowards(fade, maxFade, dt * (Def.Kind == EntityKind.Mara ? 3f : 1f));
+            if (!Def.Invisible) fade = Mathf.MoveTowards(fade, maxFade, dt * (Arch == EntityKind.Mara ? 3f : 1f));
             bool watched = game.IsInView(transform.position);
 
             // фонарь жжёт тех, кто боится света, и останавливает их
             if (Lit && Def.Bane == ItemKind.Lantern) { Burn(dt); dashing = false; return; }
 
-            if (Def.Kind == EntityKind.Jinn) { TickJinn(dt); return; }
-            if (Def.Kind == EntityKind.Rusalka) { TickRusalka(dt, watched); return; }
+            if (Arch == EntityKind.Jinn) { TickJinn(dt); return; }
+            if (Arch == EntityKind.Rusalka) { TickRusalka(dt, watched); return; }
 
             switch (Arch)
             {
@@ -293,7 +368,7 @@ namespace GhostWard
                     {
                         Approach(speed);
                         nextEvent -= dt;
-                        if (nextEvent <= 0f) { voice.PlayOneShot(ProceduralAudio.Scrape(), 0.8f); nextEvent = Random.Range(2f, 4f); }
+                        if (nextEvent <= 0f) { voice.PlayOneShot(EntitySounds.Call(Def.Kind) ?? ProceduralAudio.Scrape(), 0.8f); nextEvent = Random.Range(2f, 4f); }
                         if (FlatDistance() < 1.4f)
                         {
                             // падает с потолка прямо перед игроком
@@ -301,7 +376,7 @@ namespace GhostWard
                             phaseTime = 0.9f;
                             mat.SetFloat(FlipId, 0f);
                             flash = 0.6f;
-                            voice.PlayOneShot(ProceduralAudio.Screech(), 0.5f);
+                            voice.PlayOneShot(EntitySounds.Attack(Def.Kind), 0.5f);
                         }
                     }
                     else
@@ -417,7 +492,7 @@ namespace GhostWard
         // ---------- движение ----------
 
         // по полу и по потолку — без вертикального движения, по воздуху — плавно к лицу
-        bool Planar => Def.Stance == Stance.Floor || Def.Kind == EntityKind.Kikimora && !dropped;
+        bool Planar => Def.Stance == Stance.Floor || Arch == EntityKind.Kikimora && !dropped;
 
         void Approach(float v)
         {

@@ -75,7 +75,7 @@ namespace GhostWard
             go.transform.localScale = new Vector3(def.Height * 0.8f, def.Height, 1f);
             var a = go.AddComponent<Apparition>();
             a.mat = Entity.CreateMaterial(def, UnityEngine.Random.value * 10f);
-            a.mat.SetFloat("_Flip", def.Kind == EntityKind.Kikimora ? 1f : 0f);
+            a.mat.SetFloat("_Flip", Entity.ArchOf(def.Kind) == EntityKind.Kikimora ? 1f : 0f);
             go.GetComponent<MeshRenderer>().sharedMaterial = a.mat;
             a.life = a.total = seconds;
             a.cam = cam;

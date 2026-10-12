@@ -50,7 +50,7 @@ namespace GhostWard
         readonly List<(RectTransform rt, int yaw)> compassTicks = new();
         readonly List<(Text label, int yaw)> compassLabels = new();
         readonly Image[] micBars = new Image[5];
-        readonly bool[] marks = new bool[7];
+        readonly bool[] marks = new bool[System.Enum.GetValues(typeof(Evidence)).Length];
         readonly List<(UILine box, UILine check)> clueRows = new();
         EntityKind openedEntry;
         float recBlink;
@@ -658,12 +658,12 @@ namespace GhostWard
 
             // вид камеры
             Caption(g, Loc.T("vision"), 0.625f);
-            var visions = new[] { Vision.Normal, Vision.Dark, Vision.NightGreen, Vision.Cctv, Vision.Vhs };
-            string[] keys = { "vision_normal", "vision_dark", "vision_night", "vision_cctv", "vision_vhs" };
+            var visions = new[] { Vision.Normal, Vision.Dark, Vision.NightGreen, Vision.NightShot, Vision.Cctv, Vision.Vhs };
+            string[] keys = { "vision_normal", "vision_dark", "vision_night", "vision_nightshot", "vision_cctv", "vision_vhs" };
             for (int i = 0; i < visions.Length; i++)
             {
                 var v = visions[i];
-                int row = i / 3, col = i % 3, inRow = row == 0 ? 3 : 2;
+                int row = i / 3, col = i % 3, inRow = Mathf.Min(3, visions.Length - row * 3);
                 float x = (col - (inRow - 1) * 0.5f) * 320f;
                 string label = Loc.T(keys[i]) + (Unlocks.Has(v) ? "" : "  ▶");
                 var b = Button(g, label, new Vector2(0.5f, 0.575f - row * 0.07f), () => PickVision(v), false, 300, x);
@@ -932,6 +932,10 @@ namespace GhostWard
                     camTop.text = "NV ●";
                     camBottom.text = "";
                     break;
+                case Vision.NightShot:
+                    camTop.text = "● REC   IR";
+                    camBottom.text = "0 LUX   " + now.ToString("HH:mm:ss");
+                    break;
                 default:
                     camTop.text = camBottom.text = "";
                     break;
@@ -1114,8 +1118,8 @@ namespace GhostWard
                 var def = Catalog.Clues[i];
                 int index = i;
                 var row = Rect(journalClues.transform, def.Name, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
-                row.sizeDelta = new Vector2(1000, 140);
-                row.anchoredPosition = new Vector2(0, -270 - i * 150);
+                row.sizeDelta = new Vector2(1000, 124);
+                row.anchoredPosition = new Vector2(0, -262 - i * 130);
                 var bg = row.gameObject.AddComponent<Image>();
                 bg.color = new Color(0, 0, 0, 0.01f);
                 var btn = row.gameObject.AddComponent<UnityEngine.UI.Button>();
@@ -1144,13 +1148,16 @@ namespace GhostWard
                 Icons.Clue(icon, def.Kind, Bone);
 
                 var text = Label(row, $"<b>{def.Name}</b>\n{def.HowTo}", 27, new Vector2(0.5f, 0.5f), new Vector2(110, 0), Bone);
-                text.rectTransform.sizeDelta = new Vector2(700, 130);
+                text.rectTransform.sizeDelta = new Vector2(700, 122);
                 text.alignment = TextAnchor.MiddleLeft;
                 clueRows.Add((box, check));
             }
 
-            suspectsText = Label(journalClues.transform, "", 30, new Vector2(0.5f, 1f), new Vector2(0, -1350), new Color(1f, 0.75f, 0.45f));
-            suspectsText.rectTransform.sizeDelta = new Vector2(940, 110);
+            suspectsText = Label(journalClues.transform, "", 28, new Vector2(0.5f, 1f), new Vector2(0, -1355), new Color(1f, 0.75f, 0.45f));
+            suspectsText.rectTransform.sizeDelta = new Vector2(940, 150);
+            suspectsText.resizeTextForBestFit = true;
+            suspectsText.resizeTextMinSize = 18;
+            suspectsText.resizeTextMaxSize = 28;
             Button(journalClues.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
             UpdateSuspects();
         }
@@ -2035,7 +2042,7 @@ namespace GhostWard
             }
 
             recBlink += dt;
-            if (hud.activeSelf && overlayStyle is Vision.Cctv or Vision.Vhs) SetCameraOverlay(overlayStyle);
+            if (hud.activeSelf && overlayStyle is Vision.Cctv or Vision.Vhs or Vision.NightShot) SetCameraOverlay(overlayStyle);
             if (recText.gameObject.activeSelf) SetAlpha(recText, recBlink % 1f < 0.6f ? 1f : 0.2f);
 
             bool inNight = hud.activeSelf;

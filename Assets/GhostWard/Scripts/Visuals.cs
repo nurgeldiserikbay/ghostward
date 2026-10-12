@@ -333,6 +333,15 @@ namespace GhostWard
                     Line(parent, color, 4f, true, ShiftRing(new Vector2(-18, -4), 14f, 12));
                     for (int k = 0; k < 3; k++) Line(parent, color, 3f, false, new Vector2(10, 8 - k * 12), new Vector2(34, 8 - k * 12));
                     break;
+                case Evidence.Prints:
+                    // два следа босой ноги
+                    for (int f = 0; f < 2; f++)
+                    {
+                        var o = f == 0 ? new Vector2(-18, -16) : new Vector2(18, 14);
+                        Line(parent, color, 4f, true, ShiftRing(o + new Vector2(0, -4), 12f, 10));
+                        for (int t = 0; t < 4; t++) Poly(parent, color, Diamond(o + new Vector2(-9 + t * 6, 16 + (t == 0 ? 2 : 0)), 3.2f));
+                    }
+                    break;
                 case Evidence.NightVision:
                     Line(parent, color, 5f, false, new Vector2(-48, 0), new Vector2(-24, 22), new Vector2(24, 22), new Vector2(48, 0));
                     Line(parent, color, 5f, false, new Vector2(-48, 0), new Vector2(-24, -22), new Vector2(24, -22), new Vector2(48, 0));

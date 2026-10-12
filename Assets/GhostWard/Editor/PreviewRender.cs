@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -128,6 +129,102 @@ namespace GhostWard.EditorTools
             File.WriteAllBytes("Logs/thermal.png", tex.EncodeToPNG());
         }
 
+        // Все виды камеры на одном кадре (Logs/camtest.png) — Logs/cameras.png; в тепловизоре — холодные следы
+        public static void Cameras()
+        {
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            var src = new Texture2D(2, 2);
+            src.LoadImage(File.ReadAllBytes("Logs/camtest.png"));
+            int[] styles = { 0, 1, 2, 6, 3, 4, 5 };
+            const int w = 480, h = 300;
+            var sheet = new Texture2D(w * 4, h * 2, TextureFormat.RGB24, false);
+
+            var cam = new GameObject("Cam").AddComponent<Camera>();
+            cam.orthographic = true;
+            cam.orthographicSize = 0.5f;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = Color.black;
+            cam.transform.position = new Vector3(0, 0, -5);
+            var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32);
+            cam.targetTexture = rt;
+            cam.aspect = (float)w / h;
+            var feed = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            feed.transform.localScale = new Vector3((float)w / h, 1f, 1f);
+            var m = new Material(Shader.Find("GhostWard/Feed"));
+            m.mainTexture = src;
+            feed.GetComponent<MeshRenderer>().sharedMaterial = m;
+            var prints = new List<GameObject>();
+            for (int k = 0; k < 5; k++)
+            {
+                var pr = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                pr.transform.position = new Vector3(-0.5f + k * 0.18f, -0.38f + (k % 2) * 0.05f, -1f);
+                pr.transform.rotation = Quaternion.Euler(0, 0, -70f);
+                pr.transform.localScale = new Vector3(0.05f, 0.11f, 1f);
+                var pm = new Material(Shader.Find("GhostWard/Footprint"));
+                pm.SetFloat("_Alpha", 0.95f);
+                pm.SetFloat("_Mirror", k % 2);
+                pr.GetComponent<MeshRenderer>().sharedMaterial = pm;
+                prints.Add(pr);
+            }
+
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            for (int i = 0; i < styles.Length; i++)
+            {
+                m.SetFloat("_Style", styles[i]);
+                foreach (var pr in prints) pr.SetActive(styles[i] == 5);
+                var request = new RenderPipeline.StandardRequest { destination = rt };
+                if (RenderPipeline.SupportsRenderRequest(cam, request)) RenderPipeline.SubmitRenderRequest(cam, request);
+                else cam.Render();
+                RenderTexture.active = rt;
+                tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                tex.Apply();
+                RenderTexture.active = null;
+                sheet.SetPixels((i % 4) * w, (1 - i / 4) * h, w, h, tex.GetPixels());
+            }
+            sheet.Apply();
+            File.WriteAllBytes("Logs/cameras.png", sheet.EncodeToPNG());
+        }
+
+        // Шейдер фото-сущности на тестовой картинке (Logs/phototest.png) — Logs/photo.png: обычный, сбой, закрытый, рассыпание
+        public static void Photo()
+        {
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            var src = new Texture2D(2, 2);
+            src.LoadImage(File.ReadAllBytes("Logs/phototest.png"));
+            var cam = new GameObject("Cam").AddComponent<Camera>();
+            cam.orthographic = true;
+            cam.orthographicSize = 0.6f;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.16f, 0.15f, 0.17f);
+            cam.transform.position = new Vector3(0, 0, -5);
+            var rt = new RenderTexture(1600, 500, 24, RenderTextureFormat.ARGB32);
+            cam.targetTexture = rt;
+            cam.aspect = 3.2f;
+            float[,] p = { { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 0.45f } };   // seed-сбой, locked, dissolve
+            for (int i = 0; i < 4; i++)
+            {
+                var q = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                q.transform.position = new Vector3(-1.4f + i * 0.95f, 0f, 0f);
+                q.transform.localScale = new Vector3(0.8f, 1f, 1f);
+                var m = new Material(Shader.Find("GhostWard/EntityPhoto"));
+                m.SetTexture("_MainTex", src);
+                m.SetColor("_Color", new Color(0.6f, 0.8f, 1f));
+                m.SetFloat("_Locked", p[i, 1]);
+                m.SetFloat("_Dissolve", p[i, 2]);
+                m.SetFloat("_Seed", 3.7f + i);
+                q.GetComponent<MeshRenderer>().sharedMaterial = m;
+            }
+            var request = new RenderPipeline.StandardRequest { destination = rt };
+            if (RenderPipeline.SupportsRenderRequest(cam, request)) RenderPipeline.SubmitRenderRequest(cam, request);
+            else cam.Render();
+            RenderTexture.active = rt;
+            var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            tex.Apply();
+            RenderTexture.active = null;
+            File.WriteAllBytes("Logs/photo.png", tex.EncodeToPNG());
+        }
+
         // Проверка нейросети тепловизора на картинках из папки (-testImg <папка>) — Logs/seg_*.png
         public static void ThermalSegTest()
         {
@@ -208,6 +305,11 @@ namespace GhostWard.EditorTools
             foreach (EntityKind k in System.Enum.GetValues(typeof(EntityKind)))
                 foreach (var c in new[] { EntitySounds.Loop(k), EntitySounds.Call(k), EntitySounds.Special(k), EntitySounds.Attack(k) })
                     if (c != null && !clips.Contains(c)) clips.Add(c);
+
+            // темы сущностей (синтезированные мотивы)
+            var themeFn = typeof(Music).GetMethod("EntityTheme", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            foreach (EntityKind k in System.Enum.GetValues(typeof(EntityKind)))
+                clips.Add((AudioClip)themeFn.Invoke(null, new object[] { k }));
 
             foreach (var clip in clips)
             {

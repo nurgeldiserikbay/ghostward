@@ -26,6 +26,25 @@ namespace GhostWard
             EntityKind.CorpoSeco => CreatureAudio.DryRattle(),
             EntityKind.MystanKempir => CreatureAudio.Mutter(),
             EntityKind.Jinn => CreatureAudio.Whirl(),
+            EntityKind.Lechuza => CreatureAudio.OwlHoot(),
+            EntityKind.Pontianak => CreatureAudio.FarCry(),
+            EntityKind.BabaYaga => CreatureAudio.Mortar(),
+            EntityKind.Shurale => CreatureAudio.WoodCreak(),
+            EntityKind.Cucuy => CreatureAudio.UnderBed(),
+            EntityKind.Kuchisake => CreatureAudio.Snip(),
+            EntityKind.BloodyMary => CreatureAudio.Chant(),
+            EntityKind.Ubyr => CreatureAudio.FireCrackle(),
+            EntityKind.Chupacabra => CreatureAudio.Chitter(),
+            EntityKind.Strigoi => CreatureAudio.Hiss(),
+            EntityKind.Karakoncolos => CreatureAudio.IcyWind(),
+            EntityKind.Tunda => CreatureAudio.MotherHum(),
+            EntityKind.Aswang => CreatureAudio.TikTik(),
+            EntityKind.Vodyanoy => CreatureAudio.Bubbles(),
+            EntityKind.Abaasy => CreatureAudio.IronGrind(),
+            EntityKind.MulaSemCabeca => CreatureAudio.FireCrackle(),
+            EntityKind.Penanggalan => CreatureAudio.WetDrip(),
+            EntityKind.BellWitch => CreatureAudio.Hymn(),
+            EntityKind.ZhalmauyzKempir => CreatureAudio.ManyVoices(),
             _ => null
         };
 
@@ -48,6 +67,26 @@ namespace GhostWard
             EntityKind.CorpoSeco => CreatureAudio.BoneCrack(),
             EntityKind.MystanKempir => CreatureAudio.Cackle(),
             EntityKind.Jinn => CreatureAudio.Whirl(),
+            EntityKind.Lechuza => CreatureAudio.InfantCry(),
+            EntityKind.Pontianak => CreatureAudio.HighLaugh(),
+            EntityKind.BabaYaga => CreatureAudio.Cackle(),
+            EntityKind.Shurale => CreatureAudio.Tickle(),
+            EntityKind.Cucuy => CreatureAudio.DeepWhisper(),
+            EntityKind.Kuchisake => CreatureAudio.Question(),
+            EntityKind.BloodyMary => CreatureAudio.GlassCrack(),
+            EntityKind.Ubyr => CreatureAudio.Hiss(),
+            EntityKind.Chupacabra => CreatureAudio.Chitter(),
+            EntityKind.Jiangshi => CreatureAudio.Hop(),
+            EntityKind.Strigoi => CreatureAudio.WingFlap(),
+            EntityKind.Karakoncolos => CreatureAudio.NameCall(),
+            EntityKind.Tunda => CreatureAudio.PegStep(),
+            EntityKind.Aswang => CreatureAudio.TikTik(),
+            EntityKind.Vodyanoy => CreatureAudio.Croak(),
+            EntityKind.Abaasy => CreatureAudio.JawHarp(),
+            EntityKind.MulaSemCabeca => CreatureAudio.Neigh(),
+            EntityKind.Penanggalan => CreatureAudio.WetFlap(),
+            EntityKind.BellWitch => CreatureAudio.Slap(),
+            EntityKind.ZhalmauyzKempir => CreatureAudio.ManyVoices(),
             _ => null
         };
 
@@ -61,6 +100,26 @@ namespace GhostWard
             EntityKind.CorpoSeco => CreatureAudio.BoneCrack(),
             EntityKind.Rusalka => CreatureAudio.Gurgle(),
             EntityKind.Jinn => CreatureAudio.Roar(),
+            EntityKind.Lechuza => CreatureAudio.OwlScreech(),
+            EntityKind.Pontianak => CreatureAudio.HighLaugh(),
+            EntityKind.BabaYaga => CreatureAudio.IronTeeth(),
+            EntityKind.Shurale => CreatureAudio.BoneCrack(),
+            EntityKind.Cucuy => CreatureAudio.DeepWhisper(),
+            EntityKind.Kuchisake => CreatureAudio.Snip(),
+            EntityKind.BloodyMary => CreatureAudio.GlassCrack(),
+            EntityKind.Ubyr => CreatureAudio.FireWhoosh(),
+            EntityKind.Chupacabra => CreatureAudio.SpineRattle(),
+            EntityKind.Jiangshi => CreatureAudio.Hop(),
+            EntityKind.Strigoi => CreatureAudio.WingFlap(),
+            EntityKind.Karakoncolos => CreatureAudio.NameCall(),
+            EntityKind.Tunda => CreatureAudio.PegStep(),
+            EntityKind.Aswang => CreatureAudio.WingFlap(),
+            EntityKind.Vodyanoy => CreatureAudio.Gurgle(),
+            EntityKind.Abaasy => CreatureAudio.OneLegHop(),
+            EntityKind.MulaSemCabeca => CreatureAudio.Gallop(),
+            EntityKind.Penanggalan => CreatureAudio.WetFlap(),
+            EntityKind.BellWitch => CreatureAudio.Slap(),
+            EntityKind.ZhalmauyzKempir => CreatureAudio.Chomp(),
             _ => null
         };
 
@@ -84,6 +143,26 @@ namespace GhostWard
             EntityKind.CorpoSeco => CreatureAudio.Scream("scr_corpo", 220f, -0.3f, 0.9f, 0.6f),
             EntityKind.MystanKempir => CreatureAudio.Scream("scr_mystan", 700f, 0.6f, 0.45f, 0.1f),
             EntityKind.Jinn => CreatureAudio.Roar(),
+            EntityKind.Lechuza => CreatureAudio.OwlScreech(),
+            EntityKind.Pontianak => CreatureAudio.Scream("scr_ponti", 1300f, 0.3f, 0.3f, 0f),
+            EntityKind.BabaYaga => CreatureAudio.Scream("scr_yaga", 560f, 0.5f, 0.6f, 0.3f),
+            EntityKind.Shurale => CreatureAudio.Scream("scr_shurale", 880f, 0.8f, 0.4f, 0.2f),
+            EntityKind.Cucuy => CreatureAudio.Scream("scr_cucuy", 120f, 0.1f, 0.9f, 1f),
+            EntityKind.Kuchisake => CreatureAudio.Scream("scr_kuchi", 1000f, -0.2f, 0.35f, 0f),
+            EntityKind.BloodyMary => CreatureAudio.Scream("scr_mary", 960f, -0.4f, 0.45f, 0.1f),
+            EntityKind.Ubyr => CreatureAudio.FireWhoosh(),
+            EntityKind.Chupacabra => CreatureAudio.Scream("scr_chupa", 700f, 0.3f, 0.9f, 0.5f),
+            EntityKind.Jiangshi => CreatureAudio.Scream("scr_jiang", 300f, -0.3f, 0.7f, 0.6f),
+            EntityKind.Strigoi => CreatureAudio.Scream("scr_strigoi", 380f, 0.2f, 0.7f, 0.6f),
+            EntityKind.Karakoncolos => CreatureAudio.Roar(),
+            EntityKind.Tunda => CreatureAudio.Scream("scr_tunda", 820f, -0.5f, 0.4f, 0.2f),
+            EntityKind.Aswang => CreatureAudio.Scream("scr_aswang", 1150f, 0.4f, 0.6f, 0.2f),
+            EntityKind.Vodyanoy => CreatureAudio.Scream("scr_vodyanoy", 140f, 0.2f, 0.8f, 1f),
+            EntityKind.Abaasy => CreatureAudio.Roar(),
+            EntityKind.MulaSemCabeca => CreatureAudio.Neigh(),
+            EntityKind.Penanggalan => CreatureAudio.Scream("scr_penang", 1250f, 0.2f, 0.5f, 0f),
+            EntityKind.BellWitch => CreatureAudio.Cackle(),
+            EntityKind.ZhalmauyzKempir => CreatureAudio.Scream("scr_zhalm", 240f, 0.1f, 0.9f, 1f),
             _ => ProceduralAudio.Screech()
         };
 
@@ -573,6 +652,540 @@ namespace GhostWard
                 float s = v.Run(110f + 40f * Smooth(0f, 0.3f, t), 0.9f, 0.85f, 0.8f, r)
                           + fire.Run(Noise(r), 700f, 900f) * 2f;
                 return (float)Math.Tanh(s * 3f) * env;
+            });
+        }
+        // ---------- голоса новых сущностей ----------
+
+        // сова: глухое «у-ху» с придыханием
+        public static AudioClip OwlHoot()
+        {
+            var v = new Voice();
+            return Get("owlhoot", 4f, (t, r) =>
+            {
+                float s = 0f;
+                float[] at = { 0.3f, 0.75f, 2.2f };
+                foreach (float a in at)
+                {
+                    float tk = t - a;
+                    if (tk < 0f || tk > 0.5f) continue;
+                    s += v.Run(330f - tk * 60f, 0.05f, 0.25f, 0.9f, r) * Mathf.Sin(tk / 0.5f * Mathf.PI);
+                }
+                return s;
+            }, Rate / 10);
+        }
+
+        // сипуха: шипящий визг — жуткий и почти человеческий
+        public static AudioClip OwlScreech()
+        {
+            var body = new Reso();
+            var v = new Voice();
+            return Get("owlscreech", 1.4f, (t, r) =>
+            {
+                float env = Smooth(0f, 0.04f, t) * (1f - Smooth(0.8f, 1.4f, t));
+                float n = body.Run(Noise(r), 3200f + 800f * Sin(0.9f, t), 1400f) * 4f;
+                return ((float)Math.Tanh(n * 2f) + v.Run(1400f, 0.9f, 0.8f, 1.7f, r) * 0.4f) * env;
+            });
+        }
+
+        // понтианак: детский плач, будто издалека — чем тише, тем она ближе
+        public static AudioClip FarCry()
+        {
+            var v = new Voice();
+            var far = new Reso();
+            return Get("farcry", 5f, (t, r) =>
+            {
+                float cyc = t % 1.7f;
+                float env = Smooth(0f, 0.1f, cyc) * (1f - Smooth(0.9f, 1.3f, cyc));
+                float s = v.Run(420f + 60f * Mathf.Sin(cyc * 2.4f), 0.85f, 0.3f, 1.4f, r) * env;
+                return far.Run(s, 900f, 1200f) * 3f;
+            }, Rate / 8);
+        }
+
+        // высокий женский смешок «хи-хи-хи», тянется
+        public static AudioClip HighLaugh()
+        {
+            var v = new Voice();
+            return Get("highlaugh", 2.6f, (t, r) =>
+            {
+                float hi = Mathf.Pow(Mathf.Max(0f, Sin(4.8f - t * 0.6f, t)), 4f) * (1f - Smooth(1.8f, 2.6f, t));
+                return v.Run(880f + 120f * Mathf.Exp(-t), 1f, 0.35f, 1.6f, r) * hi;
+            });
+        }
+
+        // баба-яга: ступа бьёт об землю, метла заметает след
+        public static AudioClip Mortar()
+        {
+            var broom = new Reso();
+            return Get("mortar", 3.2f, (t, r) =>
+            {
+                float c = t % 1.6f;
+                float thump = (Sin(52f - c * 25f, c) + Noise(r) * 0.25f) * Mathf.Exp(-c * 10f);
+                float sweep = broom.Run(Noise(r), 2500f, 2000f) * Mathf.Pow(Mathf.Max(0f, Mathf.Sin((c - 0.5f) / 0.9f * Mathf.PI)), 2f) * (c > 0.5f && c < 1.4f ? 1f : 0f);
+                return thump + sweep * 1.5f;
+            }, Rate / 20);
+        }
+
+        // железные зубы: скрежет и щелчок челюстей
+        public static AudioClip IronTeeth()
+        {
+            var a = new Reso();
+            return Get("ironteeth", 1.2f, (t, r) =>
+            {
+                float s = 0f;
+                for (int k = 0; k < 3; k++)
+                {
+                    float tk = t - k * 0.28f;
+                    if (tk > 0f) s += a.Run(Noise(r), 2600f, 60f) * Mathf.Exp(-tk * 25f) * 4f;
+                }
+                return s + Noise(r) * 0.05f * (1f - Smooth(0.8f, 1.2f, t));
+            });
+        }
+
+        // шурале: скрип деревьев в лесу
+        public static AudioClip WoodCreak()
+        {
+            var body = new Reso();
+            return Get("woodcreak", 5f, (t, r) =>
+            {
+                float f = 140f + 50f * Sin(0.21f, t) + 15f * Sin(2.3f, t);
+                float stick = Mathf.Abs(Sin(f * 0.25f, t)) > 0.92f ? 1f : 0.15f;
+                float creak = body.Run(Noise(r) * stick, f * 3f, 80f) * 6f;
+                return creak * Mathf.Pow(Mathf.Abs(Sin(0.18f, t)), 1.5f);
+            }, Rate / 4);
+        }
+
+        // шурале: щекочущий быстрый смех
+        public static AudioClip Tickle()
+        {
+            var v = new Voice();
+            return Get("tickle", 1.8f, (t, r) =>
+            {
+                float he = Mathf.Pow(Mathf.Max(0f, Sin(9f, t)), 3f) * (1f - Smooth(1.2f, 1.8f, t));
+                return v.Run(640f + 80f * Sin(1.3f, t), 0.75f, 0.4f, 1.3f, r) * he;
+            });
+        }
+
+        // эль кукуй: скребётся под кроватью и тяжело дышит
+        public static AudioClip UnderBed()
+        {
+            var wood = new Reso();
+            float lp = 0f;
+            return Get("underbed", 4f, (t, r) =>
+            {
+                float scratch = Mathf.Pow(Mathf.Abs(Sin(7f + 3f * Sin(0.5f, t), t)), 6f) * (t % 2f < 1.1f ? 1f : 0f);
+                lp += 0.03f * (Noise(r) - lp);
+                float breath = lp * 4f * Mathf.Pow(Mathf.Max(0f, Sin(0.25f, t)), 2f);
+                return wood.Run(Noise(r), 1800f, 900f) * scratch * 3f + breath;
+            }, Rate / 8);
+        }
+
+        // очень низкий шёпот
+        public static AudioClip DeepWhisper()
+        {
+            float lp = 0f, bp = 0f;
+            var chest = new Reso();
+            return Get("deepwhisper", 2.4f, (t, r) =>
+            {
+                lp += 0.05f * (Noise(r) - lp);
+                bp += 0.4f * (lp - bp);
+                float syl = Mathf.Pow(Mathf.Abs(Sin(2.6f, t)), 3f) * (1f - Smooth(1.9f, 2.4f, t));
+                return (chest.Run(lp - bp, 420f, 300f) * 8f + (lp - bp) * 2f) * syl;
+            });
+        }
+
+        // кучисакэ: щёлканье ножниц
+        public static AudioClip Snip()
+        {
+            var blade = new Reso();
+            return Get("snip", 2f, (t, r) =>
+            {
+                float s = 0f;
+                float[] at = { 0.1f, 0.42f, 1.3f };
+                foreach (float a in at)
+                {
+                    float tk = t - a;
+                    if (tk > 0f) s += blade.Run(Noise(r), 5200f, 300f) * Mathf.Exp(-tk * 45f) * 5f + Noise(r) * Mathf.Exp(-tk * 200f) * 0.3f;
+                }
+                return s;
+            });
+        }
+
+        // «Я красивая?» — три слога с вопросительной интонацией
+        public static AudioClip Question()
+        {
+            var v = new Voice();
+            return Get("question", 1.8f, (t, r) =>
+            {
+                float syl = 0f, f = 260f, vow = 0.5f;
+                if (t < 0.32f) { syl = Mathf.Sin(t / 0.32f * Mathf.PI); vow = 0.9f; f = 240f; }
+                else if (t > 0.4f && t < 0.7f) { syl = Mathf.Sin((t - 0.4f) / 0.3f * Mathf.PI); vow = 0.2f; f = 250f; }
+                else if (t > 0.8f && t < 1.5f) { syl = Mathf.Sin((t - 0.8f) / 0.7f * Mathf.PI); vow = 0.6f; f = 250f + (t - 0.8f) * 200f; }
+                return v.Run(f, vow, 0.35f, 1.2f, r) * syl;
+            });
+        }
+
+        // кровавая мэри: шёпот имени трижды, с эхом зеркала
+        public static AudioClip Chant()
+        {
+            float lp = 0f, bp = 0f;
+            var glass = new Reso();
+            return Get("chant", 5f, (t, r) =>
+            {
+                lp += 0.1f * (Noise(r) - lp);
+                bp += 0.5f * (lp - bp);
+                float phrase = t % 1.6f;
+                float syl = phrase < 1.1f ? Mathf.Pow(Mathf.Abs(Sin(2.8f, phrase)), 3f) : 0f;
+                float w = (lp - bp) * 3.5f * syl;
+                return w + glass.Run(w, 2200f, 120f) * 0.6f;
+            }, Rate / 8);
+        }
+
+        // треск стекла
+        public static AudioClip GlassCrack()
+        {
+            var a = new Reso();
+            var b = new Reso();
+            return Get("glass", 1.6f, (t, r) =>
+            {
+                float s = 0f;
+                for (int k = 0; k < 6; k++)
+                {
+                    float tk = t - k * 0.05f - (k > 3 ? 0.3f : 0f);
+                    if (tk > 0f) s += Noise(r) * Mathf.Exp(-tk * 120f);
+                }
+                return a.Run(s, 3400f, 90f) * 3f + b.Run(s, 5100f, 120f) * 2f + s * 0.3f;
+            });
+        }
+
+        // убыр, мула: треск огня
+        public static AudioClip FireCrackle()
+        {
+            var roar = new Reso();
+            return Get("fire", 4f, (t, r) =>
+            {
+                float pop = Mathf.Pow((float)r.NextDouble(), 25f) * Mathf.Sign(Noise(r));
+                return roar.Run(Noise(r), 300f + 100f * Sin(0.6f, t), 400f) * 1.5f + pop * 0.7f;
+            }, Rate / 4);
+        }
+
+        public static AudioClip FireWhoosh()
+        {
+            var b = new Reso();
+            return Get("firewhoosh", 1.4f, (t, r) =>
+            {
+                float env = Smooth(0f, 0.15f, t) * Mathf.Exp(-t * 2f);
+                return (float)Math.Tanh(b.Run(Noise(r), 400f + 1200f * Smooth(0f, 0.4f, t), 800f) * 6f) * env;
+            });
+        }
+
+        // чупакабра: стрекот и шипение
+        public static AudioClip Chitter()
+        {
+            var b = new Reso();
+            return Get("chitter", 2f, (t, r) =>
+            {
+                float clicks = Mathf.Pow(Mathf.Abs(Sin(23f + 8f * Sin(1.1f, t), t)), 12f);
+                return b.Run(Noise(r), 2900f, 500f) * clicks * 5f + Noise(r) * 0.05f * Mathf.Abs(Sin(0.5f, t));
+            }, Rate / 10);
+        }
+
+        public static AudioClip SpineRattle()
+        {
+            var b = new Reso();
+            return Get("spines", 1.2f, (t, r) =>
+            {
+                float env = Smooth(0f, 0.02f, t) * Mathf.Exp(-t * 2.5f);
+                float rattle = Mathf.Pow(Mathf.Abs(Sin(38f, t)), 8f);
+                return b.Run(Noise(r), 4200f, 900f) * rattle * env * 6f;
+            });
+        }
+
+        // цзянши: прыжок — глухой удар и колокольчик на поясе
+        public static AudioClip Hop()
+        {
+            var bell = new Reso();
+            return Get("hop", 2.4f, (t, r) =>
+            {
+                float s = 0f;
+                for (int k = 0; k < 3; k++)
+                {
+                    float tk = t - k * 0.75f;
+                    if (tk < 0f) continue;
+                    s += (Sin(60f - tk * 30f, tk) + Noise(r) * 0.2f) * Mathf.Exp(-tk * 14f);
+                    s += bell.Run(Noise(r) * Mathf.Exp(-tk * 80f), 2350f, 15f) * 3f;
+                }
+                return s;
+            });
+        }
+
+        // стригой, асванг: хлопанье крыльев
+        public static AudioClip WingFlap()
+        {
+            var b = new Reso();
+            return Get("wings", 1.4f, (t, r) =>
+            {
+                float flap = Mathf.Pow(Mathf.Max(0f, Sin(5f, t)), 4f) * (1f - Smooth(1f, 1.4f, t));
+                return b.Run(Noise(r), 700f, 900f) * flap * 5f;
+            });
+        }
+
+        // каракончолос: ледяной вой ветра
+        public static AudioClip IcyWind()
+        {
+            var a = new Reso();
+            var b = new Reso();
+            return Get("icywind", 6f, (t, r) =>
+            {
+                float n = Noise(r);
+                float f = 700f + 400f * Sin(0.17f, t) + 150f * Sin(0.61f, t);
+                return a.Run(n, f, 40f) * 2.5f + b.Run(n, f * 1.5f, 60f) * 1.5f;
+            }, Rate / 4);
+        }
+
+        // зовёт по имени: два слога издалека, голосом близкого
+        public static AudioClip NameCall()
+        {
+            var v = new Voice();
+            var far = new Reso();
+            return Get("namecall", 2f, (t, r) =>
+            {
+                float syl = 0f, f = 300f, vow = 0.7f;
+                if (t < 0.35f) { syl = Mathf.Sin(t / 0.35f * Mathf.PI); f = 320f; vow = 0.9f; }
+                else if (t > 0.45f && t < 1.2f) { syl = Mathf.Sin((t - 0.45f) / 0.75f * Mathf.PI); f = 300f - (t - 0.45f) * 80f; vow = 0.3f; }
+                return far.Run(v.Run(f, vow, 0.15f, 1.1f, r) * syl, 800f, 1500f) * 3f;
+            });
+        }
+
+        // тунда: колыбельная, которую напевает «мама» — чуть мимо нот
+        public static AudioClip MotherHum()
+        {
+            var v = new Voice();
+            int[] tune = { 0, 3, 5, 3, 0, -2, 0, 1 };
+            return Get("motherhum", 6f, (t, r) =>
+            {
+                int i = Mathf.Min(tune.Length - 1, (int)(t / 0.7f));
+                float nt = (t % 0.7f) / 0.7f;
+                float f = 260f * Mathf.Pow(2f, (tune[i] + 0.35f * Sin(0.3f, t)) / 12f);
+                float env = Mathf.Sin(nt * Mathf.PI) * (t < 5.6f ? 1f : 0f);
+                return v.Run(f, 0.1f, 0.1f, 1.1f, r) * env;
+            }, Rate / 8);
+        }
+
+        // тунда: шаг ногой — и стук деревянной культи
+        public static AudioClip PegStep()
+        {
+            var peg = new Reso();
+            return Get("pegstep", 2.4f, (t, r) =>
+            {
+                float s = 0f;
+                for (int k = 0; k < 4; k++)
+                {
+                    float tk = t - k * 0.55f;
+                    if (tk < 0f) continue;
+                    if (k % 2 == 0) s += (Sin(70f, tk) + Noise(r) * 0.3f) * Mathf.Exp(-tk * 20f);
+                    else s += peg.Run(Noise(r), 900f, 120f) * Mathf.Exp(-tk * 30f) * 8f;
+                }
+                return s;
+            });
+        }
+
+        // асванг: «тик-тик» — чем тише, тем ближе
+        public static AudioClip TikTik()
+        {
+            var b = new Reso();
+            return Get("tiktik", 3f, (t, r) =>
+            {
+                float s = 0f;
+                for (int k = 0; k < 6; k++)
+                {
+                    float tk = t - k * 0.42f - (k > 2 ? 0.6f : 0f);
+                    if (tk > 0f) s += Noise(r) * Mathf.Exp(-tk * 300f);
+                }
+                return b.Run(s, 2100f, 200f) * 4f;
+            }, Rate / 20);
+        }
+
+        // водяной: пузыри со дна
+        public static AudioClip Bubbles()
+        {
+            var w = new Reso();
+            return Get("bubbles", 4f, (t, r) =>
+            {
+                float s = 0f;
+                for (int k = 0; k < 9; k++)
+                {
+                    float tk = t - k * 0.43f - 0.1f * (k % 3);
+                    if (tk < 0f) continue;
+                    s += Sin(300f + k * 40f + tk * 900f, tk) * Mathf.Exp(-tk * 25f);
+                }
+                return s * 0.6f + w.Run(Noise(r), 120f, 60f) * 0.6f;
+            }, Rate / 10);
+        }
+
+        // водяной: густое кваканье
+        public static AudioClip Croak()
+        {
+            var v = new Voice();
+            return Get("croak", 1.4f, (t, r) =>
+            {
+                float s = 0f;
+                for (int k = 0; k < 2; k++)
+                {
+                    float tk = t - k * 0.55f;
+                    if (tk > 0f && tk < 0.4f) s += v.Run(70f, 0.4f, 1f, 0.6f, r) * Mathf.Sin(tk / 0.4f * Mathf.PI);
+                }
+                return (float)Math.Tanh(s * 3f);
+            });
+        }
+
+        // абаасы: скрежет железных зубов
+        public static AudioClip IronGrind()
+        {
+            var a = new Reso();
+            var b = new Reso();
+            return Get("irongrind", 4f, (t, r) =>
+            {
+                float grind = Mathf.Pow(Mathf.Abs(Sin(0.5f, t)), 2f) * (Mathf.Abs(Sin(41f, t)) > 0.5f ? 1f : 0.3f);
+                float n = Noise(r) * grind;
+                return a.Run(n, 1700f, 50f) * 2f + b.Run(n, 2900f, 70f) * 1.5f;
+            }, Rate / 4);
+        }
+
+        // абаасы: якутский хомус — гнусавый звенящий тон с меняющимся «гласным»
+        public static AudioClip JawHarp()
+        {
+            var f1 = new Reso();
+            return Get("khomus", 2.5f, (t, r) =>
+            {
+                float pulse = (t * 98f) % 1f < 0.12f ? 1f : -0.1f;
+                float env = Smooth(0f, 0.02f, t) * (1f - Smooth(1.8f, 2.5f, t));
+                float formant = 600f + 900f * Mathf.Abs(Sin(1.5f, t));
+                return f1.Run(pulse, formant, 60f) * env * 3f;
+            });
+        }
+
+        // абаасы: удары единственной ноги
+        public static AudioClip OneLegHop()
+        {
+            return Get("onelegh", 2.4f, (t, r) =>
+            {
+                float s = 0f;
+                for (int k = 0; k < 3; k++)
+                {
+                    float tk = t - k * 0.7f;
+                    if (tk > 0f) s += (Sin(38f - tk * 15f, tk) * 1.2f + Noise(r) * 0.4f) * Mathf.Exp(-tk * 9f);
+                }
+                return s;
+            });
+        }
+
+        // мула-сем-кабеса: искажённое ржание
+        public static AudioClip Neigh()
+        {
+            var v = new Voice();
+            return Get("neigh", 1.8f, (t, r) =>
+            {
+                float env = Smooth(0f, 0.05f, t) * (1f - Smooth(1.1f, 1.8f, t));
+                float f = 900f - 500f * Smooth(0f, 1.4f, t) + 120f * Sin(11f, t);
+                return (float)Math.Tanh(v.Run(f, 0.9f, 0.7f, 1.4f, r) * 3f) * env;
+            });
+        }
+
+        // мула: галоп подков по камню
+        public static AudioClip Gallop()
+        {
+            var shoe = new Reso();
+            return Get("gallop", 2f, (t, r) =>
+            {
+                float s = 0f;
+                for (int k = 0; k < 8; k++)
+                {
+                    float tk = t - (k / 4) * 0.6f - (k % 4) * 0.09f;
+                    if (tk > 0f) s += (shoe.Run(Noise(r), 2400f, 300f) * 4f + Sin(90f, tk)) * Mathf.Exp(-tk * 40f);
+                }
+                return s;
+            });
+        }
+
+        // пенанггалан: капает с висящих внутренностей
+        public static AudioClip WetDrip()
+        {
+            var wet = new Reso();
+            return Get("wetdrip", 4f, (t, r) =>
+            {
+                float s = 0f;
+                float[] at = { 0.3f, 0.9f, 1.4f, 2.5f, 3.1f };
+                foreach (float a in at)
+                {
+                    float tk = t - a;
+                    if (tk > 0f) s += wet.Run(Noise(r), 700f + tk * 300f, 200f) * Mathf.Exp(-tk * 18f) * 5f;
+                }
+                return s;
+            }, Rate / 10);
+        }
+
+        public static AudioClip WetFlap()
+        {
+            var b = new Reso();
+            return Get("wetflap", 1.4f, (t, r) =>
+            {
+                float flap = Mathf.Pow(Mathf.Max(0f, Sin(4f, t)), 3f) * (1f - Smooth(1f, 1.4f, t));
+                return b.Run(Noise(r), 450f, 500f) * flap * 6f + Mathf.Pow((float)r.NextDouble(), 30f) * flap;
+            });
+        }
+
+        // ведьма Белла: дрожащий старушечий голос поёт гимн
+        public static AudioClip Hymn()
+        {
+            var v = new Voice();
+            int[] tune = { 0, 0, 2, 4, 4, 2, 0, -1, 0 };
+            return Get("hymn", 7f, (t, r) =>
+            {
+                int i = Mathf.Min(tune.Length - 1, (int)(t / 0.75f));
+                float nt = (t % 0.75f) / 0.75f;
+                float f = 330f * Mathf.Pow(2f, tune[i] / 12f) * (1f + 0.02f * Sin(6.5f, t));
+                return v.Run(f, 0.55f, 0.3f, 1.2f, r) * Mathf.Sin(nt * Mathf.PI) * 0.7f;
+            }, Rate / 8);
+        }
+
+        // звонкая пощёчина
+        public static AudioClip Slap()
+        {
+            var b = new Reso();
+            return Get("slap", 0.6f, (t, r) =>
+                b.Run(Noise(r), 1500f, 2500f) * Mathf.Exp(-t * 60f) * 6f + Noise(r) * Mathf.Exp(-t * 120f) * 0.6f);
+        }
+
+        // жалмауыз: семь голов бормочут наперебой
+        public static AudioClip ManyVoices()
+        {
+            var vs = new Voice[5];
+            for (int i = 0; i < vs.Length; i++) vs[i] = new Voice();
+            return Get("manyvoices", 5f, (t, r) =>
+            {
+                float s = 0f;
+                for (int i = 0; i < vs.Length; i++)
+                {
+                    float syl = Mathf.Pow(Mathf.Abs(Sin(3.3f + i * 0.71f, t + i * 0.37f)), 3f);
+                    s += vs[i].Run(110f + i * 37f + 10f * Sin(0.5f + i * 0.1f, t), 0.3f + 0.5f * Mathf.Abs(Sin(2f + i, t)), 0.5f, 0.9f + i * 0.06f, r) * syl;
+                }
+                return s * 0.4f;
+            }, Rate / 4);
+        }
+
+        // щелчок огромной челюсти
+        public static AudioClip Chomp()
+        {
+            var b = new Reso();
+            return Get("chomp", 1f, (t, r) =>
+            {
+                float s = 0f;
+                for (int k = 0; k < 2; k++)
+                {
+                    float tk = t - k * 0.35f;
+                    if (tk > 0f) s += (b.Run(Noise(r), 900f, 700f) * 5f + Sin(80f, tk)) * Mathf.Exp(-tk * 35f);
+                }
+                return s;
             });
         }
     }

@@ -290,6 +290,7 @@ namespace GhostWard
             stashesThisNight = 0;
             stashTimer = Random.Range(30f, 50f);
             eventTimer = Random.Range(15f, 25f);
+            signatureTimer = Random.Range(25f, 40f);
             DestroyStash();
             ui.SetTool(tool);
             ui.SetProtection(inv);
@@ -297,6 +298,7 @@ namespace GhostWard
             target = prologue ? Catalog.Get(EntityKind.Ghost) : dailyMode ? Catalog.Get(Daily.Entity) : PickTarget();
             newCase = Know.LearnName(target.Kind);
             EntitySounds.Prewarm(target.Kind);
+            music.SetTheme(target.Kind);
             lureMatched = false;
             modifier = prologue ? Modifier.None : dailyMode ? Daily.Modifier : Modifiers.Roll(night);
             heardThisHunt = false;
@@ -600,6 +602,8 @@ namespace GhostWard
             }
 
             UpdateColdSpot(dt);
+            UpdatePrints(dt);
+            UpdateSignature(dt);
             UpdateThermalLife();
             if (anger >= 100f) StartHunt(false);
         }
@@ -618,6 +622,7 @@ namespace GhostWard
                 case Evidence.Knock: PlayAt(ProceduralAudio.Knock(), lair, 1f); break;
                 case Evidence.Static: staticTime = 5f; break;
                 case Evidence.Compass: compassTime = 6f; break;
+                case Evidence.Prints: SpawnPrints(); break;
                 case Evidence.NightVision:
                     silhouetteArmed = 9f;
                     if (nightVisionTarget < 0.5f) nextVisionSwitch = Mathf.Min(nextVisionSwitch, 0.5f);
@@ -682,8 +687,72 @@ namespace GhostWard
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         }
 
+        // ---------- холодные следы (улика «Следы») ----------
+        // Цепочка следов по полу к логову; видна только в тепловизоре, тает через 14 с.
+        const float PrintsLife = 14f;
+        readonly List<(GameObject go, Material mat, float appear)> prints = new();
+        float printsTime;
+
+        void SpawnPrints()
+        {
+            ClearPrints();
+            var camPos = cam.transform.position;
+            var toLair = lair - camPos;
+            toLair.y = 0f;
+            if (toLair.sqrMagnitude < 1e-3f) toLair = Vector3.forward;
+            toLair.Normalize();
+            var side = Vector3.Cross(Vector3.up, toLair);
+            float floor = camPos.y - EyeHeight;
+            var start = camPos + toLair * 0.7f + side * Random.Range(-0.7f, 0.7f);
+            start.y = floor + 0.01f;
+            float yaw = Mathf.Atan2(toLair.x, toLair.z) * Mathf.Rad2Deg;
+            var shader = Shader.Find("GhostWard/Footprint");
+            for (int k = 0; k < 8; k++)
+            {
+                var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                go.name = "Print";
+                Destroy(go.GetComponent<Collider>());
+                go.transform.position = start + toLair * (k * 0.36f) + side * (k % 2 == 0 ? -0.09f : 0.09f);
+                go.transform.rotation = Quaternion.Euler(90f, yaw, 0f);
+                go.transform.localScale = new Vector3(0.13f, 0.28f, 1f);
+                var mat = new Material(shader);
+                mat.SetFloat("_Mirror", k % 2);
+                mat.SetFloat("_Alpha", 0f);
+                var mr = go.GetComponent<MeshRenderer>();
+                mr.sharedMaterial = mat;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                prints.Add((go, mat, k * 0.3f));
+            }
+            printsTime = PrintsLife;
+        }
+
+        void UpdatePrints(float dt)
+        {
+            if (prints.Count == 0) return;
+            printsTime -= dt;
+            if (printsTime <= 0f) { ClearPrints(); return; }
+            float age = PrintsLife - printsTime;
+            bool show = tool == Tool.Thermo;
+            foreach (var (_, mat, appear) in prints)
+            {
+                float target = show && age >= appear ? Mathf.Clamp01(printsTime / 3f) * 0.95f : 0f;
+                mat.SetFloat("_Alpha", Mathf.MoveTowards(mat.GetFloat("_Alpha"), target, dt * 3f));
+            }
+        }
+
+        void ClearPrints()
+        {
+            foreach (var (go, mat, _) in prints)
+            {
+                if (go != null) Destroy(go);
+                if (mat != null) Destroy(mat);
+            }
+            prints.Clear();
+        }
+
         void DestroyColdSpot()
         {
+            ClearPrints();
             if (coldSpot != null) Destroy(coldSpot);
             if (coldMat != null) Destroy(coldMat);
             coldSpot = null;
@@ -1320,6 +1389,130 @@ namespace GhostWard
             }
         }
 
+        // ---------- фирменный испуг сущности ----------
+        // Раз в 35–60 с расследования сущность пугает по-своему: тихо, без нападения.
+        enum ScareStyle { Glimpse, Behind, Overhead, Throw, Reflection, Blackout, Approach, Voice }
+
+        float signatureTimer;
+
+        static ScareStyle StyleOf(EntityKind k) => k switch
+        {
+            EntityKind.Ghost or EntityKind.Shade or EntityKind.Pontianak or EntityKind.Tunda or EntityKind.Llorona => ScareStyle.Glimpse,
+            EntityKind.Albasty or EntityKind.Zheztyrnak or EntityKind.Kitsune or EntityKind.Shurale or EntityKind.Aswang
+                or EntityKind.Changeling => ScareStyle.Behind,
+            EntityKind.Kikimora or EntityKind.Lechuza or EntityKind.Jinn or EntityKind.Ubyr or EntityKind.Penanggalan => ScareStyle.Overhead,
+            EntityKind.Poltergeist or EntityKind.Domovoi or EntityKind.BellWitch => ScareStyle.Throw,
+            EntityKind.Double or EntityKind.BloodyMary or EntityKind.Kuchisake or EntityKind.Rusalka => ScareStyle.Reflection,
+            EntityKind.Mara or EntityKind.Cucuy or EntityKind.Karakoncolos or EntityKind.Strigoi or EntityKind.BlackDog => ScareStyle.Blackout,
+            EntityKind.Upyr or EntityKind.Jiangshi or EntityKind.Abaasy or EntityKind.MulaSemCabeca or EntityKind.Chupacabra
+                or EntityKind.CorpoSeco or EntityKind.Ghoul => ScareStyle.Approach,
+            _ => ScareStyle.Voice
+        };
+
+        void UpdateSignature(float dt)
+        {
+            if (prologue || modifier == Modifier.Silence || phase != Phase.Investigate) return;
+            signatureTimer -= dt;
+            if (signatureTimer > 0f) return;
+            signatureTimer = Random.Range(35f, 60f);
+            SignatureScare();
+        }
+
+        void SignatureScare()
+        {
+            var k = target.Kind;
+            var call = EntitySounds.Special(k) ?? EntitySounds.Call(k) ?? EntitySounds.Loop(k) ?? ProceduralAudio.Whisper();
+            var camPos = cam.transform.position;
+            var fwd = cam.transform.forward;
+            fwd.y = 0f;
+            fwd = fwd.sqrMagnitude < 1e-3f ? Vector3.forward : fwd.normalized;
+            var side = Vector3.Cross(Vector3.up, fwd);
+            float floor = camPos.y - EyeHeight;
+
+            switch (StyleOf(k))
+            {
+                case ScareStyle.Glimpse:
+                {
+                    // на краю зрения, на миг
+                    var dir = Quaternion.Euler(0f, Random.Range(28f, 40f) * (Random.value < 0.5f ? -1f : 1f), 0f) * fwd;
+                    var pos = camPos + dir * 3f;
+                    pos.y = target.Stance == Stance.Floor ? floor + target.Height * 0.5f : camPos.y;
+                    Apparition.Show(target, pos, cam.transform, 0.5f);
+                    PlayAt(call, pos, 0.6f);
+                    music.Play(Music.Stinger.Boom, 0.3f);
+                    AddFear(4f);
+                    break;
+                }
+                case ScareStyle.Behind:
+                    PlayAt(call, camPos - fwd * 0.6f, 0.85f);
+                    ui.Shake(0.2f);
+                    AddFear(3f);
+                    break;
+                case ScareStyle.Overhead:
+                    PlayAt(call, camPos + Vector3.up * 1.1f - fwd * 0.3f, 0.85f);
+                    ui.Shake(0.3f);
+                    AddFear(3f);
+                    break;
+                case ScareStyle.Throw:
+                    PlayAt(ProceduralAudio.Crash(), camPos + side * (Random.value < 0.5f ? 2f : -2f), 1f);
+                    PlayAt(call, camPos + side * 1.5f, 0.7f);
+                    ui.Shake(0.5f);
+                    AddFear(4f);
+                    break;
+                case ScareStyle.Reflection:
+                    // лицо на долю секунды проступает на экране — как отражение в стекле
+                    ui.Jumpscare(target, Random.value * 10f, 0.3f);
+                    PlayAt(call, camPos + fwd * 0.5f, 0.6f);
+                    AddFear(5f);
+                    break;
+                case ScareStyle.Blackout:
+                    StartCoroutine(BlackoutScare(call));
+                    AddFear(4f);
+                    break;
+                case ScareStyle.Approach:
+                    StartCoroutine(ApproachScare(call));
+                    AddFear(4f);
+                    break;
+                default:
+                    PlayAt(call, lair, 1f);
+                    AddFear(2f);
+                    break;
+            }
+            ui.Narrate(Loc.F("s." + k, Direction(lair)));
+        }
+
+        // свет гаснет; когда загорается — она стоит ближе, и снова темно
+        IEnumerator BlackoutScare(AudioClip call)
+        {
+            sfx.PlayOneShot(ProceduralAudio.Click(), 0.7f);
+            ui.Flash(new Color(0f, 0f, 0f, 0.97f));
+            yield return new WaitForSeconds(0.45f);
+            var fwd = cam.transform.forward;
+            fwd.y = 0f;
+            var pos = cam.transform.position + fwd.normalized * 1.8f;
+            pos.y = cam.transform.position.y - EyeHeight + target.Height * 0.5f;
+            Apparition.Show(target, pos, cam.transform, 0.35f);
+            PlayAt(call, pos, 0.7f);
+            yield return new WaitForSeconds(0.3f);
+            sfx.PlayOneShot(ProceduralAudio.Click(), 0.5f);
+            ui.Flash(new Color(0f, 0f, 0f, 0.95f));
+        }
+
+        // шаги из темноты: всё ближе — и тишина
+        IEnumerator ApproachScare(AudioClip call)
+        {
+            var back = -cam.transform.forward;
+            back.y = 0f;
+            back.Normalize();
+            for (int i = 0; i < 3; i++)
+            {
+                if (phase != Phase.Investigate) yield break;
+                PlayAt(call, cam.transform.position + back * (4.5f - i * 1.4f), 0.6f + i * 0.15f);
+                yield return new WaitForSeconds(0.8f);
+            }
+            ui.Shake(0.15f);
+        }
+
         IEnumerator SecondFlicker()
         {
             yield return new WaitForSeconds(0.35f);
@@ -1412,7 +1605,7 @@ namespace GhostWard
                 calm = false;
                 if (!e.Visible) continue;
                 // на мару нельзя смотреть — страх растёт втрое быстрее
-                if (e.Def.Kind == EntityKind.Mara && IsInView(e.transform.position)) { AddFear(dt * 9f); continue; }
+                if (Entity.ArchOf(e.Def.Kind) == EntityKind.Mara && IsInView(e.transform.position)) { AddFear(dt * 9f); continue; }
                 float d = e.FlatDistance();
                 if (d < 3f) AddFear(dt * 7f * (1f - d / 3f) * (candleTime > 0f ? 0.5f : 1f));
             }
