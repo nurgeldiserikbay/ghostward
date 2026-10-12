@@ -1137,9 +1137,12 @@ namespace GhostWard
             var names = new List<string>();
             foreach (var e in Catalog.Entities)
             {
+                if (!Know.Name(e.Kind)) continue;
+                // исключаем, только если игрок знает все улики сущности и отмеченной среди них нет
                 bool fits = true;
+                bool allKnown = Know.AllCluesKnown(e.Kind);
                 for (int i = 0; i < marks.Length; i++)
-                    if (marks[i] && !Catalog.Has(e, (Evidence)i)) fits = false;
+                    if (marks[i] && !Know.Clue(e.Kind, (Evidence)i) && allKnown) fits = false;
                 if (fits) names.Add(e.Name);
             }
             int marked = 0;
@@ -1300,7 +1303,10 @@ namespace GhostWard
         void ShowStoryPage()
         {
             storyPageLabel.text = Loc.F("page_n", storyPage, Progress.StoryPages);
-            storyBody.text = storyPage <= Progress.StoryUnlocked ? Loc.T($"story_{storyPage}") : Loc.T("story_locked");
+            if (storyPage > Progress.StoryNightPages)
+                storyBody.text = Progress.EpilogueUnlocked ? Loc.T($"story_{storyPage}") : Loc.T("epilogue_locked");
+            else
+                storyBody.text = storyPage <= Progress.StoryUnlocked ? Loc.T($"story_{storyPage}") : Loc.T("story_locked");
         }
 
         public void ClearEvidence()
@@ -1383,6 +1389,8 @@ namespace GhostWard
             var def = Catalog.Get(kind);
             var item = Catalog.Get(def.Bane);
             bool seen = Catalog.Seen(kind);
+            bool known = Know.Name(kind);
+            bool defense = Know.Defense(kind);
             openedEntry = kind;
 
             if (entryMat != null) Destroy(entryMat);
@@ -1390,24 +1398,45 @@ namespace GhostWard
             entryMat.SetFloat("_Locked", seen ? 0f : 1f);
             entryPicture.material = entryMat;
 
+            Clear(entryItemIcon);
+            Clear(entryGestureIcon);
+            nameButton.SetActive(CanName && known);
+
+            if (!known)
+            {
+                // ещё не встречалась: ничего, кроме того, когда она появится
+                entryName.text = "???";
+                entryOrigin.text = "";
+                entryText.text = $"<i>{Loc.T("unknown_entity")}</i>" +
+                    (Know.Unlocked(kind) ? "" : "\n\n" + Loc.F("unlock_rank", Progress.RankName(Know.RankFor(kind))));
+                entryItem.text = entryCount.text = "";
+                ShowJournalPage(journalEntry);
+                return;
+            }
+
             var clues = new List<string>();
-            foreach (var c in def.Clues) clues.Add(Catalog.Get(c).Name);
+            foreach (var c in def.Clues) clues.Add(Know.Clue(kind, c) ? Catalog.Get(c).Name : "?");
+            string Locked(string key) => $"<color=#8a8378><i>{Loc.T(key)}</i></color>";
             entryName.text = def.Name.ToUpper();
             entryOrigin.text = def.Origin;
             entryText.text =
-                $"<b>{Loc.T("hides")}</b> {def.LairText}\n\n" +
-                $"<b>{Loc.T("clues_label")}</b> <color=#ffc073>{string.Join(" · ", clues)}</color>\n" +
-                $"<b>{Loc.T("lure_label")}</b> {Loc.T($"l.{def.Lure}.name")}\n\n" +
-                (seen ? def.Lore : $"<i>{Loc.T("unknown")}</i>") +
-                $"\n\n<b>{Loc.T("on_hunt")}</b> {def.Signs}\n\n<b>{Loc.T("defense")}</b> {def.Defense}";
-            nameButton.SetActive(CanName);
+                $"{def.Lore}\n\n" +
+                $"<b>{Loc.T("clues_label")}</b> <color=#ffc073>{string.Join(" · ", clues)}</color>   " +
+                $"<b>{Loc.T("lure_label")}</b> {(Know.Lure(kind) ? Loc.T($"l.{def.Lure}.name") : "?")}\n\n" +
+                (Know.Habits(kind)
+                    ? $"<b>{Loc.T("hides")}</b> {def.LairText}\n<b>{Loc.T("on_hunt")}</b> {def.Signs}\n\n"
+                    : Locked("locked_habits") + "\n\n") +
+                $"<b>{Loc.T("sec_tale")}</b> <i>{Loc.T($"e.{kind}.tale")}</i>\n\n" +
+                (defense ? $"<b>{Loc.T("defense")}</b> {def.Defense}" : Locked("locked_defense"));
 
-            Clear(entryItemIcon);
-            Clear(entryGestureIcon);
-            Icons.Item(entryItemIcon, item.Kind, Bone);
-            Icons.GestureIcon(entryGestureIcon, item.Gesture, new Color(1f, 0.75f, 0.45f));
-            entryItem.text = $"{item.Name} — {item.Usage.ToLower()}";
-            entryCount.text = shownInventory != null ? Loc.F("carry", shownInventory.Label(item.Kind)) : "";
+            if (defense)
+            {
+                Icons.Item(entryItemIcon, item.Kind, Bone);
+                Icons.GestureIcon(entryGestureIcon, item.Gesture, new Color(1f, 0.75f, 0.45f));
+                entryItem.text = $"{item.Name} — {item.Usage.ToLower()}";
+                entryCount.text = shownInventory != null ? Loc.F("carry", shownInventory.Label(item.Kind)) : "";
+            }
+            else entryItem.text = entryCount.text = "";
             ShowJournalPage(journalEntry);
         }
 
@@ -1449,9 +1478,10 @@ namespace GhostWard
                 foreach (var c in cards)
                 {
                     bool seen = Catalog.Seen(c.kind);
+                    bool known = Know.Name(c.kind);
                     c.mat.SetFloat("_Locked", seen ? 0f : 1f);
-                    // имена и улики нужны для расследования всегда; облик открывается после встречи
-                    c.name.text = Catalog.Get(c.kind).Name;
+                    // до знакомства — «???»; облик открывается после встречи
+                    c.name.text = known ? Catalog.Get(c.kind).Name : "???";
                     c.name.color = seen ? Bone : Dim;
                 }
                 ShowJournalPage(journalList);

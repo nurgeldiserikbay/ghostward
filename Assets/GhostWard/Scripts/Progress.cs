@@ -8,11 +8,15 @@ namespace GhostWard
     {
         // порог опыта для каждого звания; бонусы — rank_N / perk_N в Strings.cs
         public static readonly int[] RankXp = { 0, 300, 800, 1600, 2800, 4500, 7000 };
-        public const int StoryPages = 10;
+        public const int StoryNightPages = 10;   // по странице за пережитую ночь
+        public const int StoryPages = 11;        // + эпилог
+
+        // эпилог — после звания «Страж дома» и изгнания всех восьми
+        public static bool EpilogueUnlocked => Rank >= RankXp.Length - 1 && Know.AllBanished;
 
         public static int Xp => PlayerPrefs.GetInt("xp", 0);
         public static int NightsSurvived => PlayerPrefs.GetInt("nightsSurvived", 0);
-        public static int StoryUnlocked => Mathf.Min(StoryPages, NightsSurvived);
+        public static int StoryUnlocked => Mathf.Min(StoryNightPages, NightsSurvived);
 
         public static int Rank
         {
@@ -25,7 +29,9 @@ namespace GhostWard
         }
 
         public static string RankName(int rank) => Loc.T($"rank_{rank}");
-        public static string Perk(int rank) => Loc.T($"perk_{rank}");
+        // бонус звания; со второго звания — ещё и новая сущность в доме
+        public static string Perk(int rank) =>
+            Loc.T($"perk_{rank}") + (rank >= 1 && rank < Catalog.Entities.Length - 1 ? " · " + Loc.T("perk_new") : "");
 
         // бонусы званий
         public static bool ExtraSalt => Rank >= 1;

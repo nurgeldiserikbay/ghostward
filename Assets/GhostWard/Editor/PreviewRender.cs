@@ -55,13 +55,15 @@ namespace GhostWard.EditorTools
         // Экраны дневника: список, статья, предметы — в Logs/journal_*.png
         public static void Journal()
         {
+            Know.EnsureStarters();
             Catalog.MarkSeen(EntityKind.Ghost);
             Catalog.MarkSeen(EntityKind.Shade);
             Catalog.MarkSeen(EntityKind.Albasty);
             Catalog.MarkSeen(EntityKind.Mara);
 
             Shoot("list", ui => ui.DebugJournal("list"));
-            Shoot("entry", ui => ui.DebugJournal("entry", EntityKind.Kikimora));
+            Shoot("entry", ui => ui.DebugJournal("entry", EntityKind.Ghost));
+            Shoot("entry_locked", ui => ui.DebugJournal("entry", EntityKind.Kikimora));
             Shoot("clues", ui => ui.DebugJournal("clues"));
             Shoot("howto", ui => ui.DebugJournal("howto"));
         }

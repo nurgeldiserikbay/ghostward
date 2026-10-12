@@ -75,6 +75,7 @@ namespace GhostWard
         GameObject coldSpot;
         Material coldMat;
         bool possessedNight, possessionShown, animalShown;
+        bool newCase, lureMatched;   // новая сущность этой ночью; приманка откликнулась
 
         // подсказки «чем проверить» — пока игрок новичок (первые три пережитые ночи)
         static bool Beginner => Progress.NightsSurvived < 3;
@@ -140,6 +141,7 @@ namespace GhostWard
                     samplePoints[y * gx + x] = new Vector2((x + 0.5f) / gx, (y + 0.5f) / gy);
 
             Settings.Apply();
+            Know.EnsureStarters();
             Ads.Init();
             Trophies.Unlocked += t => ui.TrophyToast(Loc.F("trophy_got", Trophies.Name(t), Trophies.Reward));
             CreateUI();
@@ -284,6 +286,8 @@ namespace GhostWard
             ui.SetProtection(inv);
             ui.CloseBag();
             target = dailyMode ? Catalog.Get(Daily.Entity) : PickTarget();
+            newCase = Know.LearnName(target.Kind);
+            lureMatched = false;
             modifier = dailyMode ? Daily.Modifier : Modifiers.Roll(night);
             heardThisHunt = false;
             possessedNight = night >= 2 && Random.value < 0.3f;
@@ -311,12 +315,17 @@ namespace GhostWard
         }
 
         // Сущность ночи: из пула, который растёт с каждой ночью; невстреченные — чаще.
+        // Сущность ночи: если звание открыло новую и игрок её ещё не встречал — она приходит «новым делом»;
+        // иначе случайная из открытых, чаще те, о ком игрок знает меньше.
         EntityDef PickTarget()
         {
-            int pool = Catalog.PoolForNight(night);
+            var fresh = Know.NextNewCase();
+            if (fresh.HasValue) return Catalog.Get(fresh.Value);
+            int pool = Know.UnlockedCount;
             float total = 0f;
             var weights = new float[pool];
-            for (int i = 0; i < pool; i++) total += weights[i] = Catalog.Seen(Catalog.Entities[i].Kind) ? 1f : 3f;
+            for (int i = 0; i < pool; i++)
+                total += weights[i] = 1f + (3 - Know.CluesKnown(Catalog.Entities[i].Kind)) * 0.5f;
             float r = Random.value * total;
             for (int i = 0; i < pool; i++)
             {
@@ -332,6 +341,7 @@ namespace GhostWard
             nightTime = 0f;
             anger = 0f;
             named = namedRight = wrongItemUsed = false;
+            if (newCase) named = true;   // кто это — уже известно, называть не нужно
             banishedTime = -1f;
             clueTimer = Random.Range(3f, 5f);
             fakeTimer = Random.Range(8f, 14f);
@@ -351,7 +361,7 @@ namespace GhostWard
             string intro = dailyMode ? Loc.T("daily_intro") : night == 1 ? Loc.T("intro_first") : Loc.F("intro_n", night);
             if (modifier != Modifier.None)
                 intro += $"\n\n<b>{Modifiers.Name(modifier)}.</b> {Modifiers.Desc(modifier)}\n" + Loc.F("xp_bonus", Modifiers.XpFactor(modifier).ToString("0.0#"));
-            if (!Catalog.Seen(target.Kind)) intro += "\n\n" + Loc.T("new_presence");
+            if (newCase) intro = Loc.F("new_case", target.Name);
             ui.Message(intro, 7f);
 
             cluesShown.Clear();
@@ -536,7 +546,7 @@ namespace GhostWard
         // все самостоятельные улики показаны — подсказать радио или дневник
         void CheckJournalHint()
         {
-            if (!Beginner || journalHinted) return;
+            if (!Beginner || journalHinted || newCase) return;
             int selfClues = 0;
             foreach (var c in target.Clues) if (c != Evidence.Radio) selfClues++;
             if (cluesShown.Count < selfClues) return;
@@ -731,6 +741,7 @@ namespace GhostWard
 
             if (target.Lure == l)
             {
+                lureMatched = true;
                 var clip = target.Kind switch
                 {
                     EntityKind.Albasty or EntityKind.Kikimora => ProceduralAudio.Laugh(),
@@ -991,8 +1002,12 @@ namespace GhostWard
             }
             if (banished && namedRight && !wrongItemUsed) Trophies.OnCleanNight();
             Trophies.OnNight(night);
+            int unlockedBefore = Know.UnlockedCount;
             bool rankUp = Progress.AddXp(xp);
             bool newPage = Progress.AddSurvivedNight();
+            extra = JoinLines(extra, JournalLine(Know.Record(target.Kind, NightClues(), lureMatched, true, banished)));
+            if (banished && newCase) extra = JoinLines(extra, Loc.F("defense_learned", Catalog.Get(target.Bane).Name));
+            if (Know.UnlockedCount > unlockedBefore) extra = JoinLines(extra, Loc.T("new_unlocked"));
             ui.ShowNightProgress(xp, rankUp, newPage, extra);
             ui.SetNextNightVisible(!dailyMode);
         }
@@ -1015,9 +1030,24 @@ namespace GhostWard
             {
                 overXpGiven = true;
                 int xp = Mathf.RoundToInt(nightTime / NightSeconds * 60f) + nightXp;
-                ui.ShowNightProgress(xp, Progress.AddXp(xp), false);
+                string journal = JournalLine(Know.Record(target.Kind, NightClues(), lureMatched, false, false));
+                ui.ShowNightProgress(xp, Progress.AddXp(xp), false, journal);
             }
         }
+
+        // улики, которые игрок этой ночью видел или услышал
+        List<Evidence> NightClues()
+        {
+            var list = new List<Evidence>(cluesShown);
+            if (radioAnswered) list.Add(Evidence.Radio);
+            return list;
+        }
+
+        string JournalLine(List<string> learned) =>
+            learned.Count == 0 ? "" : Loc.F("journal_updated", target.Name, string.Join(", ", learned));
+
+        static string JoinLines(string a, string b) =>
+            string.IsNullOrEmpty(a) ? b : string.IsNullOrEmpty(b) ? a : a + "\n" + b;
 
         // «Второй шанс» за наградную рекламу: игрок приходит в себя, сущность отступает. Раз за ночь.
         void Revive()
@@ -1205,7 +1235,9 @@ namespace GhostWard
             if (Catalog.Seen(e.Def.Kind)) return;
             Catalog.MarkSeen(e.Def.Kind);
             Trophies.OnSeen();
-            ui.Message(e.Def.Hint + "\n\n" + Loc.T("new_entry"), 6f);
+            ui.Message(Know.IsStarter(e.Def.Kind) || Know.Defense(e.Def.Kind)
+                ? e.Def.Hint + "\n\n" + Loc.T("new_entry")
+                : Loc.F("remember_tale", e.Def.Name), 6f);
         }
 
         public void OnThrow(Entity e)

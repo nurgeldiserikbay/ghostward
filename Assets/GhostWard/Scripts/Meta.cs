@@ -40,7 +40,7 @@ namespace GhostWard
         static string Today => DateTime.Now.ToString("yyyy-MM-dd");
         static string Yesterday => DateTime.Now.AddDays(-1).ToString("yyyy-MM-dd");
 
-        public static EntityKind Entity => (EntityKind)(new System.Random(Seed).Next(Catalog.Entities.Length));
+        public static EntityKind Entity => (EntityKind)(new System.Random(Seed).Next(Know.UnlockedCount));
         public static Modifier Modifier => (Modifier)(1 + new System.Random(Seed * 7 + 3).Next(4));
 
         public static bool SolvedToday => PlayerPrefs.GetString("dailyLast", "") == Today;
