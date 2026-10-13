@@ -43,10 +43,14 @@ namespace GhostWard
                 yield break;
             }
 
+            // объект создаётся выключенным: ARSession проверяет и ставит ARCore уже в OnEnable,
+            // и если не успеть выключить attemptUpdate, телефон без поддержки AR уходит в Маркет
             var sessionGo = new GameObject("AR Session");
+            sessionGo.SetActive(false);
             var session = sessionGo.AddComponent<ARSession>();
             session.attemptUpdate = false; // сами в Маркет не отправляем
             sessionGo.AddComponent<ARInputManager>();
+            sessionGo.SetActive(true);
 
             // На части телефонов ARCore отвечает «нужно установить», хотя телефон не поддерживается, —
             // Маркет тогда показывает «устройство несовместимо». Поэтому установку предлагаем,
