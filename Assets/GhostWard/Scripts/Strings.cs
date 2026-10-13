@@ -2324,6 +2324,18 @@ namespace GhostWard
                 "Камера қолжетімсіз — алдын ала көру үшін рұқсат бер.",
                 "La cámara no está disponible: permite el acceso para ver la vista previa.",
                 "A câmera não está disponível — permita o acesso para ver a prévia." },
+            ["menu_items"] = new[] {
+                "HOW TO WARD THEM OFF · tap to practise",
+                "ЧЕМ ПРОГОНЯТЬ · нажми, чтобы потренироваться",
+                "НЕМЕН ҚУУ КЕРЕК · жаттығу үшін бас",
+                "CÓMO AHUYENTARLOS · toca para practicar",
+                "COMO AFASTÁ-LOS · toque para treinar" },
+            ["g.Salt"] = new[] { "Swipe up", "Вверх", "Жоғары", "Arriba", "Para cima" },
+            ["g.Lantern"] = new[] { "Hold", "Зажми", "Басып тұр", "Mantén", "Segure" },
+            ["g.Iron"] = new[] { "Double tap", "Два касания", "Екі рет түрт", "Doble toque", "Toque duplo" },
+            ["g.Bell"] = new[] { "Shake", "Встряхни", "Сілкіле", "Agita", "Chacoalhe" },
+            ["g.Mirror"] = new[] { "Swipe down", "Вниз", "Төмен", "Abajo", "Para baixo" },
+            ["g.Wormwood"] = new[] { "Zigzag", "Зигзаг", "Ирек", "Zigzag", "Zigue-zague" },
             // ---------- улики ----------
             ["c.Frost.name"] = new[] { "Cold", "Холод", "Суық", "Frío", "Frio" },
             ["c.Frost.howto"] = new[] { "In the thermal camera the lair shows as a blue cold spot, below zero.", "В тепловизоре логово видно синим холодным пятном, ниже нуля.", "Тепловизорда ұя көк суық дақ болып көрінеді, нөлден төмен.", "En la cámara térmica la guarida aparece como una mancha fría azul, bajo cero.", "Na câmera térmica o covil aparece como uma mancha fria azul, abaixo de zero." },

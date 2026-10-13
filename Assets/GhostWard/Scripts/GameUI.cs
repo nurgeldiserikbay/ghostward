@@ -643,13 +643,74 @@ namespace GhostWard
             rankXp.rectTransform.sizeDelta = new Vector2(640, 36);
 
             Button(menu.transform, Loc.T("play"), new Vector2(0.5f, 0.49f), () => PlayPressed?.Invoke(), true);
-            Button(menu.transform, Loc.T("daily"), new Vector2(0.5f, 0.415f), () => DailyPressed?.Invoke(), false);
-            Button(menu.transform, Loc.T("journal"), new Vector2(0.5f, 0.34f), () => SetJournal(true), false);
-            Button(menu.transform, Loc.T("story"), new Vector2(0.5f, 0.265f), () => OpenStory(menu, Progress.StoryUnlocked), false);
-            Button(menu.transform, Loc.T("howto"), new Vector2(0.5f, 0.19f), () => OpenTutorial(false), false);
-            Button(menu.transform, Loc.T("settings"), new Vector2(0.5f, 0.115f), () => ShowOnly(settings), false);
+            Button(menu.transform, Loc.T("daily"), new Vector2(0.5f, 0.415f), () => DailyPressed?.Invoke(), false, 310, -165);
+            Button(menu.transform, Loc.T("story"), new Vector2(0.5f, 0.415f), () => OpenStory(menu, Progress.StoryUnlocked), false, 310, 165);
+            Button(menu.transform, Loc.T("journal"), new Vector2(0.5f, 0.34f), () => SetJournal(true), false, 310, -165);
+            Button(menu.transform, Loc.T("howto"), new Vector2(0.5f, 0.34f), () => OpenTutorial(false), false, 310, 165);
+            Button(menu.transform, Loc.T("settings"), new Vector2(0.5f, 0.265f), () => ShowOnly(settings), false);
+            BuildMenuItems();
             var tip = Label(menu.transform, Loc.T("tip"), 26, new Vector2(0.5f, 0.045f), Vector2.zero, Dim);
             tip.rectTransform.sizeDelta = new Vector2(900, 50);
+        }
+
+        // Чем прогонять: шесть предметов с жестами прямо в меню; касание — тренировка жеста.
+        readonly List<(ItemKind kind, Text check)> menuItems = new();
+
+        void BuildMenuItems()
+        {
+            var cap = Label(menu.transform, Loc.T("menu_items"), 26, new Vector2(0.5f, 0.205f), Vector2.zero, Dim);
+            cap.rectTransform.sizeDelta = new Vector2(980, 44);
+            const float cw = 154f;
+            for (int i = 0; i < Catalog.Items.Length; i++)
+            {
+                var def = Catalog.Items[i];
+                var kind = def.Kind;
+                var cell = Rect(menu.transform, "Item", new Vector2(0.5f, 0.13f), new Vector2(0.5f, 0.13f));
+                cell.sizeDelta = new Vector2(cw - 6f, 200f);
+                cell.anchoredPosition = new Vector2((i - 2.5f) * cw, 0f);
+                var bg = cell.gameObject.AddComponent<Image>();
+                bg.color = Ink;
+                var btn = cell.gameObject.AddComponent<UnityEngine.UI.Button>();
+                btn.targetGraphic = bg;
+                btn.onClick.AddListener(() =>
+                {
+                    SetJournal(true);
+                    ShowJournalPage(journalItems);
+                    OpenPractice(kind);
+                });
+                Frame(cell, cw - 6f, 200f, Dim, 2f);
+
+                var icon = Rect(cell, "Icon", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+                icon.anchoredPosition = new Vector2(-32, -50);
+                icon.localScale = Vector3.one * 0.42f;
+                Icons.Item(icon, kind, Bone);
+                var gesture = Rect(cell, "Gesture", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+                gesture.anchoredPosition = new Vector2(34, -50);
+                gesture.localScale = Vector3.one * 0.42f;
+                Icons.GestureIcon(gesture, def.Gesture, Warm);
+
+                var name = Label(cell, def.Name, 24, new Vector2(0.5f, 0f), new Vector2(0, 74), Bone);
+                name.rectTransform.sizeDelta = new Vector2(cw - 14f, 36);
+                name.fontStyle = FontStyle.Bold;
+                name.resizeTextForBestFit = true;
+                name.resizeTextMinSize = 14;
+                name.resizeTextMaxSize = 24;
+                var how = Label(cell, Loc.T($"g.{kind}"), 22, new Vector2(0.5f, 0f), new Vector2(0, 32), Warm);
+                how.rectTransform.sizeDelta = new Vector2(cw - 12f, 52);
+                how.resizeTextForBestFit = true;
+                how.resizeTextMinSize = 17;
+                how.resizeTextMaxSize = 22;
+
+                var check = Label(cell, "✓", 26, new Vector2(1f, 0f), new Vector2(-14, 14), Warm);
+                check.rectTransform.sizeDelta = new Vector2(30, 30);
+                check.fontStyle = FontStyle.Bold;
+                menuItems.Add((kind, check));
+            }
+        }
+
+        void RefreshMenuItems()
+        {
+            foreach (var (kind, check) in menuItems) check.gameObject.SetActive(Skills.Learned(kind));
         }
 
         // Выбор языка при первом запуске.
@@ -1732,6 +1793,7 @@ namespace GhostWard
 
         void RefreshLearned()
         {
+            RefreshMenuItems();
             foreach (var (kind, bg, label) in practiceButtons)
             {
                 bool learned = Skills.Learned(kind);
@@ -1923,6 +1985,7 @@ namespace GhostWard
         public void ShowMenu()
         {
             ShowOnly(menu);
+            RefreshMenuItems();
             RefreshRank();
         }
 
