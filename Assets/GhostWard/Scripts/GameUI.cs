@@ -2179,6 +2179,27 @@ namespace GhostWard
         public void Shake(float amount) => shake = Mathf.Max(shake, amount);
         public void Flash(Color c) { flashColor = c; flashAlpha = c.a; }
 
+        // экран держится чёрным (обморок)
+        float blackout;
+        public void Blackout(float seconds) { blackout = seconds; flashColor = Color.black; flashAlpha = 1f; }
+
+        // дыхание на «стекле» камеры: иней по всем краям на несколько секунд
+        float frostBurst;
+        public void FrostBurst(float seconds = 3f) => frostBurst = Mathf.Max(frostBurst, seconds);
+
+        // мокрая ладонь, прижатая к «стеклу» камеры изнутри
+        readonly List<(RawImage img, float life)> hands = new();
+        public void Handprint()
+        {
+            var img = Overlay(shakeRoot, "Hand", Textures.Hand(), new Color(0.85f, 0.9f, 0.92f, 0f));
+            var rt = img.rectTransform;
+            rt.anchorMin = rt.anchorMax = new Vector2(UnityEngine.Random.Range(0.25f, 0.75f), UnityEngine.Random.Range(0.3f, 0.75f));
+            rt.sizeDelta = new Vector2(330, 420) * UnityEngine.Random.Range(0.9f, 1.2f);
+            rt.localEulerAngles = new Vector3(0f, 0f, UnityEngine.Random.Range(-25f, 25f));
+            rt.localScale = new Vector3(UnityEngine.Random.value < 0.5f ? -1f : 1f, 1f, 1f);
+            hands.Add((img, 5f));
+        }
+
         // скример: лицо сущности на весь экран на долю секунды
         public void Jumpscare(EntityDef def, float seed, float strength)
         {
@@ -2237,7 +2258,7 @@ namespace GhostWard
         // иней с той стороны, где сущность (если её не видно на экране)
         public void UpdateCues(Camera cam, List<Entity> entities, Vector3? lairFrost = null)
         {
-            for (int i = 0; i < 4; i++) edgeTarget[i] = 0f;
+            for (int i = 0; i < 4; i++) edgeTarget[i] = frostBurst > 0f ? 0.8f : 0f;
             if (lairFrost.HasValue)
             {
                 var vp = cam.WorldToViewportPoint(lairFrost.Value);
@@ -2339,8 +2360,22 @@ namespace GhostWard
                 if (jumpTimer <= 0f) jumpscare.gameObject.SetActive(false);
             }
 
-            flashAlpha = Mathf.MoveTowards(flashAlpha, 0f, dt * 1.6f);
+            if (blackout > 0f) { blackout -= dt; flashAlpha = 1f; }
+            else flashAlpha = Mathf.MoveTowards(flashAlpha, 0f, dt * 1.6f);
             flash.color = new Color(flashColor.r, flashColor.g, flashColor.b, flashAlpha);
+            frostBurst -= dt;
+
+            // ладони: резко проступают, медленно стекают и тают
+            for (int i = hands.Count - 1; i >= 0; i--)
+            {
+                var (img, life) = hands[i];
+                life -= dt;
+                float a = Mathf.Min(Mathf.Clamp01((5f - life) / 0.12f), Mathf.Clamp01(life / 3f)) * 0.55f;
+                img.color = new Color(img.color.r, img.color.g, img.color.b, hud.activeSelf ? a : 0f);
+                img.rectTransform.anchoredPosition += new Vector2(0f, -dt * 6f);
+                if (life <= 0f) { Destroy(img.gameObject); hands.RemoveAt(i); continue; }
+                hands[i] = (img, life);
+            }
 
             shake = Mathf.MoveTowards(shake, 0f, dt * 1.5f);
             shakeRoot.anchoredPosition = shake > 0.01f ? UnityEngine.Random.insideUnitCircle * 30f * shake : Vector2.zero;

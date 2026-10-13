@@ -38,6 +38,13 @@ namespace GhostWard
         static readonly int FlashId = Shader.PropertyToID("_Flash");
         static readonly int DissolveId = Shader.PropertyToID("_Dissolve");
         static readonly int FlipId = Shader.PropertyToID("_Flip");
+        static readonly int WorldId = Shader.PropertyToID("_World");
+        static readonly int DimId = Shader.PropertyToID("_Dim");
+        static readonly int AlphaId = Shader.PropertyToID("_Alpha");
+
+        GameObject shadow;
+        Material shadowMat;
+        float blink;   // призраки иногда «моргают»: исчезают на долю секунды
 
         Game game;
         Camera cam;
@@ -190,6 +197,20 @@ namespace GhostWard
 
             e.mat = CreateMaterial(def, e.Seed);
             e.mat.SetFloat(FadeId, 0f);
+            e.mat.SetFloat(WorldId, 1f);   // в мире — та же «камера», что и комната
+
+            // тень на полу под ногами
+            if (def.Stance == Stance.Floor)
+            {
+                e.shadow = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                e.shadow.name = "Shadow";
+                Destroy(e.shadow.GetComponent<Collider>());
+                e.shadow.transform.localScale = new Vector3(def.Height * 0.75f, def.Height * 0.32f, 1f);
+                e.shadowMat = new Material(Shader.Find("GhostWard/Shadow"));
+                var sr = e.shadow.GetComponent<MeshRenderer>();
+                sr.sharedMaterial = e.shadowMat;
+                sr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            }
             e.mat.SetFloat(FlipId, ArchOf(def.Kind) == EntityKind.Kikimora ? 1f : 0f);
             e.rend = go.GetComponent<MeshRenderer>();
             e.rend.sharedMaterial = e.mat;
@@ -262,6 +283,8 @@ namespace GhostWard
             if (Current != State.Banished) Exposure = Mathf.MoveTowards(Exposure, 0f, dt * (Lit ? 0f : 0.4f));
             mat.SetFloat(FlashId, flash);
             mat.SetFloat(FadeId, fade);
+            // вдали — темнее, как в настоящей комнате
+            mat.SetFloat(DimId, Mathf.Lerp(1f, 0.55f, Mathf.InverseLerp(1.5f, 6f, FlatDistance())));
         }
 
         void TickLurking()
@@ -307,6 +330,14 @@ namespace GhostWard
             {
                 case EntityKind.Ghost:
                     Approach(speed);
+                    // медленно плывёт из стороны в сторону
+                    var toCam = cam.transform.position - transform.position;
+                    toCam.y = 0f;
+                    if (toCam.sqrMagnitude > 1e-4f)
+                        transform.position += Vector3.Cross(Vector3.up, toCam.normalized) * (Mathf.Sin(Time.time * 0.45f + Seed) * 0.5f * dt * SpeedMul);
+                    // и иногда «моргает» — пропадает на миг
+                    if (blink > 0f) { blink -= dt; fade = Mathf.MoveTowards(fade, 0f, dt * 10f); }
+                    else if (Random.value < dt * 0.3f) blink = Random.Range(0.15f, 0.5f);
                     nextEvent -= dt;
                     if (nextEvent < 0.8f) fade = Mathf.Clamp01(nextEvent / 0.8f);
                     if (nextEvent <= 0f)
@@ -487,6 +518,15 @@ namespace GhostWard
         {
             var dir = transform.position - cam.transform.position;
             if (dir.sqrMagnitude > 1e-4f) transform.rotation = Quaternion.LookRotation(dir, Vector3.up);
+            if (shadow != null)
+            {
+                var p = transform.position;
+                p.y -= baseScale.y * 0.5f - 0.01f;
+                shadow.transform.position = p;
+                shadow.transform.rotation = Quaternion.Euler(90f, Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg, 0f);
+                bool visible = rend.enabled && Current != State.Attacking && !(Arch == EntityKind.Kikimora && !dropped);
+                shadowMat.SetFloat(AlphaId, visible ? fade * 0.55f : 0f);
+            }
         }
 
         // ---------- движение ----------
@@ -559,6 +599,8 @@ namespace GhostWard
 
         void OnDestroy()
         {
+            if (shadow != null) Destroy(shadow);
+            if (shadowMat != null) Destroy(shadowMat);
             if (mat != null) Destroy(mat);
         }
     }

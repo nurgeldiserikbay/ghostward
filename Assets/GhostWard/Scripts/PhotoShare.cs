@@ -60,13 +60,21 @@ namespace GhostWard
     }
 
     // Мимолётный силуэт сущности — улика «Силуэт» в ночном режиме камеры.
+    // Видение: сущность показывается на миг — стоит, проплывает вбок, мерцает. Не нападает.
     public class Apparition : MonoBehaviour
     {
         Material mat;
-        float life, total;
+        float life, total, blink, alpha = 0.6f;
         Transform cam;
+        Vector3 drift;
+        bool flicker;
 
-        public static void Show(EntityDef def, Vector3 pos, Transform cam, float seconds)
+        public bool Alive => this != null && life > 0f;
+        public void Kill() { if (this != null) Destroy(gameObject); }
+
+        // drift — скорость дрейфа (м/с); flicker — иногда пропадает на миг; alpha — насколько плотная
+        public static Apparition Show(EntityDef def, Vector3 pos, Transform cam, float seconds,
+                                      Vector3 drift = default, bool flicker = false, float alpha = 0.6f)
         {
             var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
             Destroy(go.GetComponent<Collider>());
@@ -76,15 +84,29 @@ namespace GhostWard
             var a = go.AddComponent<Apparition>();
             a.mat = Entity.CreateMaterial(def, UnityEngine.Random.value * 10f);
             a.mat.SetFloat("_Flip", Entity.ArchOf(def.Kind) == EntityKind.Kikimora ? 1f : 0f);
+            a.mat.SetFloat("_World", 1f);
             go.GetComponent<MeshRenderer>().sharedMaterial = a.mat;
             a.life = a.total = seconds;
             a.cam = cam;
+            a.drift = drift;
+            a.flicker = flicker;
+            a.alpha = alpha;
+            return a;
         }
 
         void Update()
         {
-            life -= Time.deltaTime;
-            mat.SetFloat("_Fade", Mathf.Clamp01(life / total) * 0.55f);
+            float dt = Time.deltaTime;
+            life -= dt;
+            transform.position += drift * dt;
+            // быстро проступает, держится, медленно тает
+            float k = Mathf.Min(Mathf.Clamp01((total - life) / 0.3f), Mathf.Clamp01(life / Mathf.Min(0.6f, total * 0.4f)));
+            if (flicker)
+            {
+                if (blink > 0f) { blink -= dt; k = 0f; }
+                else if (UnityEngine.Random.value < dt * 0.6f) blink = UnityEngine.Random.Range(0.06f, 0.25f);
+            }
+            mat.SetFloat("_Fade", k * alpha);
             var dir = transform.position - cam.position;
             if (dir.sqrMagnitude > 1e-4f) transform.rotation = Quaternion.LookRotation(dir, Vector3.up);
             if (life <= 0f) Destroy(gameObject);

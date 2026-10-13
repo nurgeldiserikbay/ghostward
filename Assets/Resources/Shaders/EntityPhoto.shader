@@ -1,8 +1,9 @@
 // Сущность по фотореалистичной картинке (Resources/Entities/<Kind>.png).
-// Картинка — фигура на чёрном фоне или с прозрачностью; чёрный фон вырезается по яркости.
-// Поверх — эффекты плёночного хоррора: зерно, мерцание, разрывы строк, цветовой сдвиг на сбоях,
-// «дыхание» фигуры, холодная тонировка. Те же параметры, что у процедурного шейдера:
-// _Fade, _Flash, _Dissolve, _Flip, _Locked и трафарет UI.
+// Картинка — фигура с прозрачным фоном (или на чёрном: тогда вырезаем чёрное, _Key = 1).
+// В мире (_World = 1) фигура «снимается» той же камерой, что и комната (LookCommon): тот же вид,
+// свет и зерно; качается и дышит, голова иногда дёргается, ступни уходят в тень, края мягкие.
+// В интерфейсе (дневник, скример) — та же картинка без окраски под камеру.
+// Параметры, общие с процедурным шейдером: _Fade, _Flash, _Dissolve, _Flip, _Locked и трафарет UI.
 Shader "GhostWard/EntityPhoto"
 {
     Properties
@@ -16,6 +17,8 @@ Shader "GhostWard/EntityPhoto"
         _Flip ("Flip", Float) = 0
         _Locked ("Locked", Float) = 0
         _Key ("Black key", Float) = 0
+        _World ("In world", Float) = 0
+        _Dim ("Distance dim", Range(0, 1)) = 1
 
         _StencilComp ("Stencil Comparison", Float) = 8
         _Stencil ("Stencil ID", Float) = 0
@@ -49,19 +52,22 @@ Shader "GhostWard/EntityPhoto"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            #include "LookCommon.cginc"
 
             sampler2D _MainTex;
+            float4 _MainTex_TexelSize;
             fixed4 _Color;
-            float _Fade, _Flash, _Dissolve, _Seed, _Flip, _Locked, _Key;
+            float _Fade, _Flash, _Dissolve, _Seed, _Flip, _Locked, _Key, _World, _Dim;
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
-            struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+            struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 screen : TEXCOORD1; };
 
             v2f vert(appdata v)
             {
                 v2f o;
                 o.pos = UnityObjectToClipPos(v.vertex);
                 o.uv = v.uv;
+                o.screen = ComputeScreenPos(o.pos);
                 return o;
             }
 
@@ -84,16 +90,26 @@ Shader "GhostWard/EntityPhoto"
                 float tf = floor(t * 12.0);
                 float2 uv = i.uv;
                 if (_Flip > 0.5) uv.y = 1.0 - uv.y;
+                float h = _Flip > 0.5 ? 1.0 - uv.y : uv.y;        // высота по фигуре: 0 — ступни, 1 — макушка
 
                 // «дыхание» и дрожь: фигура чуть тянется и вздрагивает
                 uv.y = 0.5 + (uv.y - 0.5) * (1.0 + 0.008 * sin(t * 1.7));
                 uv.x += (hash11(tf + _Seed) - 0.5) * 0.004;
 
+                if (_World > 0.5)
+                {
+                    // медленное качание: ноги стоят, верх гнётся
+                    uv.x -= sin(t * 0.8 + _Seed) * 0.014 * h * h;
+                    // голова иногда резко дёргается в сторону — неестественно, как в хоррорах
+                    float twitch = step(0.965, hash11(floor(t * 5.0) + _Seed * 3.0));
+                    uv.x += twitch * (hash11(floor(t * 5.0) + 7.0) - 0.5) * 0.05 * smoothstep(0.72, 0.85, h);
+                }
+
                 // сбой: строки рвутся в стороны, каналы расходятся
                 float glitch = step(0.93, hash11(tf * 0.37 + _Seed));
                 float tear = (hash21(float2(floor(uv.y * 40.0), tf)) - 0.5) * 0.06 * glitch;
                 uv.x += tear;
-                float split = 0.012 * glitch;                              // каналы расходятся только на сбое
+                float split = 0.012 * glitch;
 
                 float4 c = Sample(uv);
                 float r = Sample(uv + float2(split, 0)).r;
@@ -101,15 +117,29 @@ Shader "GhostWard/EntityPhoto"
                 float3 col = float3(r, c.g, b);
                 float alpha = c.a;
 
-                // лёгкая холодная тонировка: картинка уже сделана страшной, её цвета не ломаем
-                float lum = dot(col, float3(0.3, 0.59, 0.11));
-                col = lerp(col, lum.xxx, 0.15);
-                col *= lerp(float3(1.0, 1.0, 1.0), float3(0.9, 0.96, 1.08), 0.5);
+                if (_World > 0.5)
+                {
+                    // мягкий край: усредняем прозрачность с соседями — фигура не «вырезана ножницами»
+                    float2 o = _MainTex_TexelSize.xy * 2.5;
+                    float soft = (Sample(uv + float2(o.x, 0)).a + Sample(uv - float2(o.x, 0)).a
+                                + Sample(uv + float2(0, o.y)).a + Sample(uv - float2(0, o.y)).a) * 0.25;
+                    alpha = min(alpha, soft * 1.15);
+                    // ступни уходят в тень пола
+                    alpha *= smoothstep(0.0, 0.07, h);
+                    float2 sp = i.screen.xy / max(i.screen.w, 1e-4);
+                    col = GW_Grade(col, sp, _Dim);
+                }
+                else
+                {
+                    // в интерфейсе — лёгкая холодная тонировка и плёночное зерно по фигуре
+                    float lum = dot(col, float3(0.3, 0.59, 0.11));
+                    col = lerp(col, lum.xxx, 0.15);
+                    col *= lerp(float3(1.0, 1.0, 1.0), float3(0.9, 0.96, 1.08), 0.5);
+                    col += (hash21(i.uv * 400.0 + tf) - 0.5) * 0.035 * step(0.5, alpha);
+                }
 
-                // мерцание и плёночное зерно — только по самой фигуре
-                float flicker = 0.93 + 0.07 * hash11(tf * 1.3 + _Seed);
-                col *= flicker;
-                col += (hash21(i.uv * 400.0 + tf) - 0.5) * 0.035 * step(0.5, alpha);
+                // мерцание
+                col *= 0.93 + 0.07 * hash11(tf * 1.3 + _Seed);
 
                 // края квада гасим, чтобы не было рамки
                 float edge = saturate(min(min(i.uv.x, 1.0 - i.uv.x), min(i.uv.y, 1.0 - i.uv.y)) * 12.0);

@@ -35,6 +35,66 @@ namespace GhostWard
         public static Texture2D Glow() => glow ??= Radial(128, d => Mathf.Pow(Mathf.Clamp01(1f - d / 0.75f), 2f));
 
         // градиент инея для края экрана, с мелким «кристаллическим» шумом
+        // отпечаток мокрой ладони: слитная ладонь с пальцами (плавное объединение), рваный край,
+        // по краю плотнее, внутри — пятнами; из нижнего края стекают подтёки
+        static Texture2D hand;
+        public static Texture2D Hand()
+        {
+            if (hand != null) return hand;
+            const int w = 160, h = 200;
+            hand = new Texture2D(w, h, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+            var px = new Color32[w * h];
+            // пальцы: основание, кончик, толщина (в долях ширины)
+            float[,] f = { { 0.34f, 0.5f, 0.25f, 0.86f, 0.045f }, { 0.44f, 0.53f, 0.41f, 0.95f, 0.05f },
+                           { 0.55f, 0.53f, 0.57f, 0.93f, 0.05f }, { 0.65f, 0.5f, 0.72f, 0.84f, 0.045f },
+                           { 0.72f, 0.42f, 0.88f, 0.55f, 0.048f } };
+            float[,] drips = { { 0.36f, 0.06f }, { 0.47f, 0.12f }, { 0.58f, 0.02f }, { 0.64f, 0.16f } };
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    var p = new Vector2((x + 0.5f) / w, (y + 0.5f) / h * 1.25f);
+                    float d = (new Vector2((p.x - 0.5f) / 0.21f, (p.y - 0.5f) / 0.19f).magnitude - 1f) * 0.19f;   // ладонь
+                    for (int i = 0; i < 5; i++)
+                        d = SMin(d, Capsule(p, new Vector2(f[i, 0], f[i, 1] * 1.25f), new Vector2(f[i, 2], f[i, 3] * 1.25f), f[i, 4]), 0.04f);
+                    for (int i = 0; i < 4; i++)   // подтёки: тонкие, сужаются книзу
+                        d = SMin(d, Capsule(p, new Vector2(drips[i, 0], 0.36f), new Vector2(drips[i, 0] + 0.005f, drips[i, 1] * 1.25f), 0.009f), 0.03f);
+                    d += (ValueNoise(p * 22f) - 0.5f) * 0.02f + (ValueNoise(p * 60f) - 0.5f) * 0.008f;   // рваный край
+                    float inside = Mathf.Clamp01(-d / 0.006f);
+                    float rim = Mathf.Clamp01(1f - Mathf.Abs(d + 0.008f) / 0.01f);                     // мокрый край плотнее
+                    float blot = Mathf.Lerp(0.15f, 0.45f, ValueNoise(p * 14f));                      // внутри пятнами
+                    byte a = (byte)(Mathf.Clamp01(inside * blot + rim * 0.7f) * 255f);
+                    px[y * w + x] = new Color32(255, 255, 255, a);
+                }
+            hand.SetPixels32(px);
+            hand.Apply();
+            return hand;
+        }
+
+        static float Capsule(Vector2 p, Vector2 a, Vector2 b, float r)
+        {
+            var ba = b - a;
+            float t = Mathf.Clamp01(Vector2.Dot(p - a, ba) / ba.sqrMagnitude);
+            return (p - (a + ba * t)).magnitude - r * (1f - 0.35f * t);   // к кончику тоньше
+        }
+
+        // плавное объединение двух форм
+        static float SMin(float a, float b, float k)
+        {
+            float hh = Mathf.Clamp01(0.5f + 0.5f * (b - a) / k);
+            return Mathf.Lerp(b, a, hh) - k * hh * (1f - hh);
+        }
+
+        static float ValueNoise(Vector2 p)
+        {
+            var i = new Vector2(Mathf.Floor(p.x), Mathf.Floor(p.y));
+            var fr = p - i;
+            fr = new Vector2(fr.x * fr.x * (3f - 2f * fr.x), fr.y * fr.y * (3f - 2f * fr.y));
+            float H(Vector2 q) => Mathf.Abs(Mathf.Sin(q.x * 127.1f + q.y * 311.7f) * 43758.5453f) % 1f;
+            return Mathf.Lerp(Mathf.Lerp(H(i), H(i + Vector2.right), fr.x), Mathf.Lerp(H(i + Vector2.up), H(i + Vector2.one), fr.x), fr.y);
+        }
+
+        static float Sqr(float x) => x * x;
+
         public static Texture2D EdgeGradient(bool vertical = false, bool flip = false)
         {
             int key = (vertical ? 1 : 0) + (flip ? 2 : 0);

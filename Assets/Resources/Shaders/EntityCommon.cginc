@@ -4,18 +4,20 @@
 #define GHOSTWARD_ENTITY_COMMON
 
 #include "UnityCG.cginc"
+#include "LookCommon.cginc"
 
 fixed4 _Body, _Color;
-float _Fade, _Shape, _Flash, _Dissolve, _Seed, _Flip, _Locked;
+float _Fade, _Shape, _Flash, _Dissolve, _Seed, _Flip, _Locked, _World, _Dim;
 
 struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
-struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 screen : TEXCOORD1; };
 
 v2f vert(appdata v)
 {
     v2f o;
     o.pos = UnityObjectToClipPos(v.vertex);
     o.uv = v.uv;
+    o.screen = ComputeScreenPos(o.pos);
     return o;
 }
 
@@ -118,6 +120,9 @@ fixed4 EntityCompose(v2f i, float2 p, float d, float bottom, float holes, float 
             clip(n - _Dissolve);
             col = lerp(col, _Color.rgb * 3.0, step(n - _Dissolve, 0.08));
         }
+
+        // в мире — та же «камера», что у комнаты (вид, свет, зерно)
+        if (_World > 0.5) col = GW_Grade(col, i.screen.xy / max(i.screen.w, 1e-4), _Dim);
 
         col = lerp(col, float3(1, 1, 1), _Flash);
         return fixed4(col, saturate(alpha) * _Fade);

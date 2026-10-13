@@ -17,6 +17,8 @@ Shader "GhostWard/Entity"
         _Seed ("Seed", Float) = 0
         _Flip ("Flip", Float) = 0
         _Locked ("Locked", Float) = 0
+        _World ("In world", Float) = 0
+        _Dim ("Distance dim", Range(0, 1)) = 1
 
         // трафарет UI: чтобы картинки в прокручиваемом дневнике обрезались маской
         _StencilComp ("Stencil Comparison", Float) = 8

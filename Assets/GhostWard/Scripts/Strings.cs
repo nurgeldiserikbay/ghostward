@@ -2348,6 +2348,12 @@ namespace GhostWard
                 "Жақын! Экранды қазір екі рет түрт.",
                 "¡Lo bastante cerca! Toca la pantalla dos veces ya.",
                 "Perto o bastante! Toque duas vezes na tela agora." },
+            ["faint"] = new[] {
+                "Everything went dark… You come round. It is still here.",
+                "В глазах потемнело… Ты приходишь в себя. Оно всё ещё здесь.",
+                "Көз алды қарауытты… Есіңді жиясың. Ол әлі осында.",
+                "Todo se volvió negro… Vuelves en ti. Sigue aquí.",
+                "Tudo escureceu… Você volta a si. Ainda está aqui." },
             // ---------- улики ----------
             ["c.Frost.name"] = new[] { "Cold", "Холод", "Суық", "Frío", "Frio" },
             ["c.Frost.howto"] = new[] { "In the thermal camera the lair shows as a blue cold spot, below zero.", "В тепловизоре логово видно синим холодным пятном, ниже нуля.", "Тепловизорда ұя көк суық дақ болып көрінеді, нөлден төмен.", "En la cámara térmica la guarida aparece como una mancha fría azul, bajo cero.", "Na câmera térmica o covil aparece como uma mancha fria azul, abaixo de zero." },

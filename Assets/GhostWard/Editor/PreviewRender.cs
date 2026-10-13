@@ -227,6 +227,66 @@ namespace GhostWard.EditorTools
             File.WriteAllBytes("Logs/photo.png", tex.EncodeToPNG());
         }
 
+        // Сущность в комнате в разных видах камеры (Logs/room.png): фон — Logs/camtest.png, фигура — Ghost
+        public static void InRoom()
+        {
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            var src = new Texture2D(2, 2);
+            src.LoadImage(File.ReadAllBytes("Logs/camtest.png"));
+            int[] styles = { 1, 2, 6, 3, 5, 0 };
+            const int w = 480, h = 600;
+            var sheet = new Texture2D(w * 3, h * 2, TextureFormat.RGB24, false);
+            var cam = new GameObject("Cam").AddComponent<Camera>();
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = Color.black;
+            cam.fieldOfView = 60f;
+            cam.transform.position = new Vector3(0, 1.4f, 0);
+            var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32);
+            cam.targetTexture = rt;
+            cam.aspect = (float)w / h;
+            // фон — далеко за сущностью, во весь кадр
+            var feed = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            feed.transform.position = new Vector3(0, 1.4f, 20f);
+            feed.transform.localScale = new Vector3(18.5f, 23.1f, 1f);
+            var fm = new Material(Shader.Find("GhostWard/Feed"));
+            fm.mainTexture = src;
+            feed.GetComponent<MeshRenderer>().sharedMaterial = fm;
+            var def = Catalog.Get(EntityKind.Ghost);
+            var q = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            q.transform.position = new Vector3(0.3f, def.Height * 0.5f, 3f);
+            q.transform.localScale = new Vector3(def.Height * 0.8f, def.Height, 1f);
+            var em = Entity.CreateMaterial(def, 2.2f);
+            em.SetFloat("_World", 1f);
+            em.SetFloat("_Dim", 0.85f);
+            q.GetComponent<MeshRenderer>().sharedMaterial = em;
+            var sh = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            sh.transform.position = new Vector3(0.3f, 0.01f, 3f);
+            sh.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+            sh.transform.localScale = new Vector3(def.Height * 0.75f, def.Height * 0.32f, 1f);
+            var sm = new Material(Shader.Find("GhostWard/Shadow"));
+            sm.SetFloat("_Alpha", 0.55f);
+            sh.GetComponent<MeshRenderer>().sharedMaterial = sm;
+            Shader.SetGlobalFloat("_GW_Light", 0.25f);
+            Shader.SetGlobalFloat("_GW_Mode", 0f);
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            for (int i = 0; i < styles.Length; i++)
+            {
+                fm.SetFloat("_Style", styles[i]);
+                Shader.SetGlobalFloat("_GW_Style", styles[i]);
+                var request = new RenderPipeline.StandardRequest { destination = rt };
+                if (RenderPipeline.SupportsRenderRequest(cam, request)) RenderPipeline.SubmitRenderRequest(cam, request);
+                else cam.Render();
+                RenderTexture.active = rt;
+                tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                tex.Apply();
+                RenderTexture.active = null;
+                sheet.SetPixels((i % 3) * w, (1 - i / 3) * h, w, h, tex.GetPixels());
+            }
+            sheet.Apply();
+            File.WriteAllBytes("Logs/room.png", sheet.EncodeToPNG());
+            File.WriteAllBytes("Logs/hand.png", Textures.Hand().EncodeToPNG());
+        }
+
         // Проверка нейросети тепловизора на картинках из папки (-testImg <папка>) — Logs/seg_*.png
         public static void ThermalSegTest()
         {
