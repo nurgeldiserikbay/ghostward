@@ -2354,6 +2354,14 @@ namespace GhostWard
                 "Көз алды қарауытты… Есіңді жиясың. Ол әлі осында.",
                 "Todo se volvió negro… Vuelves en ti. Sigue aquí.",
                 "Tudo escureceu… Você volta a si. Ainda está aqui." },
+            ["h.Invisible"] = new[] {
+                "You can't see it — it's invisible. Turn toward the crashes and use what it fears.",
+                "Его не видно — он невидим. Повернись туда, где грохочет, и примени то, чего он боится.",
+                "Ол көрінбейді — ол көзге көрінбейтін. Тарсыл шыққан жаққа бұрыл да, оның неден қорқатынын қолдан.",
+                "No se ve: es invisible. Gírate hacia los golpes y usa lo que teme.",
+                "Não dá para ver — é invisível. Vire-se para onde vêm as batidas e use o que ele teme." },
+            ["test_next"] = new[] { "TEST: NEXT NIGHT", "ТЕСТ: СЛЕДУЮЩЕЙ НОЧЬЮ", "ТЕСТ: КЕЛЕСІ ТҮНІ", "PRUEBA: PRÓXIMA NOCHE", "TESTE: PRÓXIMA NOITE" },
+            ["test_next_set"] = new[] { "Next night: {0}", "Следующей ночью придёт: {0}", "Келесі түні келеді: {0}", "La próxima noche vendrá: {0}", "Na próxima noite virá: {0}" },
             // ---------- улики ----------
             ["c.Frost.name"] = new[] { "Cold", "Холод", "Суық", "Frío", "Frio" },
             ["c.Frost.howto"] = new[] { "In the thermal camera the lair shows as a blue cold spot, below zero.", "В тепловизоре логово видно синим холодным пятном, ниже нуля.", "Тепловизорда ұя көк суық дақ болып көрінеді, нөлден төмен.", "En la cámara térmica la guarida aparece como una mancha fría azul, bajo cero.", "Na câmera térmica o covil aparece como uma mancha fria azul, abaixo de zero." },

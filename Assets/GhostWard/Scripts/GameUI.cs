@@ -1288,6 +1288,18 @@ namespace GhostWard
                 NamePressed?.Invoke(openedEntry);
             }, true);
             Button(journalEntry.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
+
+            // только в тестовой сборке: выбрать, кто придёт следующей ночью
+            if (Unlocks.TestUnlockAll)
+            {
+                var test = Button(journalEntry.transform, Loc.T("test_next"), new Vector2(0.5f, 0.21f), () =>
+                {
+                    PlayerPrefs.SetInt("test_next", (int)openedEntry);
+                    PlayerPrefs.Save();
+                    Message(Loc.F("test_next_set", Catalog.Get(openedEntry).Name), 2.5f);
+                }, false, 520);
+                test.GetComponentInChildren<Text>().fontSize = 30;
+            }
         }
 
         // Улики: отмечай замеченное — ниже остаются только подходящие сущности.

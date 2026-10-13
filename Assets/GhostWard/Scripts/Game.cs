@@ -373,6 +373,13 @@ namespace GhostWard
         // иначе случайная из открытых, чаще те, о ком игрок знает меньше.
         EntityDef PickTarget()
         {
+            // тест: сущность, выбранная в дневнике кнопкой «Тест: следующей ночью»
+            int test = PlayerPrefs.GetInt("test_next", -1);
+            if (Unlocks.TestUnlockAll && test >= 0 && test < Catalog.Entities.Length)
+            {
+                PlayerPrefs.DeleteKey("test_next");
+                return Catalog.Entities[test];
+            }
             var fresh = Know.NextNewCase();
             if (fresh.HasValue) return Catalog.Get(fresh.Value);
             int pool = Know.UnlockedCount;
@@ -1000,6 +1007,9 @@ namespace GhostWard
             entities.Add(hunter);
             ui.SetPhase(Loc.T("phase_hunt"), true);
             if (!named) ui.Message(Loc.T("hunt_start"), 3.5f);
+            // верно назвал (или уже изгонял) — расследование окупается: подсказка, как прогнать
+            if (namedRight || Know.Defense(target.Kind)) ui.Hint(target.Hint);
+            invisibleHinted = false;
             sfx.PlayOneShot(ProceduralAudio.Screech(), 0.35f);
         }
 
@@ -1711,8 +1721,16 @@ namespace GhostWard
             ui.Shake(0.35f);
         }
 
+        bool invisibleHinted;
+
         public void OnThrow(Entity e)
         {
+            // невидимку не увидеть — объяснить один раз за охоту
+            if (e.Def.Invisible && !invisibleHinted)
+            {
+                invisibleHinted = true;
+                ui.Hint(Loc.T("h.Invisible"));
+            }
             AddFear(7f);
             ui.Shake(0.6f);
         }
