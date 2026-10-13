@@ -327,6 +327,7 @@ namespace GhostWard
             lureMatched = false;
             modifier = prologue ? Modifier.None : dailyMode ? Daily.Modifier : Modifiers.Roll(night);
             heardThisHunt = false;
+            ironNowShown = false;
             possessedNight = !prologue && night >= 2 && Random.value < 0.3f;
             nameMusicPlayed = false;
             proStep = 0;
@@ -433,7 +434,7 @@ namespace GhostWard
             if (ui.JournalOpen) return;
 
             if (cam != null) ui.SetMapStrip(map, cam.transform.forward, phase == Phase.Scan);
-            if (phase == Phase.Scan) { music.SetScan(); UpdateScan(); return; }
+            if (phase == Phase.Scan) { music.SetScan(); UpdateScan(); UpdateLook(Time.deltaTime); return; }   // приборы видны и во время осмотра
             if (phase is not (Phase.Investigate or Phase.Hunt))
             {
                 if (phase == Phase.Over) music.SetSilence();
@@ -1025,6 +1026,14 @@ namespace GhostWard
             bool hidden = quietTime > 2.5f && heardTime <= 0f;
             hunter.SpeedMul = heardTime > 0f ? 2.2f : hidden ? 0.35f : 1f;
             ui.SetHidden(hidden);
+
+            // боится железа и уже на расстоянии удара — подсказать, что пора бить (раз за охоту)
+            if (!ironNowShown && hunter.Def.Bane == ItemKind.Iron && hunter.Visible && hunter.FlatDistance() <= IronRange
+                && Vector3.Angle(cam.transform.forward, hunter.transform.position - cam.transform.position) < 35f)
+            {
+                ironNowShown = true;
+                ui.Hint(Loc.T("h.IronNow"));
+            }
             ui.SetCompass(cam.transform.forward, 0f, YawTo(hunter.transform.position), true);
 
             // фото: первый раз, когда сущность близко и в кадре
@@ -1072,13 +1081,13 @@ namespace GhostWard
             }
 
             // ночная камера держит ночное видение, пока выбрана
-            if (tool == Tool.Night && phase is Phase.Investigate or Phase.Hunt) nightVisionTarget = 1f;
+            if (tool == Tool.Night && phase is Phase.Scan or Phase.Investigate or Phase.Hunt) nightVisionTarget = 1f;
 
             // переключение режимов не плавное, а через короткий «сбой»
             nightVision = Mathf.MoveTowards(nightVision, nightVisionTarget, dt * 6f);
             staticNoise.volume = Mathf.Max(glitch * 0.35f * Settings.Ambience, Mathf.MoveTowards(staticNoise.volume, 0f, dt * 0.5f));
             // эпизоды ночного режима: зелёное ночное видение, а если оно уже выбрано — ИК-камера
-            bool thermal = tool == Tool.Thermo && phase is Phase.Investigate or Phase.Hunt;
+            bool thermal = tool == Tool.Thermo && phase is Phase.Scan or Phase.Investigate or Phase.Hunt;
             var style = thermal ? Vision.Thermal : Settings.Vision;
             var episode = Settings.Vision == Vision.NightGreen ? Vision.Cctv : Vision.NightGreen;
             if (gyroRig != null)
@@ -1578,6 +1587,10 @@ namespace GhostWard
                 : Loc.F("remember_tale", e.Def.Name), 6f);
         }
 
+        // железо бьёт вплотную; в режиме гироскопа к сущности не подойти — дотягиваемся дальше
+        float IronRange => arRig != null ? 1.8f : 2.6f;
+        bool ironNowShown;
+
         // ночной режим или тепловизор: видно то, что не видно глазу (чёрный пёс)
         public bool SeesHidden => nightVision > 0.5f || tool == Tool.Thermo;
 
@@ -1684,14 +1697,17 @@ namespace GhostWard
         {
             var def = Catalog.Get(item);
             float angle = item switch { ItemKind.Iron => 35f, ItemKind.Wormwood => 35f, ItemKind.Mirror => 25f, _ => 20f };
-            float range = item switch { ItemKind.Iron => 1.5f, ItemKind.Wormwood => 4f, ItemKind.Mirror => 5f, _ => 4.5f };
+            float range = item switch { ItemKind.Iron => IronRange, ItemKind.Wormwood => 4f, ItemKind.Mirror => 5f, _ => 4.5f };
 
             if (item == ItemKind.Iron)
             {
                 if (inv.Iron <= 0) { Empty(Loc.F("no_more", def.Name)); return; }
                 if (Target(angle, range) == null)
                 {
-                    ui.Message(Loc.T(Target(30f, 6f) != null ? "too_far" : "nobody"), 1.5f);
+                    var far = Target(30f, 6f);
+                    // те, кто ходит только без взгляда, сами не подойдут, пока на них смотришь — так и скажем
+                    string key = far == null ? "nobody" : Entity.ArchOf(far.Def.Kind) == EntityKind.Albasty ? "too_far_look" : "too_far";
+                    ui.Message(Loc.T(key), 3f);
                     return;
                 }
             }
