@@ -137,7 +137,9 @@ namespace GhostWard.EditorTools
                 AssetDatabase.AddObjectToAsset(manager, perTarget);
                 settings.Manager = manager;
             }
-            settings.InitManagerOnStart = true;
+            // AR не поднимается сам при старте: на телефоне без поддержки ARCore это сразу открывает Маркет.
+            // Загрузчик запускает ArRig, и только если сервисы AR уже стоят.
+            settings.InitManagerOnStart = false;
             XRPackageMetadataStore.AssignLoader(settings.Manager, "UnityEngine.XR.ARCore.ARCoreLoader", BuildTargetGroup.Android);
             EditorUtility.SetDirty(settings);
             EditorUtility.SetDirty(perTarget);

@@ -22,11 +22,44 @@ namespace GhostWard
         AROcclusionManager occlusion;
         int frames;
 
+        // Сервисы Google AR (ARCore) уже стоят на телефоне? Если нет — AR не трогаем вовсе:
+        // любое обращение к ARCore на неподдерживаемом телефоне норовит открыть Маркет.
+        static bool ArCoreInstalled()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
+                using var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
+                using var pm = activity.Call<AndroidJavaObject>("getPackageManager");
+                using var info = pm.Call<AndroidJavaObject>("getPackageInfo", "com.google.ar.core", 0);
+                return info != null;
+            }
+            catch (System.Exception) { return false; }   // NameNotFoundException — не установлены
+#else
+            return true;
+#endif
+        }
+
         public static IEnumerator TryCreate(System.Action<ArRig> done, System.Action<string> log)
         {
-            var loader = XRGeneralSettings.Instance != null && XRGeneralSettings.Instance.Manager != null
-                ? XRGeneralSettings.Instance.Manager.activeLoader
-                : null;
+            // AR выключен в настройках или сервисов AR нет (и игрок сам не просил их поставить) — режим гироскопа
+            if (Settings.ArMode == 1 || (!ArCoreInstalled() && !Settings.ArInstallRequested))
+            {
+                log(Settings.ArMode == 1 ? "AR: выключен в настройках" : "AR: сервисы AR не установлены");
+                done(null);
+                yield break;
+            }
+
+            // загрузчик XR запускаем сами (автозапуск при старте приложения выключен)
+            var manager = XRGeneralSettings.Instance != null ? XRGeneralSettings.Instance.Manager : null;
+            if (manager != null && manager.activeLoader == null)
+            {
+                yield return manager.InitializeLoader();
+                if (manager.activeLoader != null) manager.StartSubsystems();
+            }
+
+            var loader = manager != null ? manager.activeLoader : null;
             if (loader == null)
             {
                 log("AR: загрузчик XR не запущен");
