@@ -224,6 +224,10 @@ namespace GhostWard
             };
             ui.ToolSelected += t =>
             {
+                // ушли с ночной камеры или с тепловизора — вид сразу возвращается, без ожидания случайного эпизода
+                if (t != Tool.Night && tool == Tool.Night) nightVisionTarget = 0f;
+                if (t != tool) nextVisionSwitch = Mathf.Max(nextVisionSwitch, Random.Range(12f, 20f));
+                if (t is Tool.Thermo or Tool.Night) nightVision = t == Tool.Night ? 1f : 0f;   // мгновенно, без растворения
                 tool = t;
                 ui.SetTool(t);
                 sfx.PlayOneShot(ProceduralAudio.Click(), 0.5f);
@@ -1075,8 +1079,11 @@ namespace GhostWard
         {
             if (phase is Phase.Investigate or Phase.Hunt)
             {
-                nextVisionSwitch -= dt;
-                if (nextVisionSwitch <= 0f)
+                // сами по себе эпизоды ночного видения — только когда прибор камеру не занимает (ЭМП, радио);
+                // иначе они перекрывали тепловизор и не давали выключить ночную камеру
+                bool deviceView = tool is Tool.Thermo or Tool.Night;
+                if (!deviceView) nextVisionSwitch -= dt;
+                if (!deviceView && nextVisionSwitch <= 0f)
                 {
                     bool on = nightVisionTarget < 0.5f;
                     nightVisionTarget = on ? 1f : 0f;
@@ -1097,8 +1104,9 @@ namespace GhostWard
                 glitch = Mathf.MoveTowards(glitch, 0f, dt * 2f);
             }
 
-            // ночная камера держит ночное видение, пока выбрана
+            // ночная камера держит ночное видение, пока выбрана; тепловизор — без примесей
             if (tool == Tool.Night && phase is Phase.Scan or Phase.Investigate or Phase.Hunt) nightVisionTarget = 1f;
+            else if (tool == Tool.Thermo) nightVisionTarget = 0f;
 
             // переключение режимов не плавное, а через короткий «сбой»
             nightVision = Mathf.MoveTowards(nightVision, nightVisionTarget, dt * 6f);
