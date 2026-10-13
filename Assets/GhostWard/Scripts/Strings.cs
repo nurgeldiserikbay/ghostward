@@ -2310,6 +2310,20 @@ namespace GhostWard
                 "{0} жеті дауыс бірден сыбырлайды — кім бірінші жейтінін таласып жатыр.",
                 "{0} susurran siete voces a la vez, discutiendo quién comerá primero.",
                 "{0} sete vozes sussurram ao mesmo tempo, discutindo quem come primeiro." },
+            ["night_log"] = new[] { "LOG", "ЗАПИСИ", "ЖАЗБАЛАР", "REGISTRO", "REGISTRO" },
+            ["log_empty"] = new[] {
+                "Nothing has happened yet. Everything the night tells you will be written here.",
+                "Пока ничего не случилось. Всё, что скажет ночь, будет записано здесь.",
+                "Әзірге ештеңе болған жоқ. Түннің айтқанының бәрі осында жазылады.",
+                "Todavía no ha pasado nada. Todo lo que diga la noche quedará escrito aquí.",
+                "Ainda não aconteceu nada. Tudo o que a noite disser ficará escrito aqui." },
+            ["preview_tap"] = new[] { "Tap to go back", "Нажми, чтобы вернуться", "Қайту үшін бас", "Toca para volver", "Toque para voltar" },
+            ["preview_no_camera"] = new[] {
+                "The camera is not available — allow access to see the preview.",
+                "Камера недоступна — разреши доступ, чтобы увидеть превью.",
+                "Камера қолжетімсіз — алдын ала көру үшін рұқсат бер.",
+                "La cámara no está disponible: permite el acceso para ver la vista previa.",
+                "A câmera não está disponível — permita o acesso para ver a prévia." },
             // ---------- улики ----------
             ["c.Frost.name"] = new[] { "Cold", "Холод", "Суық", "Frío", "Frio" },
             ["c.Frost.howto"] = new[] { "In the thermal camera the lair shows as a blue cold spot, below zero.", "В тепловизоре логово видно синим холодным пятном, ниже нуля.", "Тепловизорда ұя көк суық дақ болып көрінеді, нөлден төмен.", "En la cámara térmica la guarida aparece como una mancha fría azul, bajo cero.", "Na câmera térmica o covil aparece como uma mancha fria azul, abaixo de zero." },

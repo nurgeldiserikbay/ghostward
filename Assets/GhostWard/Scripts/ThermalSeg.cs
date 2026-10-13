@@ -1,21 +1,26 @@
 using System.Collections;
+using System.Diagnostics;
+using Unity.Collections;
 using Unity.InferenceEngine;
 using UnityEngine;
+using UnityEngine.Rendering;
+using Debug = UnityEngine.Debug;
 
 namespace GhostWard
 {
     // Распознавание людей и животных для тепловизора: нейросеть LRASPP MobileNetV3 (torchvision, BSD)
     // прямо на телефоне. Вход — выпрямленный кадр 224×224, выход — маска: R = человек, G = животное.
     //
-    // Модель считается на процессоре и по частям — несколько слоёв за кадр, — чтобы не было пауз:
-    // при расчёте на видеокарте первый запуск компилирует шейдеры (заметное зависание), а на части
-    // мобильных видеокарт вычисления работают нестабильно. Маска собирается в обычную текстуру.
+    // Без остановок кадра:
+    //  • кадр забирается с видеокарты асинхронно (AsyncGPUReadback), а не синхронным чтением;
+    //  • модель считается на процессоре по частям — не дольше ~2 мс за кадр; на видеокарте первый запуск
+    //    компилирует шейдеры (зависание), а на части мобильных видеокарт вычисления нестабильны;
+    //  • маска собирается в обычную текстуру; на средней графике расчёт реже.
     // Работает, только пока выбран тепловизор и качество графики не «экономное».
     public class ThermalSeg : MonoBehaviour
     {
         const int Size = 224;
-        const float Interval = 0.2f;      // пауза между расчётами
-        const int LayersPerFrame = 12;    // сколько слоёв модели считать за кадр
+        const float Budget = 2f;          // мс работы нейросети за кадр
 
         public Texture Mask => maskTex;
         public bool PersonInView { get; private set; }
@@ -30,8 +35,13 @@ namespace GhostWard
         Texture2D maskTex;
         Color32[] maskPixels;
         IEnumerator running;
-        bool resultPending, enabledByGame;
+        bool resultPending, enabledByGame, readbackPending;
         float timer;
+        float[] pixels;                    // вход модели: 3 × 224 × 224
+        readonly Stopwatch watch = new();
+
+        // пауза между расчётами: на средней графике реже
+        static float Interval => Settings.Quality >= 2 ? 0.35f : 0.7f;
 
         public void Init()
         {
@@ -48,7 +58,9 @@ namespace GhostWard
                 return;
             }
             input = new Tensor<float>(new TensorShape(1, 3, Size, Size));
-            upright = new RenderTexture(Size, Size, 0, RenderTextureFormat.ARGB32);
+            pixels = new float[3 * Size * Size];
+            // sRGB: байты из видеокарты — обычные цвета 0..255, как у картинок, на которых училась модель
+            upright = new RenderTexture(Size, Size, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
             uprightMat = new Material(Shader.Find("GhostWard/Upright"));
             maskTex = new Texture2D(Size, Size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
             maskPixels = new Color32[Size * Size];
@@ -65,12 +77,15 @@ namespace GhostWard
         {
             if (!Running || source == null) return;
 
-            // идёт расчёт — продвигаем его на несколько слоёв
+            if (readbackPending) return;   // кадр ещё едет с видеокарты
+
+            // идёт расчёт — продвигаем его, пока не исчерпан бюджет кадра
             if (running != null)
             {
                 try
                 {
-                    for (int i = 0; i < LayersPerFrame; i++)
+                    watch.Restart();
+                    while (watch.Elapsed.TotalMilliseconds < Budget)
                         if (!running.MoveNext()) { running = null; resultPending = true; break; }
                 }
                 catch (System.Exception e)
@@ -97,7 +112,30 @@ namespace GhostWard
             uprightMat.SetFloat("_Angle", angle);
             uprightMat.SetFloat("_Mirror", mirror ? 1f : 0f);
             Graphics.Blit(source, upright, uprightMat);
-            TextureConverter.ToTensor(upright, input);
+            readbackPending = true;
+            AsyncGPUReadback.Request(upright, 0, TextureFormat.RGBA32, OnFrame);
+        }
+
+        // кадр пришёл: байты → тензор (NCHW, строки сверху вниз), запуск модели
+        void OnFrame(AsyncGPUReadbackRequest req)
+        {
+            readbackPending = false;
+            if (req.hasError || worker == null || !enabledByGame) return;
+            NativeArray<byte> data = req.GetData<byte>();
+            int plane = Size * Size;
+            const float k = 1f / 255f;
+            for (int row = 0; row < Size; row++)
+            {
+                int y = Size - 1 - row;            // в кадре видеокарты первая строка — нижняя
+                int src = row * Size * 4, dst = y * Size;
+                for (int x = 0; x < Size; x++, src += 4, dst++)
+                {
+                    pixels[dst] = data[src] * k;
+                    pixels[plane + dst] = data[src + 1] * k;
+                    pixels[2 * plane + dst] = data[src + 2] * k;
+                }
+            }
+            input.Upload(pixels);
             running = worker.ScheduleIterable(input);
         }
 

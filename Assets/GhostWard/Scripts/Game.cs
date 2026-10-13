@@ -154,12 +154,37 @@ namespace GhostWard
             if (Loc.Chosen) ui.ShowMenu();
             else ui.ShowLanguage();
             phase = Phase.Menu;
+            yield return AskPermissions();
+        }
+
+        // Камера и микрофон — сразу при запуске, одним запросом, а не посреди ночи.
+        IEnumerator AskPermissions()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            var need = new System.Collections.Generic.List<string>();
+            if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.Camera))
+                need.Add(UnityEngine.Android.Permission.Camera);
+            if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.Microphone))
+                need.Add(UnityEngine.Android.Permission.Microphone);
+            if (need.Count == 0) yield break;
+            int answered = 0;
+            var cb = new UnityEngine.Android.PermissionCallbacks();
+            cb.PermissionGranted += _ => answered++;
+            cb.PermissionDenied += _ => answered++;
+            UnityEngine.Android.Permission.RequestUserPermissions(need.ToArray(), cb);
+            float wait = 60f;
+            while (answered < need.Count && wait > 0f) { wait -= Time.unscaledDeltaTime; yield return null; }
+#elif UNITY_IOS && !UNITY_EDITOR
+            yield return Application.RequestUserAuthorization(UserAuthorization.WebCam | UserAuthorization.Microphone);
+#else
             yield break;
+#endif
         }
 
         void CreateUI()
         {
             ui = GameUI.Create();
+            ui.PreviewCamera = () => gyroRig != null ? gyroRig.Webcam : null;
             ui.StartPressed += () => { Ads.OnRetry(); StartGame(); };
             ui.PlayPressed += () =>
             {
@@ -313,6 +338,7 @@ namespace GhostWard
             ui.ShowHud();
             ui.SetNight(night);
             if (prologue) ui.SetNightTitle(Loc.T("prologue"));
+            ui.LogNight(prologue ? Loc.T("prologue") : Loc.F("night_n", night));
             ui.SetClock(0f);
             ui.SetPhase("", false);
             ui.ClearEvidence();

@@ -83,6 +83,8 @@ namespace GhostWard.EditorTools
                 Shoot($"items_{l}", ui => ui.DebugJournal("items"));
                 Shoot($"practice_{l}", ui => ui.DebugJournal("practice"));
                 Shoot($"story19_{l}", ui => ui.DebugPanel("story19"));
+                Shoot($"log_{l}", ui => ui.DebugJournal("log"));
+                Shoot($"list_top_{l}", ui => ui.DebugJournal("list"));
             }
             PlayerPrefs.SetInt("nightsSurvived", nights);
             Loc.Set(Lang.En);
@@ -241,7 +243,7 @@ namespace GhostWard.EditorTools
                 var seg = new GameObject("Seg").AddComponent<ThermalSeg>();
                 seg.Init();
                 seg.SetActive(true);
-                { var t0 = System.DateTime.Now; while (!seg.HasResult && (System.DateTime.Now - t0).TotalSeconds < 60) seg.Tick(src, 0, false); }
+                { var t0 = System.DateTime.Now; while (!seg.HasResult && (System.DateTime.Now - t0).TotalSeconds < 60) { seg.Tick(src, 0, false); UnityEngine.Rendering.AsyncGPUReadback.WaitAllRequests(); } }
                 Debug.Log($"[GhostWard] {Path.GetFileName(file)}: человек={seg.PersonInView} животное={seg.AnimalInView}");
 
                 foreach (bool cold in new[] { false, true })

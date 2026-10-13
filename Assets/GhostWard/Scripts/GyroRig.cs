@@ -82,6 +82,8 @@ namespace GhostWard
             StartWebcam();
         }
 
+        public WebCamTexture Webcam => webcam;
+
         void StartWebcam()
         {
             string device = null;

@@ -89,6 +89,21 @@ namespace GhostWard
         Material entryMat, jumpMat;
         float jumpTimer;
         readonly List<(EntityKind kind, RawImage pic, Material mat, Text name)> cards = new();
+
+        // записи ночи: всё, что игра сказала, можно перечитать
+        readonly List<string> nightLog = new();
+        GameObject journalLog;
+        Text logText;
+        RectTransform logContent, logButton;
+        ScrollRect logScroll;
+
+        // превью вида камеры в настройках
+        GameObject visionPreview;
+        RawImage previewImage;
+        Material previewMat;
+        Text previewTitle;
+        WebCamTexture ownPreviewCam;
+        public Func<WebCamTexture> PreviewCamera;   // камера игры, если уже запущена
         Text journalCount;
         ScrollRect journalScroll;
         readonly List<(ItemKind kind, Text count)> itemRows = new();
@@ -306,6 +321,32 @@ namespace GhostWard
             btn.transition = Selectable.Transition.None;
             btn.onClick.AddListener(() => SetJournal(true));
             Icons.Book(journalButton, Dim);
+
+            // записи ночи — три строки под дневником
+            logButton = Rect(hud.transform, "LogButton", new Vector2(0f, 1f), new Vector2(0f, 1f));
+            logButton.sizeDelta = new Vector2(130, 120);
+            logButton.anchoredPosition = new Vector2(100, -280);
+            var lbg = logButton.gameObject.AddComponent<Image>();
+            lbg.color = new Color(0, 0, 0, 0.01f);
+            var lbtn = logButton.gameObject.AddComponent<UnityEngine.UI.Button>();
+            lbtn.targetGraphic = lbg;
+            lbtn.transition = Selectable.Transition.None;
+            lbtn.onClick.AddListener(OpenLog);
+            for (int i = 0; i < 3; i++)
+            {
+                var line = Rect(logButton, "Line", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<UILine>();
+                line.Thickness = 6f;
+                line.color = Dim;
+                line.raycastTarget = false;
+                float y = 22f - i * 22f;
+                line.SetPoints(new[] { new Vector2(-34, y), new Vector2(34, y) });
+            }
+        }
+
+        void OpenLog()
+        {
+            SetJournal(true);
+            ShowJournalPage(journalLog);
         }
 
         void BuildTools()
@@ -628,6 +669,7 @@ namespace GhostWard
         // Настройки на двух вкладках: «Основное» (язык, вид камеры, качество) и «Звук» (громкость, микрофон, вибрация).
         void BuildSettings()
         {
+            BuildVisionPreview();
             settings = Panel(root, "Settings");
             settings.GetComponent<Image>().color = new Color(0.01f, 0.008f, 0.012f, 0.98f);
             var title = Label(settings.transform, Loc.T("settings"), 64, new Vector2(0.5f, 0.95f), Vector2.zero, Bone);
@@ -757,14 +799,96 @@ namespace GhostWard
 
         void PickVision(Vision v)
         {
-            if (Unlocks.Has(v)) { Settings.Vision = v; RefreshSettings(); return; }
+            if (Unlocks.Has(v)) { Settings.Vision = v; RefreshSettings(); ShowVisionPreview(v); return; }
             // закрытый режим открывается за наградную рекламу (позже — и покупкой)
             Ads.ShowRewarded(() =>
             {
                 Unlocks.Grant(v);
                 Settings.Vision = v;
                 RefreshSettings();
+                ShowVisionPreview(v);
             });
+        }
+
+        // Живое превью: в меню камера игры не видна, поэтому выбранный вид показываем сразу, на весь экран.
+        void BuildVisionPreview()
+        {
+            visionPreview = Panel(root, "VisionPreview");
+            visionPreview.GetComponent<Image>().color = Color.black;
+            previewImage = Rect(visionPreview.transform, "Feed", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<RawImage>();
+            previewImage.raycastTarget = false;
+            previewMat = new Material(Shader.Find("GhostWard/Feed"));
+            previewImage.material = previewMat;
+            previewTitle = Label(visionPreview.transform, "", 52, new Vector2(0.5f, 0.92f), Vector2.zero, Bone);
+            previewTitle.rectTransform.sizeDelta = new Vector2(960, 160);
+            previewTitle.fontStyle = FontStyle.Bold;
+            Outline(previewTitle);
+            var hint = Label(visionPreview.transform, Loc.T("preview_tap"), 30, new Vector2(0.5f, 0.07f), Vector2.zero, Bone);
+            hint.rectTransform.sizeDelta = new Vector2(900, 60);
+            Outline(hint);
+            var btn = visionPreview.AddComponent<UnityEngine.UI.Button>();
+            btn.targetGraphic = visionPreview.GetComponent<Image>();
+            btn.transition = Selectable.Transition.None;
+            btn.onClick.AddListener(CloseVisionPreview);
+            visionPreview.SetActive(false);
+        }
+
+        void ShowVisionPreview(Vision v)
+        {
+            var cam = PreviewCamera?.Invoke();
+            if (cam == null || !cam.isPlaying)
+            {
+                bool allowed = true;
+#if UNITY_ANDROID && !UNITY_EDITOR
+                allowed = UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.Camera);
+#endif
+                if (allowed && ownPreviewCam == null && WebCamTexture.devices.Length > 0)
+                {
+                    string device = WebCamTexture.devices[0].name;
+                    foreach (var d in WebCamTexture.devices) if (!d.isFrontFacing) { device = d.name; break; }
+                    ownPreviewCam = new WebCamTexture(device, 1280, 720, 30);
+                }
+                if (ownPreviewCam != null) ownPreviewCam.Play();
+                cam = ownPreviewCam;
+            }
+            previewImage.texture = cam;
+            previewImage.color = cam != null ? Color.white : Color.black;
+            previewMat.SetFloat("_Style", (int)v);
+            previewMat.SetFloat("_Mode", 0f);
+            previewMat.SetFloat("_Glitch", 0f);
+            previewTitle.text = Loc.T(VisionKey(v)) + (cam == null ? "\n<size=30>" + Loc.T("preview_no_camera") + "</size>" : "");
+            visionPreview.SetActive(true);
+            visionPreview.transform.SetAsLastSibling();
+        }
+
+        void CloseVisionPreview()
+        {
+            visionPreview.SetActive(false);
+            if (ownPreviewCam != null) ownPreviewCam.Stop();
+        }
+
+        static string VisionKey(Vision v) => v switch
+        {
+            Vision.Normal => "vision_normal",
+            Vision.Dark => "vision_dark",
+            Vision.NightGreen => "vision_night",
+            Vision.NightShot => "vision_nightshot",
+            Vision.Cctv => "vision_cctv",
+            _ => "vision_vhs"
+        };
+
+        // кадр камеры: повернуть и растянуть на весь экран, как фон игры
+        void FitPreview()
+        {
+            if (previewImage.texture is not WebCamTexture cam || cam.width < 32) return;
+            int angle = cam.videoRotationAngle;
+            bool sideways = angle % 180 != 0;
+            float texW = sideways ? cam.height : cam.width, texH = sideways ? cam.width : cam.height;
+            var size = root.rect.size;
+            float scale = Mathf.Max(size.x / texW, size.y / texH);
+            previewImage.rectTransform.sizeDelta = new Vector2(cam.width * scale, cam.height * scale);
+            previewImage.rectTransform.localEulerAngles = new Vector3(0f, 0f, -angle);
+            previewImage.uvRect = cam.videoVerticallyMirrored ? new Rect(0f, 1f, 1f, -1f) : new Rect(0f, 0f, 1f, 1f);
         }
 
         void RefreshSettings()
@@ -994,6 +1118,7 @@ namespace GhostWard
             BuildJournalHowTo();
             BuildJournalTools();
             BuildJournalPractice();
+            BuildJournalLog();
             journal.SetActive(false);
         }
 
@@ -1059,8 +1184,9 @@ namespace GhostWard
             Button(journalList.transform, Loc.T("clues"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalClues), true, 300, -320);
             Button(journalList.transform, Loc.T("items"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalItems), false, 300, 0);
             Button(journalList.transform, Loc.T("tools"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalTools), false, 300, 320);
-            Button(journalList.transform, Loc.T("howto"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalHowTo), false, 310, -165);
-            Button(journalList.transform, Loc.T("close"), new Vector2(0.5f, 0.06f), () => SetJournal(false), false, 310, 165);
+            Button(journalList.transform, Loc.T("howto"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalHowTo), false, 300, -320);
+            Button(journalList.transform, Loc.T("night_log"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalLog), false, 300, 0);
+            Button(journalList.transform, Loc.T("close"), new Vector2(0.5f, 0.06f), () => SetJournal(false), false, 300, 320);
         }
 
         void BuildJournalEntry()
@@ -1236,13 +1362,34 @@ namespace GhostWard
         public void Narrate(string text)
         {
             narrateText.text = text;
-            narrateTimer = 4f;
+            narrateTimer = 4f + text.Length * 0.04f;   // длинное — дольше
+            Log(text, false);
         }
 
         public void Hint(string text)
         {
             hintText.text = text;
-            hintTimer = 6f;
+            hintTimer = 6f + text.Length * 0.05f;
+            Log(text, true);
+        }
+
+        // запись в журнал ночи: время по часам ночи, подсказки — янтарным
+        void Log(string text, bool hint)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            string line = text.Replace("\n\n", " ").Replace("\n", " ");
+            string time = hud.activeSelf ? clockText.text + "  " : "";
+            string entry = hint ? $"{time}<color=#ffc073>{line}</color>" : time + line;
+            if (nightLog.Count > 0 && nightLog[^1] == entry) return;
+            nightLog.Add(entry);
+            if (nightLog.Count > 80) nightLog.RemoveAt(0);
+        }
+
+        // разделитель между ночами
+        public void LogNight(string title)
+        {
+            nightLog.Add($"<b>— {title} —</b>");
+            if (nightLog.Count > 80) nightLog.RemoveAt(0);
         }
 
         public void TrophyToast(string text)
@@ -1595,8 +1742,53 @@ namespace GhostWard
             learnedCount.text = Loc.F("learned_count", Skills.Count, Catalog.Items.Length);
         }
 
+        void BuildJournalLog()
+        {
+            journalLog = Rect(journal.transform, "Log", Vector2.zero, Vector2.one).gameObject;
+            var title = Label(journalLog.transform, Loc.T("night_log"), 64, new Vector2(0.5f, 0.94f), Vector2.zero, Bone);
+            title.rectTransform.sizeDelta = new Vector2(900, 100);
+            title.fontStyle = FontStyle.Bold;
+            var view = Rect(journalLog.transform, "View", new Vector2(0f, 0.12f), new Vector2(1f, 1f));
+            view.offsetMin = new Vector2(60, 0);
+            view.offsetMax = new Vector2(-60, -200);
+            view.gameObject.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.01f);
+            view.gameObject.AddComponent<Mask>().showMaskGraphic = false;
+            logContent = Rect(view, "Content", new Vector2(0f, 1f), new Vector2(1f, 1f));
+            logContent.pivot = new Vector2(0.5f, 1f);
+            logText = Label(logContent, "", 30, new Vector2(0.5f, 1f), Vector2.zero, Bone);
+            logText.rectTransform.anchorMin = new Vector2(0f, 1f);
+            logText.rectTransform.anchorMax = new Vector2(1f, 1f);
+            logText.rectTransform.pivot = new Vector2(0.5f, 1f);
+            logText.rectTransform.offsetMin = logText.rectTransform.offsetMax = Vector2.zero;
+            logText.alignment = TextAnchor.UpperLeft;
+            logText.supportRichText = true;
+            logText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            logText.verticalOverflow = VerticalWrapMode.Overflow;
+            logText.lineSpacing = 1.1f;
+            logScroll = view.gameObject.AddComponent<ScrollRect>();
+            logScroll.content = logContent;
+            logScroll.horizontal = false;
+            logScroll.scrollSensitivity = 40f;
+            Button(journalLog.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
+        }
+
+        void RefreshLog()
+        {
+            // новое — сверху
+            var sb = new System.Text.StringBuilder();
+            for (int i = nightLog.Count - 1; i >= 0; i--) sb.Append(nightLog[i]).Append("\n\n");
+            logText.text = nightLog.Count == 0 ? $"<i>{Loc.T("log_empty")}</i>" : sb.ToString();
+            Canvas.ForceUpdateCanvases();
+            float h = logText.preferredHeight + 40f;
+            logText.rectTransform.sizeDelta = new Vector2(0f, h);
+            logContent.sizeDelta = new Vector2(0f, h);
+            logScroll.verticalNormalizedPosition = 1f;
+        }
+
         void ShowJournalPage(GameObject page)
         {
+            journalLog.SetActive(page == journalLog);
+            if (page == journalLog) RefreshLog();
             journalPractice.SetActive(page == journalPractice);
             if (page == journalItems) RefreshLearned();
             journalList.SetActive(page == journalList);
@@ -1675,6 +1867,14 @@ namespace GhostWard
                 case "howto": ShowJournalPage(journalHowTo); break;
                 case "practice": ShowJournalPage(journalItems); OpenPractice(ItemKind.Mirror); break;
                 case "end": ShowJournalPage(journalList); journalScroll.verticalNormalizedPosition = 0f; break;
+                case "log":
+                    LogNight(Loc.F("night_n", 3));
+                    Narrate(Loc.F("n.Frost", Loc.T("dir_left")));
+                    Hint(Loc.T("h.Frost"));
+                    Message(Loc.T("circle_saved"));
+                    Narrate(Loc.T("s.Kuchisake"));
+                    ShowJournalPage(journalLog);
+                    break;
             }
         }
 
@@ -1826,6 +2026,7 @@ namespace GhostWard
             hud.activeSelf && (RectTransformUtility.RectangleContainsScreenPoint(journalButton, screen, null)
                                || RectTransformUtility.RectangleContainsScreenPoint(toolBar, screen, null)
                                || RectTransformUtility.RectangleContainsScreenPoint(bagButton, screen, null)
+                               || RectTransformUtility.RectangleContainsScreenPoint(logButton, screen, null)
                                || bagPanel.gameObject.activeSelf && RectTransformUtility.RectangleContainsScreenPoint(bagPanel, screen, null));
 
         public void SetDiagnostics(string text) => diagText.text = text;
@@ -1894,7 +2095,8 @@ namespace GhostWard
         public void Message(string text, float seconds = 1.6f)
         {
             messageText.text = text;
-            messageTimer = seconds;
+            messageTimer = Mathf.Max(seconds, 2.2f + text.Length * 0.035f);   // успеть прочитать
+            Log(text, false);
         }
 
         // короткая строка об остатке предмета после применения
@@ -2016,6 +2218,7 @@ namespace GhostWard
         void Update()
         {
             float dt = Time.unscaledDeltaTime;
+            if (visionPreview.activeSelf) FitPreview();
             if (journal.activeSelf && journalPractice.activeSelf) TickPractice(dt);
 
             if (messageTimer > 0f)
