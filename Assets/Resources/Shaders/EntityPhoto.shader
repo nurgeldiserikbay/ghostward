@@ -15,7 +15,7 @@ Shader "GhostWard/EntityPhoto"
         _Seed ("Seed", Float) = 0
         _Flip ("Flip", Float) = 0
         _Locked ("Locked", Float) = 0
-        _Key ("Black key", Float) = 1
+        _Key ("Black key", Float) = 0
 
         _StencilComp ("Stencil Comparison", Float) = 8
         _Stencil ("Stencil ID", Float) = 0
@@ -93,7 +93,7 @@ Shader "GhostWard/EntityPhoto"
                 float glitch = step(0.93, hash11(tf * 0.37 + _Seed));
                 float tear = (hash21(float2(floor(uv.y * 40.0), tf)) - 0.5) * 0.06 * glitch;
                 uv.x += tear;
-                float split = 0.006 + 0.012 * glitch;
+                float split = 0.012 * glitch;                              // каналы расходятся только на сбое
 
                 float4 c = Sample(uv);
                 float r = Sample(uv + float2(split, 0)).r;
@@ -101,16 +101,15 @@ Shader "GhostWard/EntityPhoto"
                 float3 col = float3(r, c.g, b);
                 float alpha = c.a;
 
-                // холодная плёночная тонировка, контраст, тени к акценту
+                // лёгкая холодная тонировка: картинка уже сделана страшной, её цвета не ломаем
                 float lum = dot(col, float3(0.3, 0.59, 0.11));
-                col = lerp(col, lum.xxx, 0.35);
-                col = col * col * (3.0 - 2.0 * col);                      // плотнее тени
-                col = lerp(col, col * lerp(float3(0.8, 0.9, 1.1), _Color.rgb * 1.2, 0.15), 0.6);
+                col = lerp(col, lum.xxx, 0.15);
+                col *= lerp(float3(1.0, 1.0, 1.0), float3(0.9, 0.96, 1.08), 0.5);
 
-                // мерцание и плёночное зерно
-                float flicker = 0.88 + 0.12 * hash11(tf * 1.3 + _Seed);
+                // мерцание и плёночное зерно — только по самой фигуре
+                float flicker = 0.93 + 0.07 * hash11(tf * 1.3 + _Seed);
                 col *= flicker;
-                col += (hash21(i.uv * 400.0 + tf) - 0.5) * 0.09;
+                col += (hash21(i.uv * 400.0 + tf) - 0.5) * 0.035 * step(0.5, alpha);
 
                 // края квада гасим, чтобы не было рамки
                 float edge = saturate(min(min(i.uv.x, 1.0 - i.uv.x), min(i.uv.y, 1.0 - i.uv.y)) * 12.0);
