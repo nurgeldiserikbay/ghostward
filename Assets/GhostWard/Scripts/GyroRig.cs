@@ -182,6 +182,29 @@ namespace GhostWard
                 feedMat.SetFloat("_SegMirror", webcam != null && webcam.videoVerticallyMirrored ? 1f : 0f);
                 feedMat.SetFloat("_ColdPerson", coldPerson ? 1f : 0f);
             }
+
+            bool maskReady = seg != null && seg.Running && seg.HasResult;
+            float p = maskReady ? possess : 0f;
+            feedMat.SetFloat("_Possess", p);
+            if (p > 0f)
+            {
+                feedMat.SetTexture("_SegTex", seg.Mask);
+                feedMat.SetFloat("_SegAngle", webcam != null ? webcam.videoRotationAngle : 0);
+                feedMat.SetFloat("_SegMirror", webcam != null && webcam.videoVerticallyMirrored ? 1f : 0f);
+                feedMat.SetFloat("_FaceOn", seg.FaceFound ? 1f : 0f);
+                feedMat.SetVector("_EyeA", seg.EyeA);
+                feedMat.SetVector("_EyeB", seg.EyeB);
+                feedMat.SetVector("_Mouth", seg.Mouth);
+                feedMat.SetFloat("_FaceSize", seg.FaceSize);
+            }
+        }
+
+        // одержимость 0..1: маска на человека и лицо в любом виде камеры
+        float possess;
+        public void SetPossession(float amount, bool wantFace)
+        {
+            possess = amount;
+            if (seg != null) seg.FaceWanted = wantFace;
         }
 
         // тепловизор с распознаванием живых; coldPerson — «одержимость»: человек холодный

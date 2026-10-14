@@ -303,10 +303,12 @@ namespace GhostWard.EditorTools
                 var seg = new GameObject("Seg").AddComponent<ThermalSeg>();
                 seg.Init();
                 seg.SetActive(true);
+                seg.FaceWanted = true;
                 { var t0 = System.DateTime.Now; while (!seg.HasResult && (System.DateTime.Now - t0).TotalSeconds < 60) { seg.Tick(src, 0, false); UnityEngine.Rendering.AsyncGPUReadback.WaitAllRequests(); } }
-                Debug.Log($"[GhostWard] {Path.GetFileName(file)}: человек={seg.PersonInView} животное={seg.AnimalInView}");
+                Debug.Log($"[GhostWard] {Path.GetFileName(file)}: человек={seg.PersonInView} животное={seg.AnimalInView} " +
+                          $"лицо={seg.FaceFound} глаза={seg.EyeA}/{seg.EyeB} рот={seg.Mouth} размер={seg.FaceSize:0.00}");
 
-                foreach (bool cold in new[] { false, true })
+                foreach (bool cold in new[] { false, true, true })
                 {
                     var cam = new GameObject("Cam").AddComponent<Camera>();
                     cam.orthographic = true;
@@ -323,10 +325,20 @@ namespace GhostWard.EditorTools
                     quad.transform.localScale = new Vector3(aspect, 1f, 1f);
                     var m = new Material(Shader.Find("GhostWard/Feed"));
                     m.mainTexture = src;
-                    m.SetFloat("_Style", 5f);
-                    m.SetFloat("_SegOn", 1f);
+                    bool possessed = cold && File.Exists($"Logs/seg_{Path.GetFileNameWithoutExtension(file)}_cold.png");
+                    m.SetFloat("_Style", possessed ? 1f : 5f);
+                    m.SetFloat("_SegOn", possessed ? 0f : 1f);
                     m.SetTexture("_SegTex", seg.Mask);
                     m.SetFloat("_ColdPerson", cold ? 1f : 0f);
+                    if (possessed)
+                    {
+                        m.SetFloat("_Possess", 1f);
+                        m.SetFloat("_FaceOn", seg.FaceFound ? 1f : 0f);
+                        m.SetVector("_EyeA", seg.EyeA);
+                        m.SetVector("_EyeB", seg.EyeB);
+                        m.SetVector("_Mouth", seg.Mouth);
+                        m.SetFloat("_FaceSize", seg.FaceSize);
+                    }
                     quad.GetComponent<MeshRenderer>().sharedMaterial = m;
 
                     var request = new RenderPipeline.StandardRequest { destination = rt };
@@ -337,7 +349,7 @@ namespace GhostWard.EditorTools
                     tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
                     tex.Apply();
                     RenderTexture.active = null;
-                    File.WriteAllBytes($"Logs/seg_{Path.GetFileNameWithoutExtension(file)}{(cold ? "_cold" : "")}.png", tex.EncodeToPNG());
+                    File.WriteAllBytes($"Logs/seg_{Path.GetFileNameWithoutExtension(file)}{(possessed ? "_possessed" : cold ? "_cold" : "")}.png", tex.EncodeToPNG());
                     Object.DestroyImmediate(cam.gameObject);
                     Object.DestroyImmediate(quad);
                 }

@@ -344,7 +344,11 @@ namespace GhostWard
             modifier = prologue ? Modifier.None : dailyMode ? Daily.Modifier : Modifiers.Roll(night);
             heardThisHunt = false;
             ironNowShown = false;
-            possessedNight = !prologue && night >= 2 && Random.value < 0.3f;
+            // ночь «одержимости»: со второй ночи в трети ночей; в тестовой сборке — всегда, чтобы было что проверять
+            possessedNight = !prologue && (Unlocks.TestUnlockAll || night >= 2 && Random.value < 0.35f);
+            possession = possessionTimer = 0f;
+            possessionCooldown = Random.Range(8f, 15f);
+            possessionCount = 0;
             nameMusicPlayed = false;
             proStep = 0;
             proTimer = proIdle = 0f;
@@ -657,6 +661,7 @@ namespace GhostWard
             UpdatePrints(dt);
             UpdateSignature(dt);
             UpdateWander(dt);
+            UpdatePossession(dt);
             UpdateThermalLife();
             if (phase == Phase.Investigate && anger >= 100f) StartHunt(false);
         }
@@ -1128,9 +1133,12 @@ namespace GhostWard
             bool thermal = tool == Tool.Thermo && phase is Phase.Scan or Phase.Investigate or Phase.Hunt;
             var style = thermal ? Vision.Thermal : Settings.Vision;
             var episode = Settings.Vision == Vision.NightGreen ? Vision.Cctv : Vision.NightGreen;
+            // в ночь одержимости нейросеть ищет людей и в обычном виде камеры
+            bool watchPeople = possessedNight && phase == Phase.Investigate;
             if (gyroRig != null)
             {
-                gyroRig.SetThermalSeg(thermal, possessedNight);
+                gyroRig.SetThermalSeg(thermal || watchPeople, possessedNight);
+                gyroRig.SetPossession(possession, watchPeople && (gyroRig.PersonInView || possession > 0f));
                 gyroRig.SetLook(style, episode, nightVision, glitch);
             }
             // сущности «снимаются» той же камерой: тот же вид и свет комнаты
@@ -1565,6 +1573,38 @@ namespace GhostWard
                     break;
             }
             ui.Narrate(Loc.F("s." + k, Direction(lair)));
+        }
+
+        // ---------- одержимость ----------
+        // В ночь одержимости, когда в кадре живой человек, сущность на 3–4 секунды «надевает» его:
+        // вены по телу, чёрные глаза с красными точками, растянутый рот. Не больше трёх раз за ночь.
+        float possession, possessionTimer, possessionCooldown;
+        int possessionCount;
+        const float PossessionTime = 3.5f;
+
+        void UpdatePossession(float dt)
+        {
+            possessionCooldown -= dt;
+            if (possessionTimer > 0f)
+            {
+                possessionTimer -= dt;
+                float elapsed = PossessionTime - possessionTimer;
+                possession = Mathf.Min(Mathf.Clamp01(elapsed / 0.4f), Mathf.Clamp01(possessionTimer / 0.7f));
+                // лёгкое подёргивание силы — как сбой
+                if (Random.value < dt * 4f) possession *= 0.5f;
+                return;
+            }
+            possession = 0f;
+            if (!possessedNight || gyroRig == null || possessionCount >= 3 || possessionCooldown > 0f) return;
+            if (!gyroRig.PersonInView) return;
+            possessionTimer = PossessionTime;
+            possessionCooldown = Random.Range(25f, 40f);
+            possessionCount++;
+            sfx.PlayOneShot(ProceduralAudio.Whisper(), 0.7f * Settings.Sfx);
+            music.Play(Music.Stinger.Strings, 0.45f);
+            glitch = Mathf.Max(glitch, 0.6f);
+            ui.Narrate(Loc.T("n.Possession"));
+            AddFear(6f);
         }
 
         // ---------- сущность показывается во время расследования ----------

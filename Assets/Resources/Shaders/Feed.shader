@@ -4,6 +4,9 @@
 // В тепловизоре маска нейросети (_SegTex: R — человек, G — животное) делает живых горячими;
 // _ColdPerson — «одержимость»: человек холодный, как сущность.
 // _Glitch — помехи у логова и рядом с сущностью.
+// _Possess 0..1 — «одержимость» в любом виде камеры: по силуэту человека (маска _SegTex) ползут тёмные вены,
+// тело темнеет, по краю — тёмно-красный ореол; на лице (_EyeA/_EyeB/_Mouth от поиска лиц) глаза заливает
+// чернотой с красными точками, от глаз расходятся вены, рот темнеет и растягивается.
 Shader "GhostWard/Feed"
 {
     Properties
@@ -18,6 +21,12 @@ Shader "GhostWard/Feed"
         _SegAngle ("Segmentation angle", Float) = 0
         _SegMirror ("Segmentation mirror", Float) = 0
         _ColdPerson ("Cold person", Float) = 0
+        _Possess ("Possession", Range(0, 1)) = 0
+        _FaceOn ("Face found", Float) = 0
+        _EyeA ("Eye A", Vector) = (0, 0, 0, 0)
+        _EyeB ("Eye B", Vector) = (0, 0, 0, 0)
+        _Mouth ("Mouth", Vector) = (0, 0, 0, 0)
+        _FaceSize ("Face size", Float) = 0.2
     }
 
     SubShader
@@ -40,6 +49,8 @@ Shader "GhostWard/Feed"
             float _Style, _Alt, _Mode, _Glitch;
             sampler2D _SegTex;
             float _SegOn, _SegAngle, _SegMirror, _ColdPerson;
+            float _Possess, _FaceOn, _FaceSize;
+            float4 _EyeA, _EyeB, _Mouth;
 
             // координата кадра камеры → координата выпрямленного кадра, на котором считалась маска
             float2 segUv(float2 t)
@@ -67,6 +78,60 @@ Shader "GhostWard/Feed"
 
             float hash21(float2 p) { return frac(sin(dot(p, float2(12.9898, 78.233))) * 43758.5453); }
             float luma(float3 c) { return dot(c, float3(0.299, 0.587, 0.114)); }
+
+            float vnoise(float2 p)
+            {
+                float2 i = floor(p), f = frac(p);
+                f = f * f * (3.0 - 2.0 * f);
+                float a = hash21(i), b = hash21(i + float2(1, 0)), c = hash21(i + float2(0, 1)), d = hash21(i + float2(1, 1));
+                return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
+            }
+
+            // тонкие ветвящиеся вены: «гребни» шума двух масштабов
+            float veins(float2 p)
+            {
+                float a = pow(1.0 - abs(vnoise(p) * 2.0 - 1.0), 7.0);
+                float b = pow(1.0 - abs(vnoise(p * 2.3 + 17.0) * 2.0 - 1.0), 9.0);
+                return saturate(a + b * 0.7);
+            }
+
+            // одержимость: всё в координатах выпрямленного кадра (q), как маска и точки лица
+            float3 possess(float3 col, float2 uv, float t)
+            {
+                float2 q = segUv(uv);
+                float m = tex2D(_SegTex, q).r;
+                float person = smoothstep(0.3, 0.7, m);
+                float rim = smoothstep(0.08, 0.3, m) * (1.0 - smoothstep(0.45, 0.75, m));
+                float k = _Possess;
+                // кожа мертвеет: уходит цвет, серо-синяя бледность, темнее; по телу — тонкие тёмные вены
+                float l = luma(col);
+                float3 dead = lerp(l.xxx, col, 0.25) * float3(0.78, 0.86, 0.95) * 0.7;
+                col = lerp(col, dead, person * k);
+                float v = veins(q * 22.0 + float2(0.0, t * 0.03));
+                col = lerp(col, float3(0.02, 0.015, 0.03), person * k * v * 0.75);
+                // вокруг — тёмная дымка, чуть дрожит
+                col *= 1.0 - rim * k * (0.45 + 0.15 * sin(t * 7.0));
+
+                if (_FaceOn > 0.5)
+                {
+                    float r = max(_FaceSize * 0.1, 0.006);
+                    float dA = length(q - _EyeA.xy) / r, dB = length(q - _EyeB.xy) / r;
+                    float d = min(dA, dB);
+                    float2 c = dA < dB ? _EyeA.xy : _EyeB.xy;
+                    // глаза — чёрные, с красной точкой-зрачком
+                    col = lerp(col, float3(0.0, 0.0, 0.0), saturate(1.7 - d * 1.2) * k);
+                    col += float3(1.0, 0.12, 0.08) * saturate(1.0 - d * 3.5) * k * (0.7 + 0.3 * sin(t * 13.0));
+                    // вены от глаз — лучами
+                    float ang = atan2(q.y - c.y, q.x - c.x);
+                    float rays = pow(abs(sin(ang * 7.0 + vnoise(q * 40.0) * 2.0)), 22.0);
+                    float around = saturate(1.0 - abs(d - 2.0) / 1.1);
+                    col = lerp(col, float3(0.015, 0.012, 0.02), rays * around * k * 0.8);
+                    // рот — тёмная растянутая щель
+                    float2 dm = (q - _Mouth.xy) / float2(r * 3.4, r * 0.9);
+                    col = lerp(col, float3(0.0, 0.0, 0.0), saturate(1.4 - length(dm)) * k);
+                }
+                return col;
+            }
 
             float3 look(int style, float2 uv, float2 sp, float2 px, float t, float grain)
             {
@@ -193,6 +258,7 @@ Shader "GhostWard/Feed"
 
                 float3 col = look((int)round(_Style), uv, sp, px, t, grain);
                 if (_Mode > 0.001) col = lerp(col, look((int)round(_Alt), uv, sp, px, t, grain), _Mode);
+                if (_Possess > 0.001) col = possess(col, uv, t);
 
                 col = lerp(col, (grain + 0.5).xxx, _Glitch * 0.35 * step(0.6, hash21(float2(row, floor(t * 30.0)))));
                 return fixed4(col, 1.0) * i.color;

@@ -2362,6 +2362,12 @@ namespace GhostWard
                 "Não dá para ver — é invisível. Vire-se para onde vêm as batidas e use o que ele teme." },
             ["test_next"] = new[] { "TEST: NEXT NIGHT", "ТЕСТ: СЛЕДУЮЩЕЙ НОЧЬЮ", "ТЕСТ: КЕЛЕСІ ТҮНІ", "PRUEBA: PRÓXIMA NOCHE", "TESTE: PRÓXIMA NOITE" },
             ["test_next_set"] = new[] { "Next night: {0}", "Следующей ночью придёт: {0}", "Келесі түні келеді: {0}", "La próxima noche vendrá: {0}", "Na próxima noite virá: {0}" },
+            ["n.Possession"] = new[] {
+                "Their eyes went black for a moment. Something is looking out through them.",
+                "На миг их глаза стали чёрными. Сквозь них смотрит что-то другое.",
+                "Бір сәтке олардың көздері қап-қара болды. Солар арқылы басқа бірдеңе қарап тұр.",
+                "Por un instante sus ojos se volvieron negros. Algo está mirando a través de ellos.",
+                "Por um instante os olhos ficaram pretos. Algo está olhando através deles." },
             // ---------- улики ----------
             ["c.Frost.name"] = new[] { "Cold", "Холод", "Суық", "Frío", "Frio" },
             ["c.Frost.howto"] = new[] { "In the thermal camera the lair shows as a blue cold spot, below zero.", "В тепловизоре логово видно синим холодным пятном, ниже нуля.", "Тепловизорда ұя көк суық дақ болып көрінеді, нөлден төмен.", "En la cámara térmica la guarida aparece como una mancha fría azul, bajo cero.", "Na câmera térmica o covil aparece como uma mancha fria azul, abaixo de zero." },
