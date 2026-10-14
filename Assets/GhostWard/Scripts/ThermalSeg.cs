@@ -26,7 +26,8 @@ namespace GhostWard
         public bool PersonInView { get; private set; }
         public bool AnimalInView { get; private set; }
         public bool HasResult { get; private set; }
-        public bool Running => enabledByGame && worker != null;
+        public bool Running => enabledByGame && worker != null && !failed;
+        bool failed;   // модель упала — больше не пытаемся
 
         Worker worker;
         Tensor<float> input;
@@ -93,6 +94,7 @@ namespace GhostWard
                     Debug.LogWarning("[GhostWard] Ошибка нейросети тепловизора: " + e.Message);
                     running = null;
                     enabledByGame = false;
+                    failed = true;
                 }
                 return;
             }
@@ -167,6 +169,8 @@ namespace GhostWard
         {
             worker?.Dispose();
             input?.Dispose();
+            worker = null;
+            input = null;
             if (upright != null) upright.Release();
         }
     }

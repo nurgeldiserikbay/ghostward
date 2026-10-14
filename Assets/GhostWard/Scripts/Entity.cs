@@ -366,7 +366,7 @@ namespace GhostWard
                             if (jump != null) voice.PlayOneShot(jump, 1f);
                         }
                     }
-                    else if (Random.value < 0.04f) transform.position += Random.insideUnitSphere * 0.03f;
+                    else if (Random.value < 0.04f) transform.position += Jitter(0.03f);
                     break;
 
                 case EntityKind.Poltergeist:
@@ -413,7 +413,7 @@ namespace GhostWard
                     else
                     {
                         var p = transform.position;
-                        p.y = Mathf.MoveTowards(p.y, cam.transform.position.y - 0.2f, dt * 6f);
+                        p.y = Mathf.MoveTowards(p.y, game.Floor + Def.Height * 0.5f, dt * 6f);   // падает на пол перед игроком
                         transform.position = p;
                         phaseTime -= dt;
                         if (phaseTime <= 0f) Approach(speed * 2f);
@@ -438,7 +438,7 @@ namespace GhostWard
 
                 case EntityKind.Mara:
                     nextEvent -= dt;
-                    if (watched && Random.value < 0.03f) transform.position += Random.insideUnitSphere * 0.02f;
+                    if (watched && Random.value < 0.03f) transform.position += Jitter(0.02f);
                     if (nextEvent <= 0f) { Strike(); return; }
                     break;
             }
@@ -483,6 +483,14 @@ namespace GhostWard
             if (FlatDistance() < AttackDistance) Strike();
         }
 
+        // дрожь на месте: у стоящих на полу — без вертикали, иначе фигура и тень «уплывают» с пола
+        Vector3 Jitter(float r)
+        {
+            var j = Random.insideUnitSphere * r;
+            if (Planar) j.y = 0f;
+            return j;
+        }
+
         void Burn(float dt)
         {
             Exposure += dt;
@@ -524,7 +532,7 @@ namespace GhostWard
                 p.y -= baseScale.y * 0.5f - 0.01f;
                 shadow.transform.position = p;
                 shadow.transform.rotation = Quaternion.Euler(90f, Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg, 0f);
-                bool visible = rend.enabled && Current != State.Attacking && !(Arch == EntityKind.Kikimora && !dropped);
+                bool visible = rend.enabled && Current is not (State.Attacking or State.Banished) && !(Arch == EntityKind.Kikimora && !dropped);
                 shadowMat.SetFloat(AlphaId, visible ? fade * 0.55f : 0f);
             }
         }

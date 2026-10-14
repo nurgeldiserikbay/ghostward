@@ -63,8 +63,12 @@ namespace GhostWard
         System.Threading.Tasks.Task<float[]> themeTask;
         EntityKind themeTaskKind;
 
-        void StartTheme(AudioClip clip)
+        AudioClip ownedTheme;   // синтезированная тема (не файл из Resources) — удаляем, когда сменилась
+
+        void StartTheme(AudioClip clip, bool owned = false)
         {
+            if (ownedTheme != null && ownedTheme != clip) Destroy(ownedTheme);
+            ownedTheme = owned ? clip : null;
             theme.clip = clip;
             theme.Play();
         }
@@ -108,7 +112,7 @@ namespace GhostWard
             if (themeTask != null && themeTask.IsCompleted)
             {
                 if (themeTask.Status == System.Threading.Tasks.TaskStatus.RanToCompletion && themeKind == themeTaskKind)
-                    StartTheme(Make("theme_" + themeTaskKind, themeTask.Result));
+                    StartTheme(Make("theme_" + themeTaskKind, themeTask.Result), true);
                 themeTask = null;
             }
             float dt = Time.unscaledDeltaTime;

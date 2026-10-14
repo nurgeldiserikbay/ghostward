@@ -21,6 +21,7 @@ namespace GhostWard
         {
             pressing = held = false;
             lastTapTime = -10f;
+            lastAccel = ReadAccel();   // иначе поворот телефона за время паузы читается как встряхивание
         }
 
         // ignore — касание пришлось на кнопку интерфейса; now — время для двойного касания (в дневнике игра на паузе)
@@ -98,18 +99,19 @@ namespace GhostWard
             return null;
         }
 
-        bool DetectShake()
+        static Vector3 ReadAccel()
         {
             var acc = Accelerometer.current;
-            Vector3 a;
-            if (acc != null)
-            {
-                if (!acc.enabled) InputSystem.EnableDevice(acc);
-                a = acc.acceleration.ReadValue();
-                if (a.magnitude > 4f) a /= 9.81f; // некоторые устройства отдают м/с², приводим к g
-            }
-            else a = Input.acceleration;
+            if (acc == null) return Input.acceleration;
+            if (!acc.enabled) InputSystem.EnableDevice(acc);
+            var a = acc.acceleration.ReadValue();
+            if (a.magnitude > 4f) a /= 9.81f; // некоторые устройства отдают м/с², приводим к g
+            return a;
+        }
 
+        bool DetectShake()
+        {
+            var a = ReadAccel();
             float jerk = (a - lastAccel).magnitude;
             lastAccel = a;
             return jerk > 1.4f;

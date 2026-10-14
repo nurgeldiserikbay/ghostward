@@ -25,6 +25,11 @@ namespace GhostWard
         const float NightSeconds = 300f;
         const float FearDecay = 2.5f;
         const float EyeHeight = 1.4f;
+        float floorY;    // уровень пола, запомненный в начале ночи (в AR телефон может подниматься и опускаться)
+        public float Floor => arRig != null ? floorY : cam.transform.position.y - EyeHeight;
+
+        // половина горизонтального угла обзора: в портретной ориентации кадр узкий (~15°)
+        float HalfFovX => Mathf.Atan(Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad) * cam.aspect) * Mathf.Rad2Deg;
         const float ScanCoverage = 0.85f;
         const float CeilingHeight = 2.6f;
 
@@ -248,7 +253,7 @@ namespace GhostWard
                 Time.timeScale = open ? 0f : 1f;
                 AudioListener.pause = open;
                 gestures.Reset();
-                ui.CanName = open && phase == Phase.Investigate && !named;
+                ui.CanName = open && phase == Phase.Investigate && !named && (!prologue || proStep >= 7);
                 if (open) ui.ShowJournal(inv);
             };
         }
@@ -316,6 +321,7 @@ namespace GhostWard
             night++;
             fear = Mathf.Min(fear, 20f);
             gestures.Reset();
+            if (photo != null) Destroy(photo);
             photo = null;
             circle = tumar = false;
             candleTime = 0f;
@@ -416,9 +422,11 @@ namespace GhostWard
             nextVisionSwitch = Random.Range(12f, 20f);
             nightVisionTarget = 0f;
 
+            floorY = cam.transform.position.y - EyeHeight;
+            markTime = 0f;
             // логово: албасты — за спиной, остальные — по своей привычке на карте темноты
             lair = PickPosition(target, target.Lair == Lair.Behind ? 140f : 0f, -1f);
-            if (target.Lair == Lair.Ceiling) lair.y = cam.transform.position.y - EyeHeight + CeilingHeight - 0.5f;
+            if (target.Lair == Lair.Ceiling && target.Stance != Stance.Ceiling) lair.y = Floor + CeilingHeight - 0.5f;
 
             phase = Phase.Investigate;
             ui.SetPhase(Loc.T("phase_investigate"), false);
@@ -650,7 +658,7 @@ namespace GhostWard
             UpdateSignature(dt);
             UpdateWander(dt);
             UpdateThermalLife();
-            if (anger >= 100f) StartHunt(false);
+            if (phase == Phase.Investigate && anger >= 100f) StartHunt(false);
         }
 
         void EmitClue()
@@ -747,7 +755,7 @@ namespace GhostWard
             if (toLair.sqrMagnitude < 1e-3f) toLair = Vector3.forward;
             toLair.Normalize();
             var side = Vector3.Cross(Vector3.up, toLair);
-            float floor = camPos.y - EyeHeight;
+            float floor = Floor;
             var start = camPos + toLair * 0.7f + side * Random.Range(-0.7f, 0.7f);
             start.y = floor + 0.01f;
             float yaw = Mathf.Atan2(toLair.x, toLair.z) * Mathf.Rad2Deg;
@@ -866,6 +874,7 @@ namespace GhostWard
             else
             {
                 AddFear(15f);
+                if (phase != Phase.Investigate) return;   // от страха — конец ночи, охоты уже не будет
                 ui.Message(Loc.T("named_wrong"), 3f);
                 StartHunt(false, enraged: true);
             }
@@ -1006,6 +1015,9 @@ namespace GhostWard
             frostTime = staticTime = compassTime = 0f;
             quietTime = heardTime = 0f;
             float aggression = (1f + (night - 1) * 0.08f) * (weakened ? 0.75f : enraged ? 1.4f : 1f);
+            var flat = lair - cam.transform.position;
+            flat.y = 0f;
+            if (flat.magnitude < 2.2f) lair = PickPosition(target, 60f, -1f);
             hunter = Entity.Create(target, lair, cam, this, aggression, 2.5f);
             hunter.Weakened = weakened;
             entities.Add(hunter);
@@ -1020,6 +1032,7 @@ namespace GhostWard
         void UpdateHunt(float dt)
         {
             HandleInput(dt);
+            if (phase != Phase.Hunt) return;   // предмет мог закончить ночь (страх 100)
 
             if (hunter == null || !hunter.Alive)
             {
@@ -1186,7 +1199,7 @@ namespace GhostWard
             {
                 float viewYaw = Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg;
                 yaw = viewYaw + Random.Range(minAngle, 180f) * (Random.value < 0.5f ? -1f : 1f);
-                pitch = 0f;
+                pitch = def.Lair switch { Lair.Floor => -25f, Lair.Ceiling => 30f, _ => 0f };
             }
 
             float dist;
@@ -1198,7 +1211,7 @@ namespace GhostWard
 
             var dir = Quaternion.Euler(0f, yaw, 0f) * Vector3.forward;
             var pos = camPos + dir * dist;
-            float floor = camPos.y - EyeHeight;
+            float floor = Floor;
             pos.y = def.Stance switch
             {
                 Stance.Floor => floor + def.Height * 0.5f,
@@ -1240,10 +1253,11 @@ namespace GhostWard
                 }
                 else extra = Loc.T("daily_again");
             }
+            int rankBefore = Progress.Rank;
             if (banished && namedRight && !wrongItemUsed) Trophies.OnCleanNight();
             Trophies.OnNight(night);
             int unlockedBefore = Know.UnlockedCount;
-            bool rankUp = Progress.AddXp(xp);
+            bool rankUp = Progress.AddXp(xp) || Progress.Rank > rankBefore;
             bool newPage = Progress.AddSurvivedNight();
             extra = JoinLines(extra, JournalLine(Know.Record(target.Kind, NightClues(), lureMatched, true, banished)));
             if (banished && newCase) extra = JoinLines(extra, Loc.F("defense_learned", Catalog.Get(target.Bane).Name));
@@ -1371,7 +1385,7 @@ namespace GhostWard
 
             // место — тёмный угол на карте, на высоте мебели
             var pos = PickPosition(Catalog.Get(EntityKind.Shade), 50f, 3f);
-            pos.y = cam.transform.position.y - EyeHeight + Random.Range(0.3f, 1.1f);
+            pos.y = Floor + Random.Range(0.3f, 1.1f);
             stash = GameObject.CreatePrimitive(PrimitiveType.Quad);
             stash.name = "Stash";
             Destroy(stash.GetComponent<Collider>());
@@ -1494,16 +1508,15 @@ namespace GhostWard
             fwd.y = 0f;
             fwd = fwd.sqrMagnitude < 1e-3f ? Vector3.forward : fwd.normalized;
             var side = Vector3.Cross(Vector3.up, fwd);
-            float floor = camPos.y - EyeHeight;
+            float floor = Floor;
 
             switch (StyleOf(k))
             {
                 case ScareStyle.Glimpse:
                 {
                     // на краю зрения, на миг
-                    var dir = Quaternion.Euler(0f, Random.Range(28f, 40f) * (Random.value < 0.5f ? -1f : 1f), 0f) * fwd;
-                    var pos = camPos + dir * 3f;
-                    pos.y = target.Stance == Stance.Floor ? floor + target.Height * 0.5f : camPos.y;
+                    // у самого края кадра, но в кадре
+                    var pos = EdgeOfView(HalfFovX * Random.Range(0.7f, 0.95f) * (Random.value < 0.5f ? -1f : 1f), 3f);
                     Apparition.Show(target, pos, cam.transform, 0.5f);
                     PlayAt(call, pos, 0.6f);
                     music.Play(Music.Stinger.Boom, 0.3f);
@@ -1576,7 +1589,12 @@ namespace GhostWard
             fwd.y = 0f;
             fwd = fwd.sqrMagnitude < 1e-3f ? Vector3.forward : fwd.normalized;
             var pos = cam.transform.position + Quaternion.Euler(0f, angle, 0f) * fwd * dist;
-            pos.y = target.Stance == Stance.Floor ? cam.transform.position.y - EyeHeight + target.Height * 0.5f : cam.transform.position.y;
+            pos.y = target.Stance switch
+            {
+                Stance.Floor => Floor + target.Height * 0.5f,
+                Stance.Ceiling => Floor + CeilingHeight - target.Height * 0.5f,
+                _ => cam.transform.position.y
+            };
             return pos;
         }
 
@@ -1584,8 +1602,9 @@ namespace GhostWard
         IEnumerator PassScare()
         {
             float side = Random.value < 0.5f ? -1f : 1f;
-            var pos = EdgeOfView(side * Random.Range(24f, 34f), Random.Range(3.2f, 4.5f));
-            var across = Vector3.Cross(Vector3.up, (pos - cam.transform.position).normalized) * side;   // к центру кадра
+            // входит в кадр с края и плывёт к центру
+            var pos = EdgeOfView(side * HalfFovX * Random.Range(0.9f, 1.15f), Random.Range(3.2f, 4.5f));
+            var across = Vector3.Cross(Vector3.up, (pos - cam.transform.position).normalized) * -side;
             float seconds = Random.Range(3.5f, 5f);
             wanderer = Apparition.Show(target, pos, cam.transform, seconds, across * Random.Range(0.25f, 0.4f), true, 0.7f);
             var loop = EntitySounds.Loop(target.Kind) ?? EntitySounds.Call(target.Kind);
@@ -1595,7 +1614,8 @@ namespace GhostWard
             {
                 yield return new WaitForSeconds(seconds * 0.6f);
                 if (wanderer != null) wanderer.Kill();
-                var other = EdgeOfView(-side * Random.Range(20f, 30f), Random.Range(2.6f, 3.4f));
+                if (phase != Phase.Investigate) yield break;
+                var other = EdgeOfView(-side * HalfFovX * Random.Range(0.4f, 0.7f), Random.Range(2.6f, 3.4f));
                 Apparition.Show(target, other, cam.transform, 0.7f, default, false, 0.8f);
                 music.Play(Music.Stinger.Boom, 0.35f);
                 AddFear(4f);
@@ -1605,7 +1625,7 @@ namespace GhostWard
         // наблюдение: стоит вдалеке и смотрит. Отвернулся и посмотрел снова — она ближе, на миг
         IEnumerator StareScare()
         {
-            var pos = EdgeOfView(Random.Range(-12f, 12f), Random.Range(4.2f, 5f));
+            var pos = EdgeOfView(HalfFovX * Random.Range(-0.5f, 0.5f), Random.Range(4.2f, 5f));
             var dir = (pos - cam.transform.position).normalized;
             wanderer = Apparition.Show(target, pos, cam.transform, 9f, default, false, 0.55f);
             float wait = 9f;
@@ -1638,10 +1658,11 @@ namespace GhostWard
             sfx.PlayOneShot(ProceduralAudio.Click(), 0.7f);
             ui.Flash(new Color(0f, 0f, 0f, 0.97f));
             yield return new WaitForSeconds(0.45f);
+            if (phase != Phase.Investigate) yield break;
             var fwd = cam.transform.forward;
             fwd.y = 0f;
             var pos = cam.transform.position + fwd.normalized * 1.8f;
-            pos.y = cam.transform.position.y - EyeHeight + target.Height * 0.5f;
+            pos.y = Floor + target.Height * 0.5f;
             Apparition.Show(target, pos, cam.transform, 0.35f);
             PlayAt(call, pos, 0.7f);
             yield return new WaitForSeconds(0.3f);
@@ -1656,6 +1677,7 @@ namespace GhostWard
             ui.Handprint();
             ui.Shake(0.25f);
             yield return new WaitForSeconds(0.6f);
+            if (phase != Phase.Investigate) yield break;
             ui.Handprint();
             PlayAt(call, cam.transform.position + cam.transform.forward * 0.4f, 0.6f);
         }
@@ -1787,6 +1809,7 @@ namespace GhostWard
         IEnumerator WakeUp()
         {
             yield return new WaitForSeconds(2.2f);
+            if (phase is not (Phase.Investigate or Phase.Hunt)) yield break;
             ui.Message(Loc.T("faint"), 4f);
             ui.FrostBurst(3f);
         }
@@ -1867,7 +1890,7 @@ namespace GhostWard
                     return;
                 }
             }
-            if (!inv.Use(item)) { Empty(Loc.F("no_more", def.Name)); return; }
+            if (!prologue && !inv.Use(item)) { Empty(Loc.F("no_more", def.Name)); return; }   // в обучении не тратится
 
             switch (item)
             {
