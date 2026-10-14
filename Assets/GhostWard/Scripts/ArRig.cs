@@ -44,7 +44,11 @@ namespace GhostWard
         public static IEnumerator TryCreate(System.Action<ArRig> done, System.Action<string> log)
         {
             // AR выключен в настройках или сервисов AR нет (и игрок сам не просил их поставить) — режим гироскопа
-            if (Settings.ArMode == 1 || (!ArCoreInstalled() && !Settings.ArInstallRequested))
+            // просьба «Установить AR» — одноразовая: на неподдерживаемом телефоне ARCore отвечает «не поддерживается»,
+            // и без сброса игра поднимала бы AR (и Маркет) при каждом запуске
+            bool installRequested = Settings.ArInstallRequested;
+            Settings.ArInstallRequested = false;
+            if (Settings.ArMode == 1 || (!ArCoreInstalled() && !installRequested))
             {
                 log(Settings.ArMode == 1 ? "AR: выключен в настройках" : "AR: сервисы AR не установлены");
                 done(null);
@@ -89,9 +93,8 @@ namespace GhostWard
             // Маркет тогда показывает «устройство несовместимо». Поэтому установку предлагаем,
             // только если игрок сам нажал «Установить AR» в настройках; иначе тихо уходим в гироскоп.
             yield return ARSession.CheckAvailability();
-            if (ARSession.state == ARSessionState.NeedsInstall && Settings.ArInstallRequested)
+            if (ARSession.state == ARSessionState.NeedsInstall && installRequested)
             {
-                Settings.ArInstallRequested = false;
                 log("AR: установка сервисов AR");
                 yield return ARSession.Install();
             }
