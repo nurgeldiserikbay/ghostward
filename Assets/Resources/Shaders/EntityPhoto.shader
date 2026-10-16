@@ -60,7 +60,7 @@ Shader "GhostWard/EntityPhoto"
             float _Fade, _Flash, _Dissolve, _Seed, _Flip, _Locked, _Key, _World, _Dim;
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
-            struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 screen : TEXCOORD1; };
+            struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 screen : TEXCOORD1; float3 world : TEXCOORD2; };
 
             v2f vert(appdata v)
             {
@@ -68,6 +68,7 @@ Shader "GhostWard/EntityPhoto"
                 o.pos = UnityObjectToClipPos(v.vertex);
                 o.uv = v.uv;
                 o.screen = ComputeScreenPos(o.pos);
+                o.world = mul(unity_ObjectToWorld, v.vertex).xyz;
                 return o;
             }
 
@@ -128,6 +129,7 @@ Shader "GhostWard/EntityPhoto"
                     alpha *= smoothstep(0.0, 0.07, h);
                     float2 sp = i.screen.xy / max(i.screen.w, 1e-4);
                     col = GW_Grade(col, sp, _Dim);
+                    alpha *= GW_Occlusion(i.world);   // за настоящим столом или косяком — не видна
                 }
                 else
                 {

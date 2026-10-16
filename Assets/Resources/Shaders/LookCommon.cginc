@@ -38,4 +38,22 @@ float3 GW_Grade(float3 c, float2 screenUv, float dim)
     return a;
 }
 
+// Перекрытие настоящими предметами (режим гироскопа, RoomMap): панорама расстояний вокруг игрока,
+// снятая нейросетью глубины. Если стол, диван или косяк ближе фигуры — фигура за ним не видна.
+// Запас 12 % + 15 см: глубина по одному кадру неточна, фигура не должна «проваливаться» в стену за собой.
+sampler2D _GW_Room;
+float4 _GW_RoomOrigin;   // xyz — откуда снята панорама, w — 1, если она есть
+
+float GW_Occlusion(float3 worldPos)
+{
+    if (_GW_RoomOrigin.w < 0.5) return 1.0;
+    float3 d = worldPos - _GW_RoomOrigin.xyz;
+    float len = length(d);
+    float3 n = d / max(len, 1e-4);
+    float2 uv = float2(atan2(n.x, n.z) / 6.2831853 + 0.5, asin(clamp(n.y, -1.0, 1.0)) / 3.1415927 + 0.5);
+    float room = tex2Dlod(_GW_Room, float4(uv, 0, 0)).r;
+    float edge = room * 1.12 + 0.15;
+    return 1.0 - smoothstep(edge, edge + 0.3, len);
+}
+
 #endif

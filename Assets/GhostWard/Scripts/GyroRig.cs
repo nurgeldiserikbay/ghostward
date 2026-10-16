@@ -21,6 +21,7 @@ namespace GhostWard
         ThermalSeg seg;
         bool coldPerson;
 
+        public RoomMap Room { get; private set; }
         public bool PersonInView => seg != null && seg.PersonInView;
         public bool AnimalInView => seg != null && seg.AnimalInView;
         RawImage background;
@@ -44,6 +45,7 @@ namespace GhostWard
             Input.gyro.enabled = true;
             rig.seg = go.AddComponent<ThermalSeg>();
             rig.seg.Init();
+            rig.Room = RoomMap.Create(rig);
             rig.CreateBackground();
             return rig;
         }
@@ -217,6 +219,15 @@ namespace GhostWard
         public string Diagnostics() => $"гироскоп: {gyroSource}\nкамера: {camStatus}";
 
         const int SampleSize = 64;
+        // вырез кадра «как на экране» для карты глубины: параметры того же преобразования, что в SampleLuma
+        public void SetupViewCrop(Material m)
+        {
+            m.SetVector("_Size", canvasRect.rect.size);
+            m.SetVector("_Img", background.rectTransform.sizeDelta);
+            m.SetFloat("_Angle", webcam != null ? webcam.videoRotationAngle : 0);
+            m.SetFloat("_Mirror", webcam != null && webcam.videoVerticallyMirrored ? 1f : 0f);
+        }
+
         RenderTexture sampleRt;
         Texture2D sampleTex;
 

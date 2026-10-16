@@ -31,7 +31,13 @@ namespace GhostWard
         // половина горизонтального угла обзора: в портретной ориентации кадр узкий (~15°)
         float HalfFovX => Mathf.Atan(Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad) * cam.aspect) * Mathf.Rad2Deg;
         const float ScanCoverage = 0.85f;
-        const float CeilingHeight = 2.6f;
+        // высота потолка: по карте глубины комнаты, если её уже сняли; иначе обычная
+        float CeilingHeight => Room != null && Room.CeilingHeight > 0f ? Room.CeilingHeight : 2.6f;
+        RoomMap Room => gyroRig != null ? gyroRig.Room : null;
+        readonly StepDetector steps = new();
+        bool walkHinted;
+        float walkCooldown;
+        Quaternion lastRoomRot;
 
         const int RadioAnswerCount = 6;   // ключи radio_1 … radio_6
 
@@ -367,8 +373,11 @@ namespace GhostWard
 
             // карта темноты строится заново каждую ночь: свет в комнате мог измениться
             map.Clear();
+            Room?.Clear();
+            steps.Reset();
+            walkHinted = false;
             scanFailTime = 0f;
-            if (gyroRig != null)
+            if (gyroRig != null || arRig != null)
             {
                 phase = Phase.Scan;
                 ui.SetScan(0f);
@@ -426,7 +435,7 @@ namespace GhostWard
             nextVisionSwitch = Random.Range(12f, 20f);
             nightVisionTarget = 0f;
 
-            floorY = cam.transform.position.y - EyeHeight;
+            floorY = arRig != null && arRig.TryFloor(out float planeY) ? planeY : cam.transform.position.y - EyeHeight;
             markTime = 0f;
             // логово: албасты — за спиной, остальные — по своей привычке на карте темноты
             lair = PickPosition(target, target.Lair == Lair.Behind ? 140f : 0f, -1f);
@@ -460,6 +469,7 @@ namespace GhostWard
         {
             sfx.volume = Settings.Sfx;
             ui.SetDiagnostics(DiagnosticsText());
+            UpdateRoom();
             if (ui.JournalOpen) return;
 
             if (cam != null) ui.SetMapStrip(map, cam.transform.forward, phase == Phase.Scan);
@@ -1156,7 +1166,66 @@ namespace GhostWard
         {
             string rig = arRig != null ? arRig.Diagnostics() : gyroRig != null ? gyroRig.Diagnostics() : "старт…";
             string micState = mic == null ? "" : mic.Available ? $"\nмикрофон {mic.Level:0.00}" : mic.Denied ? "\nмикрофон запрещён" : "";
-            return (map.Empty ? rig : $"{rig}\nкарта {Mathf.RoundToInt(map.Coverage * 100)}%") + micState;
+            string room = Room != null ? $"\nглубина: {Room.Status}" + (Room.CeilingHeight > 0f ? $", потолок {Room.CeilingHeight:0.0} м" : "") : "";
+            return (map.Empty ? rig : $"{rig}\nкарта {Mathf.RoundToInt(map.Coverage * 100)}%") + room + micState;
+        }
+
+        // Режим гироскопа: карта глубины снимается, пока идёт ночь (в осмотре — часто, потом — изредка, чтобы
+        // поправлять дрейф), и следим за шагами: телефон не знает, что игрок перешёл, и всё «поехало бы» вместе с ним.
+        void UpdateRoom()
+        {
+            // AR: пол уточняется, когда ARCore находит плоскость пола
+            if (arRig != null && phase is Phase.Investigate or Phase.Hunt && arRig.TryFloor(out float planeY))
+                floorY = planeY;
+            var room = Room;
+            if (room == null) return;
+            bool active = phase is Phase.Scan or Phase.Investigate or Phase.Hunt;
+            room.Capturing = active && !ui.JournalOpen;
+            room.Interval = phase == Phase.Scan ? 0.3f : 2.5f;
+
+            float dt = Time.deltaTime;
+            float turn = Quaternion.Angle(cam.transform.rotation, lastRoomRot) / Mathf.Max(dt, 1e-3f);
+            lastRoomRot = cam.transform.rotation;
+            walkCooldown -= dt;
+            // жесты предметов и резкие повороты тоже трясут телефон — тогда шаги не считаем
+            bool suppress = !active || ui.JournalOpen || gestures.Pressing || turn > 90f;
+            if (steps.Tick(dt, Time.time, suppress)) OnWalk();
+        }
+
+        // сколько места по азимуту до стены или шкафа (м по горизонтали); -1 — не знаем
+        float RoomLimit(float yaw)
+        {
+            if (arRig != null) return arRig.MaxDistance(cam.transform.position, Quaternion.Euler(0f, yaw, 0f) * Vector3.forward);
+            var room = Room;
+            return room != null && room.Has ? room.MaxDistance(yaw) : -1f;
+        }
+
+        // игрок пошёл: комната вокруг уже другая — видения рассыпаются и ждут в новом месте
+        void OnWalk()
+        {
+            if (walkCooldown > 0f) return;
+            walkCooldown = 4f;
+            Room?.Clear();
+            if (!walkHinted)
+            {
+                walkHinted = true;
+                ui.Hint(Loc.T("h.StandStill"));
+            }
+            if (phase == Phase.Scan) return;
+
+            if (wanderer != null) wanderer.Kill();
+            foreach (var e in entities)
+            {
+                if (e == null || !e.Alive) continue;
+                // охотник не отстаёт: возникает в другом месте, но не дальше, чем был
+                e.Shift(e == hunter ? Mathf.Max(e.FlatDistance(), 1.6f) : -1f);
+            }
+            if (phase == Phase.Investigate)
+            {
+                lair = PickPosition(target, 90f, -1f);
+                if (target.Lair == Lair.Ceiling && target.Stance != Stance.Ceiling) lair.y = Floor + CeilingHeight - 0.5f;
+                if (coldSpot != null) coldSpot.transform.position = lair;
+            }
         }
 
         void UpdateScan()
@@ -1166,7 +1235,8 @@ namespace GhostWard
             if (scanTimer > 0f) return;
             scanTimer = 0.15f;
 
-            if (!gyroRig.SampleLuma(samplePoints, sampleLuma))
+            bool sampled = arRig != null ? arRig.SampleLuma(samplePoints, sampleLuma) : gyroRig.SampleLuma(samplePoints, sampleLuma);
+            if (!sampled)
             {
                 // камеры нет — играем без карты, логово выбирается случайно
                 scanFailTime += 0.15f;
@@ -1203,19 +1273,37 @@ namespace GhostWard
             if (fwd.sqrMagnitude < 1e-3f) fwd = Vector3.forward;
             fwd.Normalize();
 
-            if (!map.TryPick(fwd, minAngle, def.Lair, out float yaw, out float pitch))
+            // с картой комнаты: место, где перед фигурой нет стены или шкафа вплотную;
+            // упёрлись — ищем другое (до шести попыток), иначе ставим как получилось
+            var room = Room;
+            float yaw = 0f, pitch = 0f, dist = 0f;
+            for (int attempt = 0; attempt < 6; attempt++)
             {
-                float viewYaw = Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg;
-                yaw = viewYaw + Random.Range(minAngle, 180f) * (Random.value < 0.5f ? -1f : 1f);
-                pitch = def.Lair switch { Lair.Floor => -25f, Lair.Ceiling => 30f, _ => 0f };
-            }
+                if (!map.TryPick(fwd, minAngle, def.Lair, out yaw, out pitch))
+                {
+                    float viewYaw = Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg;
+                    yaw = viewYaw + Random.Range(minAngle, 180f) * (Random.value < 0.5f ? -1f : 1f);
+                    pitch = def.Lair switch { Lair.Floor => -25f, Lair.Ceiling => 30f, _ => 0f };
+                }
 
-            float dist;
-            if (def.Lair == Lair.Near) dist = Random.Range(1.4f, 2.2f);
-            else if (def.Lair == Lair.Far) dist = Random.Range(3.8f, 4.8f);
-            else if (pitch < -8f) dist = Mathf.Clamp(EyeHeight / Mathf.Tan(-pitch * Mathf.Deg2Rad), 2.2f, 4.5f);
-            else dist = Random.Range(3.2f, 4.5f);
-            if (maxDist > 0f) dist = Mathf.Min(dist, maxDist);
+                if (def.Lair == Lair.Near) dist = Random.Range(1.4f, 2.2f);
+                else if (def.Lair == Lair.Far) dist = Random.Range(3.8f, 4.8f);
+                else if (pitch < -8f) dist = Mathf.Clamp(EyeHeight / Mathf.Tan(-pitch * Mathf.Deg2Rad), 2.2f, 4.5f);
+                else dist = Random.Range(3.2f, 4.5f);
+                if (maxDist > 0f) dist = Mathf.Min(dist, maxDist);
+
+                float limit = RoomLimit(yaw);
+                if (limit < 0f) break;                              // туда ещё не смотрели — как без карты
+                if (limit < 1.3f && attempt < 5) continue;          // стена или шкаф в шаге — тесно
+                // ползающим по полу — на видимый пол, чтобы фигура не «висела» над столом
+                if (def.Lair == Lair.Floor && room != null)
+                {
+                    float reach = room.FloorReach(yaw);
+                    if (reach > 1.4f) dist = Mathf.Min(dist, reach);
+                }
+                dist = Mathf.Clamp(dist, 1.1f, Mathf.Max(limit, 1.1f));
+                break;
+            }
 
             var dir = Quaternion.Euler(0f, yaw, 0f) * Vector3.forward;
             var pos = camPos + dir * dist;
@@ -1628,7 +1716,10 @@ namespace GhostWard
             var fwd = cam.transform.forward;
             fwd.y = 0f;
             fwd = fwd.sqrMagnitude < 1e-3f ? Vector3.forward : fwd.normalized;
-            var pos = cam.transform.position + Quaternion.Euler(0f, angle, 0f) * fwd * dist;
+            var dir = Quaternion.Euler(0f, angle, 0f) * fwd;
+            float limit = RoomLimit(Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg);
+            if (limit > 0f) dist = Mathf.Clamp(dist, 1f, Mathf.Max(limit, 1f));   // не за стеной
+            var pos = cam.transform.position + dir * dist;
             pos.y = target.Stance switch
             {
                 Stance.Floor => Floor + target.Height * 0.5f,

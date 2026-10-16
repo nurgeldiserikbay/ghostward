@@ -19,3 +19,5 @@
 /Assets/GoogleMobileAds/Resources/*.asset.meta.bak
 /Assets/Resources/PerformanceTestRun*
 /_incoming/
+/Assets/GhostWard/DepthSrc/
+/Assets/GhostWard/DepthSrc.meta

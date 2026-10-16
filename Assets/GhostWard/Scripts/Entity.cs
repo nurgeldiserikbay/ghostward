@@ -55,7 +55,8 @@ namespace GhostWard
         float stateTime, speed, flash, fade, nextEvent, lurkTime, phaseTime;
         int throwsLeft;
         bool dashing, dropped;
-        float orbit, watchedTime;   // джинн: угол на круге; русалка: сколько на неё уже смотрят
+        float orbit, watchedTime;
+        float shiftTime, shiftMax;  // игрок пошёл: фигура рассыпается и переносится   // джинн: угол на круге; русалка: сколько на неё уже смотрят
         Vector3 baseScale;
 
         // повадка, по которой ходит сущность
@@ -263,6 +264,17 @@ namespace GhostWard
             float dt = Time.deltaTime;
             stateTime += dt;
             flash = Mathf.MoveTowards(flash, 0f, dt * 3f);
+
+            if (shiftTime > 0f)
+            {
+                shiftTime -= dt;
+                mat.SetFloat(DissolveId, 1f - Mathf.Clamp01(shiftTime / 0.45f));
+                if (shiftTime > 0f) return;
+                mat.SetFloat(DissolveId, 0f);
+                transform.localScale = baseScale;
+                Relocate(60f, shiftMax);
+                return;
+            }
 
             switch (Current)
             {
@@ -595,6 +607,16 @@ namespace GhostWard
         }
 
         public void Vanish() => Destroy(gameObject);
+
+        // игрок пошёл (режим гироскопа): видимая фигура рассыпается и через несколько секунд ждёт в другом месте,
+        // не дальше maxDist (-1 — где угодно); затаившуюся не трогаем
+        public void Shift(float maxDist)
+        {
+            if (!Alive || shiftTime > 0f || !rend.enabled) return;
+            shiftTime = 0.45f;
+            shiftMax = maxDist;
+            voice.PlayOneShot(EntitySounds.Call(Def.Kind) ?? ProceduralAudio.Laugh(), 0.5f);
+        }
 
         // «второй шанс»: сущность отступает и снова прячется
         public void Repel()

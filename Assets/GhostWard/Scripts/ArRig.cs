@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using Unity.XR.CoreUtils;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -19,7 +20,11 @@ namespace GhostWard
 
         GameObject sessionGo;
         ARCameraManager cameraManager;
+        ARCameraBackground background;
         AROcclusionManager occlusion;
+        ARPlaneManager planes;
+        ARRaycastManager raycaster;
+        readonly List<ARRaycastHit> hits = new();
         int frames;
 
         // Сервисы Google AR (ARCore) уже стоят на телефоне? Если нет — AR не трогаем вовсе:
@@ -139,7 +144,7 @@ namespace GhostWard
 
             cameraManager = camGo.AddComponent<ARCameraManager>();
             cameraManager.frameReceived += _ => frames++;
-            camGo.AddComponent<ARCameraBackground>();
+            background = camGo.AddComponent<ARCameraBackground>();
             camGo.AddComponent<AudioListener>();
 
             var pose = camGo.AddComponent<TrackedPoseDriver>();
@@ -159,6 +164,86 @@ namespace GhostWard
 
             origin.Camera = Cam;
             origin.CameraFloorOffsetObject = offset;
+
+            // плоскости: пол (куда ставить ноги) и стены (за которые не ставить); без отрисовки
+            planes = originGo.AddComponent<ARPlaneManager>();
+            planes.requestedDetectionMode = PlaneDetectionMode.Horizontal | PlaneDetectionMode.Vertical;
+            raycaster = originGo.AddComponent<ARRaycastManager>();
+        }
+
+        // Пол: самая низкая большая горизонтальная плоскость на 0.9–2.2 м ниже телефона
+        public bool TryFloor(out float y)
+        {
+            y = 0f;
+            if (planes == null) return false;
+            float camY = Cam.transform.position.y;
+            bool found = false;
+            foreach (var p in planes.trackables)
+            {
+                if (p.alignment != PlaneAlignment.HorizontalUp || p.trackingState != TrackingState.Tracking) continue;
+                if (p.size.x * p.size.y < 0.3f) continue;
+                float py = p.transform.position.y;
+                float below = camY - py;
+                if (below < 0.9f || below > 2.2f) continue;   // выше — это стол, а не пол
+                if (!found || py < y) { y = py; found = true; }
+            }
+            return found;
+        }
+
+        // Сколько свободного места по направлению (по горизонтали): до стены или предмета — по плоскостям
+        // и карте глубины ARCore. -1 — ничего не нашли (стена не видна — не ограничиваем).
+        public float MaxDistance(Vector3 from, Vector3 dir)
+        {
+            if (raycaster == null) return -1f;
+            float best = -1f;
+            // на уровне глаз и чуть ниже — где у фигуры туловище
+            for (int k = 0; k < 2; k++)
+            {
+                var d = (dir + Vector3.down * (k == 0 ? 0f : 0.25f)).normalized;
+                if (!raycaster.Raycast(new Ray(from, d), hits, TrackableType.PlaneWithinPolygon | TrackableType.Depth)) continue;
+                foreach (var h in hits)
+                {
+                    // пол под ногами не стена
+                    if (h.trackable is ARPlane p && p.alignment == PlaneAlignment.HorizontalUp) continue;
+                    var flat = h.pose.position - from;
+                    flat.y = 0f;
+                    float dist = flat.magnitude;
+                    if (dist < 0.2f) continue;
+                    best = best < 0f ? dist : Mathf.Min(best, dist);
+                }
+            }
+            return best < 0f ? -1f : best - 0.3f;
+        }
+
+        RenderTexture sampleRt;
+        Texture2D sampleTex;
+        const int SampleSize = 64;
+
+        // Яркость кадра в точках экрана (viewport 0..1), как GyroRig.SampleLuma: фон AR рисуется
+        // в маленькую текстуру тем же материалом, что и на экран, — точка экрана совпадает с точкой кадра.
+        public bool SampleLuma(Vector2[] viewport, float[] luma)
+        {
+            if (background == null || background.material == null || frames == 0) return false;
+            if (sampleRt == null)
+            {
+                sampleRt = new RenderTexture(SampleSize, SampleSize, 0, RenderTextureFormat.ARGB32);
+                sampleTex = new Texture2D(SampleSize, SampleSize, TextureFormat.RGBA32, false);
+            }
+            Graphics.Blit(null, sampleRt, background.material);
+            var prev = RenderTexture.active;
+            RenderTexture.active = sampleRt;
+            sampleTex.ReadPixels(new Rect(0, 0, SampleSize, SampleSize), 0, 0, false);
+            sampleTex.Apply(false);
+            RenderTexture.active = prev;
+            var px = sampleTex.GetPixels32();
+            for (int i = 0; i < viewport.Length; i++)
+            {
+                var v = viewport[i];
+                if (v.x < 0f || v.x > 1f || v.y < 0f || v.y > 1f) { luma[i] = -1f; continue; }
+                var c = px[Mathf.Min((int)(v.y * SampleSize), SampleSize - 1) * SampleSize + Mathf.Min((int)(v.x * SampleSize), SampleSize - 1)];
+                luma[i] = (0.299f * c.r + 0.587f * c.g + 0.114f * c.b) / 255f;
+            }
+            return true;
         }
 
         public string Diagnostics()
@@ -170,6 +255,7 @@ namespace GhostWard
         // полностью отпускаем ARCore, чтобы камера освободилась для режима гироскопа
         public void Shutdown()
         {
+            if (sampleRt != null) sampleRt.Release();
             Destroy(gameObject);
             if (sessionGo != null) Destroy(sessionGo);
             StopXr();

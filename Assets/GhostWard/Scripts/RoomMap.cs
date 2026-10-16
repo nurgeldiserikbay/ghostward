@@ -1,0 +1,336 @@
+using Unity.Collections;
+using UnityEngine;
+using UnityEngine.Rendering;
+
+namespace GhostWard
+{
+    // Карта комнаты для режима гироскопа: панорама расстояний вокруг игрока (клетки по 2° азимута и высоты).
+    // Пока игрок осматривается, кадры экрана уходят в нейросеть глубины (RoomDepth); её относительный
+    // результат переводится в метры: телефон в руке на высоте глаз (EyeHeight), значит луч в пол под
+    // наклоном a упирается в него на 1.4 / sin(a) м — по таким точкам подбирается масштаб кадра,
+    // а там, где пол не виден, — по местам, уже известным с прошлых кадров.
+    //
+    // Что даёт игре:
+    //  • сущность ставится перед стеной или шкафом, а не внутри них (MaxDistance), на видимый пол (FloorReach);
+    //  • настоящая высота потолка (CeilingHeight);
+    //  • перекрытие: стол, диван, косяк двери ближе сущности — заслоняют её (шейдеры, _GW_Room).
+    public class RoomMap : MonoBehaviour
+    {
+        public const int Cols = 180, Rows = 90;   // клетки по 2°
+        public const float EyeHeight = 1.4f;
+        const float Unknown = 50f;                 // в текстуре: «ничего не известно» — ничего не заслоняет
+        const float Budget = 3f;                   // мс работы нейросети за кадр
+
+        static readonly int RoomId = Shader.PropertyToID("_GW_Room");
+        static readonly int OriginId = Shader.PropertyToID("_GW_RoomOrigin");
+
+        public bool Capturing { get; set; }
+        public float Interval { get; set; } = 0.4f;
+        public int Frames { get; private set; }
+        public bool Has => Frames > 0;
+        public float CeilingHeight { get; private set; } = -1f;   // над полом, -1 — не знаем
+        public string Status { get; private set; } = "нет";
+
+        readonly float[] inv = new float[Cols * Rows];      // средняя обратная дальность в клетке, 1/м
+        readonly float[] weight = new float[Cols * Rows];
+        readonly float[] frameSum = new float[Cols * Rows];
+        readonly int[] frameCount = new int[Cols * Rows];
+        readonly ushort[] texData = new ushort[Cols * Rows];
+        Texture2D tex;
+        bool dirty;
+
+        GyroRig rig;
+        RoomDepth depth;
+        RenderTexture crop;
+        Material cropMat;
+        bool readbackPending, failed;
+        float timer;
+        Quaternion shotRot, lastRot;
+        float tanX, tanY;
+        Vector3 origin, shotOrigin;
+
+        public static RoomMap Create(GyroRig rig)
+        {
+            var map = rig.gameObject.AddComponent<RoomMap>();
+            map.rig = rig;
+            return map;
+        }
+
+        public void Clear()
+        {
+            System.Array.Clear(inv, 0, inv.Length);
+            System.Array.Clear(weight, 0, weight.Length);
+            Frames = 0;
+            CeilingHeight = -1f;
+            dirty = true;
+            Shader.SetGlobalVector(OriginId, Vector4.zero);
+        }
+
+        void Update()
+        {
+            if (rig == null) return;   // в редакторе карту заполняют вручную
+            var cam = rig.Cam;
+            float turn = Quaternion.Angle(cam.transform.rotation, lastRot) / Mathf.Max(Time.deltaTime, 1e-3f);
+            lastRot = cam.transform.rotation;
+
+            if (depth != null && depth.Busy)
+            {
+                if (depth.Step(Budget)) Integrate(depth.Take(), depth.Width, depth.Height, shotRot, tanX, tanY, shotOrigin);
+                return;
+            }
+            if (dirty) Upload();
+            if (!Capturing || failed || readbackPending || Settings.Quality == 0) return;
+            timer -= Time.deltaTime;
+            if (timer > 0f) return;
+            // на быстром повороте кадр смазан и отстаёт от гироскопа — ждём, пока телефон замрёт
+            if (turn > 25f) return;
+            var webcam = rig.Webcam;
+            if (webcam == null || webcam.width < 32) return;
+
+            if (depth == null)
+            {
+                RoomDepth.SizeFor(cam.aspect, out int w, out int h);
+                depth = new RoomDepth();
+                depth.Init(w, h);
+                crop = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+                cropMat = new Material(Shader.Find("GhostWard/ViewCrop"));
+            }
+            if (!depth.Ready) { failed = true; Status = "нет модели"; return; }
+
+            timer = Interval;
+            rig.SetupViewCrop(cropMat);
+            Graphics.Blit(webcam, crop, cropMat);
+            shotRot = cam.transform.rotation;
+            shotOrigin = cam.transform.position;
+            tanY = Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+            tanX = tanY * cam.aspect;
+            readbackPending = true;
+            AsyncGPUReadback.Request(crop, 0, TextureFormat.RGBA32, OnFrame);
+        }
+
+        void OnFrame(AsyncGPUReadbackRequest req)
+        {
+            readbackPending = false;
+            if (req.hasError || depth == null || !depth.Ready) return;
+            depth.Begin(req.GetData<byte>());
+        }
+
+        // ---------- из относительной глубины кадра — в метры, на панораму ----------
+
+        static int CellOf(Vector3 dir)
+        {
+            float yaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+            float pitch = Mathf.Asin(Mathf.Clamp(dir.y, -1f, 1f)) * Mathf.Rad2Deg;
+            int c = Mathf.FloorToInt((yaw + 180f) * 0.5f);
+            c = ((c % Cols) + Cols) % Cols;
+            int r = Mathf.Clamp(Mathf.FloorToInt((pitch + 90f) * 0.5f), 0, Rows - 1);
+            return r * Cols + c;
+        }
+
+        // disparity — Width×Height, строки сверху вниз; rot и from — поворот и место камеры в момент снимка
+        public bool Integrate(float[] disparity, int w, int h, Quaternion rot, float tx, float ty, Vector3 from)
+        {
+            origin = from;
+            int n = w * h;
+            var dirs = new Vector3[n];
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    var d = new Vector3(((x + 0.5f) / w * 2f - 1f) * tx, (1f - (y + 0.5f) / h * 2f) * ty, 1f);
+                    dirs[y * w + x] = rot * d.normalized;
+                }
+
+            // подбор 1/дальность = s · disparity + t: пол (луч вниз) и уже известные клетки
+            var q = new float[n];
+            var target = new float[n];
+            var wt = new float[n];
+            int m = 0;
+            for (int i = 0; i < n; i += 2)
+            {
+                var d = dirs[i];
+                if (d.y < -0.17f)
+                {
+                    q[m] = disparity[i];
+                    target[m] = -d.y / EyeHeight;
+                    wt[m++] = 1f;
+                }
+                else
+                {
+                    int cell = CellOf(d);
+                    if (weight[cell] < 1f) continue;
+                    q[m] = disparity[i];
+                    target[m] = inv[cell];
+                    wt[m++] = 0.6f;
+                }
+            }
+            if (m < 120) { Status = "мало пола"; return false; }
+
+            var inlier = new bool[m];
+            for (int i = 0; i < m; i++) inlier[i] = true;
+            float s = 0f, t = 0f;
+            int kept = m;
+            for (int iter = 0; iter < 6; iter++)
+            {
+                double sw = 0, sq = 0, sqq = 0, st = 0, sqt = 0;
+                for (int i = 0; i < m; i++)
+                {
+                    if (!inlier[i]) continue;
+                    double k = wt[i];
+                    sw += k; sq += k * q[i]; sqq += k * q[i] * q[i]; st += k * target[i]; sqt += k * q[i] * target[i];
+                }
+                double det = sw * sqq - sq * sq;
+                if (sw <= 0) break;
+                if (System.Math.Abs(det) < 1e-9 * sw * sw) { s = (float)(sqt / System.Math.Max(sqq, 1e-9)); t = 0f; }
+                else { s = (float)((sw * sqt - sq * st) / det); t = (float)((st - s * sq) / sw); }
+                kept = 0;
+                for (int i = 0; i < m; i++)
+                {
+                    inlier[i] = Mathf.Abs(s * q[i] + t - target[i]) < 0.2f * target[i];
+                    if (inlier[i]) kept++;
+                }
+            }
+            if (s <= 0f || kept < 80 || kept < m / 4) { Status = $"не сошлось {kept}/{m}"; return false; }
+
+            System.Array.Clear(frameSum, 0, frameSum.Length);
+            System.Array.Clear(frameCount, 0, frameCount.Length);
+            for (int i = 0; i < n; i++)
+            {
+                float r = Mathf.Clamp(s * disparity[i] + t, 1f / 12f, 1f / 0.3f);
+                int cell = CellOf(dirs[i]);
+                frameSum[cell] += r;
+                frameCount[cell]++;
+            }
+            for (int c = 0; c < frameSum.Length; c++)
+            {
+                if (frameCount[c] == 0) continue;
+                float r = frameSum[c] / frameCount[c];
+                float wOld = weight[c];
+                inv[c] = (inv[c] * wOld + r) / (wOld + 1f);
+                weight[c] = Mathf.Min(wOld + 1f, 4f);   // новые кадры быстро поправляют старое
+            }
+            Frames++;
+            UpdateCeiling();
+            dirty = true;
+            Status = $"кадров {Frames}, пол {kept}/{m}";
+            Upload();
+            return true;
+        }
+
+        // потолок — высота, на которой сходится больше всего точек выше 15°: у потолка она одна и та же,
+        // у стен — разная на каждой высоте взгляда
+        void UpdateCeiling()
+        {
+            var bins = new int[17];   // 2.0 … 3.6 м по 10 см
+            for (int r = Rows / 2 + 7; r < Rows; r++)
+            {
+                float sin = Mathf.Sin(((r + 0.5f) * 2f - 90f) * Mathf.Deg2Rad);
+                for (int c = 0; c < Cols; c++)
+                {
+                    int i = r * Cols + c;
+                    if (weight[i] <= 0f) continue;
+                    int b = Mathf.RoundToInt((EyeHeight + sin / inv[i] - 2f) * 10f);
+                    if (b >= 0 && b < bins.Length) bins[b]++;
+                }
+            }
+            int best = 0;
+            for (int b = 1; b < bins.Length; b++) if (bins[b] > bins[best]) best = b;
+            int sum = bins[best] + (best > 0 ? bins[best - 1] : 0) + (best < bins.Length - 1 ? bins[best + 1] : 0);
+            if (sum >= 40) CeilingHeight = 2f + best * 0.1f;
+        }
+
+        void Upload()
+        {
+            dirty = false;
+            if (tex == null)
+            {
+                tex = new Texture2D(Cols, Rows, TextureFormat.RHalf, false, true)
+                {
+                    filterMode = FilterMode.Bilinear,
+                    wrapModeU = TextureWrapMode.Repeat,
+                    wrapModeV = TextureWrapMode.Clamp
+                };
+            }
+            for (int i = 0; i < texData.Length; i++)
+                texData[i] = Mathf.FloatToHalf(weight[i] > 0f ? 1f / inv[i] : Unknown);
+            tex.SetPixelData(texData, 0);
+            tex.Apply(false);
+            Shader.SetGlobalTexture(RoomId, tex);
+            Shader.SetGlobalVector(OriginId, new Vector4(origin.x, origin.y, origin.z, Has ? 1f : 0f));
+        }
+
+        // ---------- вопросы игры ----------
+
+        // дальность в клетке, м; -1 — не видели
+        public float Range(float yawDeg, float pitchDeg)
+        {
+            var d = Quaternion.Euler(-pitchDeg, yawDeg, 0f) * Vector3.forward;
+            int i = CellOf(d);
+            return weight[i] > 0f ? 1f / inv[i] : -1f;
+        }
+
+        // ближайшее препятствие по горизонтали в секторе (азимут ± halfWidth): только точки на высоте туловища
+        // (1–2.1 м над полом) — стена, шкаф, дверь. Пол, потолок и низкая мебель не мешают: за столом или
+        // диваном фигура может стоять — они её просто заслонят снизу.
+        public float Free(float yawDeg, float halfWidth)
+        {
+            float best = float.MaxValue;
+            bool any = false;
+            for (float dy = -halfWidth; dy <= halfWidth; dy += 2f)
+                for (float p = -40f; p <= 40f; p += 2f)
+                {
+                    float r = Range(yawDeg + dy, p);
+                    if (r < 0f) continue;
+                    any = true;
+                    float above = EyeHeight + Mathf.Sin(p * Mathf.Deg2Rad) * r;
+                    if (above < 1f || above > 2.1f) continue;
+                    best = Mathf.Min(best, r * Mathf.Cos(p * Mathf.Deg2Rad));
+                }
+            return !any ? -1f : best == float.MaxValue ? 12f : best;
+        }
+
+        // насколько далеко по этому азимуту можно поставить фигуру, чтобы она была перед стеной/шкафом, а не в них;
+        // -1 — направление не осмотрено
+        public float MaxDistance(float yawDeg)
+        {
+            if (!Has) return -1f;
+            float free = Free(yawDeg, 6f);
+            if (free < 0f) return -1f;
+            return (free - 0.25f) / 1.12f - 0.1f;   // запас на ошибку глубины, как в шейдере перекрытия
+        }
+
+        // самая дальняя видимая точка пола по азимуту (фигура там «стоит» на настоящем полу); -1 — пола не видно
+        public float FloorReach(float yawDeg)
+        {
+            if (!Has) return -1f;
+            float best = -1f;
+            for (float dy = -4f; dy <= 4f; dy += 2f)
+                for (float p = -70f; p <= -6f; p += 2f)
+                {
+                    float r = Range(yawDeg + dy, p);
+                    if (r < 0f) continue;
+                    float above = EyeHeight + Mathf.Sin(p * Mathf.Deg2Rad) * r;
+                    if (Mathf.Abs(above) < 0.18f) best = Mathf.Max(best, r * Mathf.Cos(p * Mathf.Deg2Rad));
+                }
+            return best;
+        }
+
+        // для редактора: картинка панорамы (светлое — близко)
+        public Texture2D Preview()
+        {
+            var t = new Texture2D(Cols, Rows, TextureFormat.RGB24, false);
+            var px = new Color[Cols * Rows];
+            for (int i = 0; i < px.Length; i++)
+                px[i] = weight[i] > 0f ? Color.Lerp(Color.black, Color.white, Mathf.InverseLerp(1f / 8f, 1f / 0.8f, inv[i])) : new Color(0.3f, 0f, 0f);
+            t.SetPixels(px);
+            t.Apply();
+            return t;
+        }
+
+        void OnDestroy()
+        {
+            depth?.Dispose();
+            if (crop != null) crop.Release();
+            Shader.SetGlobalVector(OriginId, Vector4.zero);
+        }
+    }
+}

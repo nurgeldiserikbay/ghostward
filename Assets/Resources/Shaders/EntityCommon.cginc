@@ -10,7 +10,7 @@ fixed4 _Body, _Color;
 float _Fade, _Shape, _Flash, _Dissolve, _Seed, _Flip, _Locked, _World, _Dim;
 
 struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
-struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 screen : TEXCOORD1; };
+struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 screen : TEXCOORD1; float3 world : TEXCOORD2; };
 
 v2f vert(appdata v)
 {
@@ -18,6 +18,7 @@ v2f vert(appdata v)
     o.pos = UnityObjectToClipPos(v.vertex);
     o.uv = v.uv;
     o.screen = ComputeScreenPos(o.pos);
+    o.world = mul(unity_ObjectToWorld, v.vertex).xyz;
     return o;
 }
 
@@ -122,7 +123,11 @@ fixed4 EntityCompose(v2f i, float2 p, float d, float bottom, float holes, float 
         }
 
         // в мире — та же «камера», что у комнаты (вид, свет, зерно)
-        if (_World > 0.5) col = GW_Grade(col, i.screen.xy / max(i.screen.w, 1e-4), _Dim);
+        if (_World > 0.5)
+        {
+            col = GW_Grade(col, i.screen.xy / max(i.screen.w, 1e-4), _Dim);
+            alpha *= GW_Occlusion(i.world);   // за настоящим столом или косяком — не видна
+        }
 
         col = lerp(col, float3(1, 1, 1), _Flash);
         return fixed4(col, saturate(alpha) * _Fade);
