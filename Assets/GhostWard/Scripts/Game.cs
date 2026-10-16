@@ -26,7 +26,31 @@ namespace GhostWard
         const float FearDecay = 2.5f;
         const float EyeHeight = 1.4f;
         float floorY;    // уровень пола, запомненный в начале ночи (в AR телефон может подниматься и опускаться)
-        public float Floor => arRig != null ? floorY : cam.transform.position.y - EyeHeight;
+        public float Floor => arRig != null ? floorY : cam.transform.position.y - PhoneHeight;
+        // высота телефона над полом: в гироскопе — по карте комнаты (пропорция пола и потолка), иначе обычная
+        float PhoneHeight => Room != null ? Room.PhoneHeight : EyeHeight;
+
+        // Высота середины фигуры: по полу ходят — ступни на полу; летающие парят не ниже 25 см над полом
+        // и не упираются в потолок; на потолке — макушкой к потолку.
+        public float HoverY(EntityDef def, float centerY)
+        {
+            var f = Entity.FigureOf(def);
+            float floor = Floor, top = floor + CeilingHeight - 0.05f;
+            float low = floor + f.Feet + (def.Stance is Stance.Float or Stance.Eye ? 0.25f : 0f);
+            float high = top - (f.Size.y - f.Feet);
+            return high < low ? low : Mathf.Clamp(centerY, low, high);
+        }
+
+        float StanceY(EntityDef def, float floatY)
+        {
+            var f = Entity.FigureOf(def);
+            return def.Stance switch
+            {
+                Stance.Floor => Floor + f.Feet,
+                Stance.Ceiling => Floor + CeilingHeight - (f.Size.y - f.Feet),
+                _ => HoverY(def, floatY)
+            };
+        }
 
         // половина горизонтального угла обзора: в портретной ориентации кадр узкий (~15°)
         float HalfFovX => Mathf.Atan(Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad) * cam.aspect) * Mathf.Rad2Deg;
@@ -126,7 +150,8 @@ namespace GhostWard
         // осмотр комнаты
         Vector2[] samplePoints;
         float[] sampleLuma;
-        float scanTimer, scanFailTime;
+        float scanTimer, scanFailTime, scanWait;
+        bool ceilingAsked;
 
         // жесты
         readonly Gestures gestures = new();
@@ -376,7 +401,8 @@ namespace GhostWard
             Room?.Clear();
             steps.Reset();
             walkHinted = false;
-            scanFailTime = 0f;
+            scanFailTime = scanWait = 0f;
+            ceilingAsked = false;
             if (gyroRig != null || arRig != null)
             {
                 phase = Phase.Scan;
@@ -435,7 +461,7 @@ namespace GhostWard
             nextVisionSwitch = Random.Range(12f, 20f);
             nightVisionTarget = 0f;
 
-            floorY = arRig != null && arRig.TryFloor(out float planeY) ? planeY : cam.transform.position.y - EyeHeight;
+            floorY = arRig != null && arRig.TryFloor(out float planeY) ? planeY : cam.transform.position.y - PhoneHeight;
             markTime = 0f;
             // логово: албасты — за спиной, остальные — по своей привычке на карте темноты
             lair = PickPosition(target, target.Lair == Lair.Behind ? 140f : 0f, -1f);
@@ -1205,7 +1231,7 @@ namespace GhostWard
         {
             if (walkCooldown > 0f) return;
             walkCooldown = 4f;
-            Room?.Clear();
+            Room?.Clear(keepHeight: true);   // держит телефон так же — высоту не теряем
             if (!walkHinted)
             {
                 walkHinted = true;
@@ -1259,7 +1285,18 @@ namespace GhostWard
             }
 
             ui.SetScan(map.Coverage / ScanCoverage);
-            if (map.Coverage >= ScanCoverage) BeginInvestigation();
+            if (map.Coverage < ScanCoverage) return;
+            // комната обведена; карте глубины ещё нужен потолок — по нему узнаём высоту телефона и рост фигур.
+            // Ждём не дольше 20 с, и только если карта глубины вообще работает
+            scanWait += 0.15f;
+            var room = Room;
+            bool needCeiling = room != null && room.Available && room.Has && !room.HeightMeasured && scanWait < 20f;
+            if (needCeiling)
+            {
+                if (!ceilingAsked) { ceilingAsked = true; ui.Message(Loc.T("scan_ceiling"), 4f); }
+                return;
+            }
+            BeginInvestigation();
         }
 
         // Место для сущности: сектор карты по привычке её логова, не ближе minAngle к взгляду игрока.
@@ -1288,7 +1325,7 @@ namespace GhostWard
 
                 if (def.Lair == Lair.Near) dist = Random.Range(1.4f, 2.2f);
                 else if (def.Lair == Lair.Far) dist = Random.Range(3.8f, 4.8f);
-                else if (pitch < -8f) dist = Mathf.Clamp(EyeHeight / Mathf.Tan(-pitch * Mathf.Deg2Rad), 2.2f, 4.5f);
+                else if (pitch < -8f) dist = Mathf.Clamp(PhoneHeight / Mathf.Tan(-pitch * Mathf.Deg2Rad), 2.2f, 4.5f);
                 else dist = Random.Range(3.2f, 4.5f);
                 if (maxDist > 0f) dist = Mathf.Min(dist, maxDist);
 
@@ -1307,14 +1344,9 @@ namespace GhostWard
 
             var dir = Quaternion.Euler(0f, yaw, 0f) * Vector3.forward;
             var pos = camPos + dir * dist;
-            float floor = Floor;
-            pos.y = def.Stance switch
-            {
-                Stance.Floor => floor + def.Height * 0.5f,
-                Stance.Ceiling => floor + CeilingHeight - def.Height * 0.5f,
-                Stance.Float => camPos.y + Mathf.Clamp(Mathf.Tan(pitch * Mathf.Deg2Rad) * dist, -0.4f, 0.8f),
-                _ => camPos.y
-            };
+            pos.y = StanceY(def, def.Stance == Stance.Float
+                ? camPos.y + Mathf.Clamp(Mathf.Tan(pitch * Mathf.Deg2Rad) * dist, -0.4f, 0.8f)
+                : camPos.y);
             return pos;
         }
 
@@ -1720,12 +1752,7 @@ namespace GhostWard
             float limit = RoomLimit(Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg);
             if (limit > 0f) dist = Mathf.Clamp(dist, 1f, Mathf.Max(limit, 1f));   // не за стеной
             var pos = cam.transform.position + dir * dist;
-            pos.y = target.Stance switch
-            {
-                Stance.Floor => Floor + target.Height * 0.5f,
-                Stance.Ceiling => Floor + CeilingHeight - target.Height * 0.5f,
-                _ => cam.transform.position.y
-            };
+            pos.y = StanceY(target, cam.transform.position.y);
             return pos;
         }
 
@@ -1793,7 +1820,7 @@ namespace GhostWard
             var fwd = cam.transform.forward;
             fwd.y = 0f;
             var pos = cam.transform.position + fwd.normalized * 1.8f;
-            pos.y = Floor + target.Height * 0.5f;
+            pos.y = StanceY(target, cam.transform.position.y);
             Apparition.Show(target, pos, cam.transform, 0.35f);
             PlayAt(call, pos, 0.7f);
             yield return new WaitForSeconds(0.3f);

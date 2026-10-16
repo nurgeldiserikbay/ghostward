@@ -32,6 +32,7 @@ namespace GhostWard.EditorTools
             importer.maxTextureSize = 1024;
             importer.textureCompression = TextureImporterCompression.Compressed;
             importer.alphaIsTransparency = true;
+            importer.isReadable = true;   // игра один раз находит рамку фигуры (Entity.Figure), чтобы ступни стояли на полу
         }
     }
 }

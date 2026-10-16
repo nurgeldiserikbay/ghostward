@@ -31,7 +31,7 @@ namespace GhostWard.EditorTools
 
         // Кадр «как на телефоне»: фото комнаты фоном, по карте глубины — три фигуры: за столом (4 м),
         // перед ним (2 м) и у дальней стены. Видно, заслоняет ли настоящая мебель нарисованную сущность.
-        static void RenderOcclusion(Texture2D photo, string name, float aspect)
+        static void RenderOcclusion(Texture2D photo, string name, float aspect, float floorY)
         {
             const int w = 460, h = 1000;
             var cam = new GameObject("Cam").AddComponent<Camera>();
@@ -56,15 +56,17 @@ namespace GhostWard.EditorTools
             fm.mainTexture = bg;
             feed.GetComponent<MeshRenderer>().sharedMaterial = fm;
 
-            var def = Catalog.Get(EntityKind.Ghost);
             var made = new System.Collections.Generic.List<GameObject> { cam.gameObject, feed };
-            foreach (var (yaw, dist) in new[] { (0f, 4f), (-9f, 2f), (8f, 6.5f) })
+            // разный рост: тень 1.8 м, двойник 1.75, упырь 1.7 — ступнями на полу
+            foreach (var (yaw, dist, kind) in new[] { (0f, 4f, EntityKind.Shade), (-9f, 2f, EntityKind.Double), (8f, 6.5f, EntityKind.Upyr) })
             {
+                var def = Catalog.Get(kind);
+                var fig = Entity.FigureOf(def);
                 var dir = Quaternion.Euler(0f, yaw, 0f) * Vector3.forward;
                 var q = GameObject.CreatePrimitive(PrimitiveType.Quad);
-                q.transform.position = dir * dist + Vector3.up * def.Height * 0.5f;
+                q.transform.position = dir * dist + Vector3.up * (floorY + fig.Feet);
                 q.transform.rotation = Quaternion.LookRotation(dir);
-                q.transform.localScale = new Vector3(def.Height * 0.8f, def.Height, 1f);
+                q.transform.localScale = new Vector3(fig.Size.x, fig.Size.y, 1f);
                 var em = Entity.CreateMaterial(def, 2.2f + yaw);
                 em.SetFloat("_World", 1f);
                 em.SetFloat("_Dim", 0.9f);
@@ -135,12 +137,13 @@ namespace GhostWard.EditorTools
                 var room = go.AddComponent<RoomMap>();
                 float ty = Mathf.Tan(30f * Mathf.Deg2Rad);
                 bool ok = room.Integrate(disparity, w, h, Quaternion.identity, ty * aspect, ty, new Vector3(0f, 1.4f, 0f));
+                if (ok) room.Integrate(disparity, w, h, Quaternion.identity, ty * aspect, ty, new Vector3(0f, 1.4f, 0f));   // второй кадр — высоту телефона берём с двух
                 File.WriteAllBytes($"Logs/room_{name}.png", room.Preview().EncodeToPNG());
                 Debug.Log($"[GhostWard] глубина {name} {w}×{h}: {watch.ElapsedMilliseconds} мс; карта: {(ok ? "да" : "нет")} ({room.Status}); " +
-                          $"потолок {room.CeilingHeight:0.00} м; впереди свободно {room.MaxDistance(0f):0.00} м " +
+                          $"потолок {room.CeilingHeight:0.00} м, телефон {room.PhoneHeight:0.00} м{(room.HeightMeasured ? " (по потолку)" : "")}; впереди свободно {room.MaxDistance(0f):0.00} м " +
                           $"(препятствие {room.Free(0f, 6f):0.00} м); пол виден до {room.FloorReach(0f):0.00} м; " +
                           $"на уровне глаз {room.Range(0f, 0f):0.00} м, вниз 30° {room.Range(0f, -30f):0.00} м (пол был бы {1.4f / Mathf.Sin(30f * Mathf.Deg2Rad):0.00})");
-                if (ok) RenderOcclusion(src, name, aspect);
+                if (ok) RenderOcclusion(src, name, aspect, 1.4f - room.PhoneHeight);
                 Object.DestroyImmediate(go);
             }
             depth.Dispose();

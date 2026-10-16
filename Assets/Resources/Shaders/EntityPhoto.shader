@@ -19,6 +19,7 @@ Shader "GhostWard/EntityPhoto"
         _Key ("Black key", Float) = 0
         _World ("In world", Float) = 0
         _Dim ("Distance dim", Range(0, 1)) = 1
+        _Crop ("Figure box in picture (x, y, w, h)", Vector) = (0, 0, 1, 1)
 
         _StencilComp ("Stencil Comparison", Float) = 8
         _Stencil ("Stencil ID", Float) = 0
@@ -58,6 +59,7 @@ Shader "GhostWard/EntityPhoto"
             float4 _MainTex_TexelSize;
             fixed4 _Color;
             float _Fade, _Flash, _Dissolve, _Seed, _Flip, _Locked, _Key, _World, _Dim;
+            float4 _Crop;   // в мире квад обтягивает саму фигуру: ступни — ровно по нижнему краю
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
             struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 screen : TEXCOORD1; float3 world : TEXCOORD2; };
@@ -79,6 +81,7 @@ Shader "GhostWard/EntityPhoto"
             float4 Sample(float2 uv)
             {
                 if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0;
+                if (_World > 0.5) uv = _Crop.xy + uv * _Crop.zw;
                 float4 c = tex2D(_MainTex, uv);
                 float lum = max(c.r, max(c.g, c.b));
                 float a = c.a * lerp(1.0, smoothstep(0.012, 0.05, lum), _Key);
@@ -125,8 +128,8 @@ Shader "GhostWard/EntityPhoto"
                     float soft = (Sample(uv + float2(o.x, 0)).a + Sample(uv - float2(o.x, 0)).a
                                 + Sample(uv + float2(0, o.y)).a + Sample(uv - float2(0, o.y)).a) * 0.25;
                     alpha = min(alpha, soft * 1.15);
-                    // ступни уходят в тень пола
-                    alpha *= smoothstep(0.0, 0.07, h);
+                    // ступни чуть уходят в тень пола (квад обрезан по фигуре — ступни у самого края)
+                    alpha *= smoothstep(0.0, 0.03, h);
                     float2 sp = i.screen.xy / max(i.screen.w, 1e-4);
                     col = GW_Grade(col, sp, _Dim);
                     alpha *= GW_Occlusion(i.world);   // за настоящим столом или косяком — не видна
@@ -143,8 +146,10 @@ Shader "GhostWard/EntityPhoto"
                 // мерцание
                 col *= 0.93 + 0.07 * hash11(tf * 1.3 + _Seed);
 
-                // края квада гасим, чтобы не было рамки
-                float edge = saturate(min(min(i.uv.x, 1.0 - i.uv.x), min(i.uv.y, 1.0 - i.uv.y)) * 12.0);
+                // края квада гасим, чтобы не было рамки; низ (ступни) в мире — своим затуханием выше
+                float edgeY = _World > 0.5 ? 1.0 - h : min(i.uv.y, 1.0 - i.uv.y);
+                // в мире квад обтягивает фигуру (поля 3%) — край гасим узко, чтобы не съесть макушку
+                float edge = saturate(min(min(i.uv.x, 1.0 - i.uv.x), edgeY) * (_World > 0.5 ? 40.0 : 12.0));
                 alpha *= edge;
 
                 // закрытая запись дневника — только тёмный силуэт

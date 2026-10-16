@@ -12,12 +12,17 @@ namespace GhostWard
     //
     // Что даёт игре:
     //  • сущность ставится перед стеной или шкафом, а не внутри них (MaxDistance), на видимый пол (FloorReach);
-    //  • настоящая высота потолка (CeilingHeight);
+    //  • высота телефона над полом (PhoneHeight): у нейросети нет метров, но есть пропорции — отношение
+    //    «потолок над глазами / пол под глазами» от масштаба не зависит. Потолки в жилых комнатах почти
+    //    всегда ~2.6 м, отсюда высота телефона: стоит игрок, сидит или держит телефон у пояса.
+    //    Пока потолка не видели — 1.4 м. Внутри карта хранится «как при 1.4 м», наружу — умноженной на Scale;
+    //  • высота потолка (CeilingHeight);
     //  • перекрытие: стол, диван, косяк двери ближе сущности — заслоняют её (шейдеры, _GW_Room).
     public class RoomMap : MonoBehaviour
     {
         public const int Cols = 180, Rows = 90;   // клетки по 2°
-        public const float EyeHeight = 1.4f;
+        public const float EyeHeight = 1.4f;       // высота телефона, пока не измерили
+        const float TypicalCeiling = 2.6f;
         const float Unknown = 50f;                 // в текстуре: «ничего не известно» — ничего не заслоняет
         const float Budget = 3f;                   // мс работы нейросети за кадр
 
@@ -29,6 +34,10 @@ namespace GhostWard
         public int Frames { get; private set; }
         public bool Has => Frames > 0;
         public float CeilingHeight { get; private set; } = -1f;   // над полом, -1 — не знаем
+        public float PhoneHeight { get; private set; } = EyeHeight;  // над полом, м
+        public bool HeightMeasured { get; private set; }
+        public bool Available => !failed && Settings.Quality > 0;
+        float Scale => PhoneHeight / EyeHeight;
         public string Status { get; private set; } = "нет";
 
         readonly float[] inv = new float[Cols * Rows];      // средняя обратная дальность в клетке, 1/м
@@ -56,8 +65,14 @@ namespace GhostWard
             return map;
         }
 
-        public void Clear()
+        // keepHeight — игрок просто перешёл на другое место: держит телефон так же, высоту не теряем
+        public void Clear(bool keepHeight = false)
         {
+            if (!keepHeight)
+            {
+                PhoneHeight = EyeHeight;
+                HeightMeasured = false;
+            }
             System.Array.Clear(inv, 0, inv.Length);
             System.Array.Clear(weight, 0, weight.Length);
             Frames = 0;
@@ -211,7 +226,7 @@ namespace GhostWard
             Frames++;
             UpdateCeiling();
             dirty = true;
-            Status = $"кадров {Frames}, пол {kept}/{m}";
+            Status = $"кадров {Frames}, пол {kept}/{m}, телефон {PhoneHeight:0.00} м" + (HeightMeasured ? " (по потолку)" : " (обычная)");
             Upload();
             return true;
         }
@@ -220,7 +235,7 @@ namespace GhostWard
         // у стен — разная на каждой высоте взгляда
         void UpdateCeiling()
         {
-            var bins = new int[17];   // 2.0 … 3.6 м по 10 см
+            var bins = new int[35];   // 1.6 … 5.0 м по 10 см — в единицах карты «при 1.4 м»
             for (int r = Rows / 2 + 7; r < Rows; r++)
             {
                 float sin = Mathf.Sin(((r + 0.5f) * 2f - 90f) * Mathf.Deg2Rad);
@@ -228,14 +243,22 @@ namespace GhostWard
                 {
                     int i = r * Cols + c;
                     if (weight[i] <= 0f) continue;
-                    int b = Mathf.RoundToInt((EyeHeight + sin / inv[i] - 2f) * 10f);
+                    int b = Mathf.RoundToInt((EyeHeight + sin / inv[i] - 1.6f) * 10f);
                     if (b >= 0 && b < bins.Length) bins[b]++;
                 }
             }
             int best = 0;
             for (int b = 1; b < bins.Length; b++) if (bins[b] > bins[best]) best = b;
             int sum = bins[best] + (best > 0 ? bins[best - 1] : 0) + (best < bins.Length - 1 ? bins[best + 1] : 0);
-            if (sum >= 40) CeilingHeight = 2f + best * 0.1f;
+            if (sum < 40) return;
+            float ceiling = 1.6f + best * 0.1f;
+            // высота телефона — один раз за ночь, по двум кадрам и больше: иначе фигуры «прыгали» бы по высоте
+            if (!HeightMeasured && Frames >= 2)
+            {
+                PhoneHeight = Mathf.Clamp(TypicalCeiling * EyeHeight / ceiling, 0.7f, 1.8f);
+                HeightMeasured = true;
+            }
+            CeilingHeight = Mathf.Clamp(ceiling * Scale, 2.1f, 4f);
         }
 
         void Upload()
@@ -251,7 +274,7 @@ namespace GhostWard
                 };
             }
             for (int i = 0; i < texData.Length; i++)
-                texData[i] = Mathf.FloatToHalf(weight[i] > 0f ? 1f / inv[i] : Unknown);
+                texData[i] = Mathf.FloatToHalf(weight[i] > 0f ? Scale / inv[i] : Unknown);
             tex.SetPixelData(texData, 0);
             tex.Apply(false);
             Shader.SetGlobalTexture(RoomId, tex);
@@ -265,7 +288,7 @@ namespace GhostWard
         {
             var d = Quaternion.Euler(-pitchDeg, yawDeg, 0f) * Vector3.forward;
             int i = CellOf(d);
-            return weight[i] > 0f ? 1f / inv[i] : -1f;
+            return weight[i] > 0f ? Scale / inv[i] : -1f;
         }
 
         // ближайшее препятствие по горизонтали в секторе (азимут ± halfWidth): только точки на высоте туловища
@@ -281,7 +304,7 @@ namespace GhostWard
                     float r = Range(yawDeg + dy, p);
                     if (r < 0f) continue;
                     any = true;
-                    float above = EyeHeight + Mathf.Sin(p * Mathf.Deg2Rad) * r;
+                    float above = PhoneHeight + Mathf.Sin(p * Mathf.Deg2Rad) * r;
                     if (above < 1f || above > 2.1f) continue;
                     best = Mathf.Min(best, r * Mathf.Cos(p * Mathf.Deg2Rad));
                 }
@@ -308,8 +331,8 @@ namespace GhostWard
                 {
                     float r = Range(yawDeg + dy, p);
                     if (r < 0f) continue;
-                    float above = EyeHeight + Mathf.Sin(p * Mathf.Deg2Rad) * r;
-                    if (Mathf.Abs(above) < 0.18f) best = Mathf.Max(best, r * Mathf.Cos(p * Mathf.Deg2Rad));
+                    float above = PhoneHeight + Mathf.Sin(p * Mathf.Deg2Rad) * r;
+                    if (Mathf.Abs(above) < 0.18f * Scale) best = Mathf.Max(best, r * Mathf.Cos(p * Mathf.Deg2Rad));
                 }
             return best;
         }

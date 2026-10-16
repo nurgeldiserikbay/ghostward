@@ -94,6 +94,8 @@ namespace GhostWard
                 pm.SetFloat("_Key", UnityEngine.Experimental.Rendering.GraphicsFormatUtility.HasAlphaChannel(picture.graphicsFormat) ? 0f : 1f);
                 pm.SetColor("_Color", def.Accent);
                 pm.SetFloat("_Seed", seed);
+                var box = FigureOf(def).Box;
+                pm.SetVector("_Crop", new Vector4(box.x, box.y, box.width, box.height));
                 return pm;
             }
 
@@ -103,6 +105,70 @@ namespace GhostWard
             m.SetFloat("_Shape", Silhouette(def.Kind));
             m.SetFloat("_Seed", seed);
             return m;
+        }
+
+        // ---------- рост и рамка фигуры ----------
+        // Рост сущности (Def.Height) — от ступней до макушки. На картинке вокруг фигуры бывают пустые поля,
+        // поэтому в мире квад обтягивает саму фигуру (рамка по прозрачности, поля 3% по бокам и сверху):
+        // тогда рост на экране настоящий, а ступни — ровно по нижнему краю квада, на полу.
+        public struct Figure
+        {
+            public Rect Box;       // рамка фигуры в картинке, uv 0..1
+            public Vector2 Size;   // размер квада в мире, м
+            public float Feet;     // от середины квада до ступней, м
+        }
+
+        static readonly System.Collections.Generic.Dictionary<EntityKind, Figure> Figures = new();
+
+        public static Figure FigureOf(EntityDef def)
+        {
+            if (Figures.TryGetValue(def.Kind, out var f)) return f;
+            var box = new Rect(0f, 0f, 1f, 1f);
+            float aspect = 0.8f;
+            var pic = Picture(def.Kind);
+            if (pic != null)
+            {
+                if (TryFigureBox(pic, out var found)) box = found;
+                aspect = box.width * pic.width / Mathf.Max(box.height * pic.height, 1f);
+            }
+            float h = def.Height;
+            f = new Figure { Box = box, Size = new Vector2(h * Mathf.Clamp(aspect, 0.25f, 2.5f), h), Feet = h * 0.5f };
+            Figures[def.Kind] = f;
+            return f;
+        }
+
+        // где на картинке есть фигура: непрозрачное (или не чёрное, если фона-прозрачности нет)
+        static bool TryFigureBox(Texture2D pic, out Rect box)
+        {
+            box = default;
+            if (!pic.isReadable) return false;
+            Color32[] px;
+            try { px = pic.GetPixels32(); }
+            catch (System.Exception) { return false; }
+            int w = pic.width, h = pic.height;
+            bool alpha = UnityEngine.Experimental.Rendering.GraphicsFormatUtility.HasAlphaChannel(pic.graphicsFormat);
+            int x0 = w, x1 = -1, y0 = h, y1 = -1;
+            for (int y = 0; y < h; y += 2)
+                for (int x = 0; x < w; x += 2)
+                {
+                    var c = px[y * w + x];
+                    bool on = alpha ? c.a > 90 : Mathf.Max(c.r, Mathf.Max(c.g, c.b)) > 13;
+                    if (!on) continue;
+                    if (x < x0) x0 = x;
+                    if (x > x1) x1 = x;
+                    if (y < y0) y0 = y;
+                    if (y > y1) y1 = y;
+                }
+            if (x1 < x0 || y1 < y0) return false;
+            float bx = (float)x0 / w, bw = (float)(x1 + 2 - x0) / w;
+            float by = (float)y0 / h, bh = (float)(y1 + 2 - y0) / h;
+            // поля: по бокам и сверху, снизу нет — ступни на краю
+            float padX = bw * 0.03f, padTop = bh * 0.03f;
+            bx = Mathf.Max(0f, bx - padX);
+            bw = Mathf.Min(1f - bx, bw + padX * 2f);
+            bh = Mathf.Min(1f - by, bh + padTop);
+            box = new Rect(bx, by, bw, bh);
+            return bw > 0.05f && bh > 0.05f;
         }
 
         static readonly System.Collections.Generic.Dictionary<EntityKind, Texture2D> Pictures = new();
@@ -148,7 +214,8 @@ namespace GhostWard
             go.name = def.Name;
             Destroy(go.GetComponent<Collider>());
             go.transform.position = position;
-            go.transform.localScale = new Vector3(def.Height * 0.8f, def.Height, 1f);
+            var figure = FigureOf(def);
+            go.transform.localScale = new Vector3(figure.Size.x, figure.Size.y, 1f);
 
             var e = go.AddComponent<Entity>();
             e.Def = def;
@@ -206,7 +273,7 @@ namespace GhostWard
                 e.shadow = GameObject.CreatePrimitive(PrimitiveType.Quad);
                 e.shadow.name = "Shadow";
                 Destroy(e.shadow.GetComponent<Collider>());
-                e.shadow.transform.localScale = new Vector3(def.Height * 0.75f, def.Height * 0.32f, 1f);
+                e.shadow.transform.localScale = new Vector3(Mathf.Max(figure.Size.x * 0.95f, def.Height * 0.45f), def.Height * 0.32f, 1f);
                 e.shadowMat = new Material(Shader.Find("GhostWard/Shadow"));
                 var sr = e.shadow.GetComponent<MeshRenderer>();
                 sr.sharedMaterial = e.shadowMat;
@@ -425,7 +492,7 @@ namespace GhostWard
                     else
                     {
                         var p = transform.position;
-                        p.y = Mathf.MoveTowards(p.y, game.Floor + Def.Height * 0.5f, dt * 6f);   // падает на пол перед игроком
+                        p.y = Mathf.MoveTowards(p.y, game.Floor + FigureOf(Def).Feet, dt * 6f);   // падает на пол перед игроком
                         transform.position = p;
                         phaseTime -= dt;
                         if (phaseTime <= 0f) Approach(speed * 2f);
@@ -469,7 +536,7 @@ namespace GhostWard
             orbit = Mathf.Atan2(off.x, off.z) * Mathf.Rad2Deg + dt * (35f + 30f / Mathf.Max(r, 0.5f)) * SpeedMul;
             r = Mathf.Max(0f, r - speed * SpeedMul * dt);
             var p = c + Quaternion.Euler(0f, orbit, 0f) * Vector3.forward * r;
-            p.y = Mathf.Lerp(transform.position.y, c.y + Mathf.Sin(Time.time * 1.7f + Seed) * 0.25f, dt * 2f);
+            p.y = game.HoverY(Def, Mathf.Lerp(transform.position.y, c.y + Mathf.Sin(Time.time * 1.7f + Seed) * 0.25f, dt * 2f));
             transform.position = p;
             nextEvent -= dt;
             if (nextEvent <= 0f) { voice.PlayOneShot(EntitySounds.Special(Def.Kind), 0.9f); nextEvent = Random.Range(4f, 7f); }
@@ -541,7 +608,7 @@ namespace GhostWard
             if (shadow != null)
             {
                 var p = transform.position;
-                p.y -= baseScale.y * 0.5f - 0.01f;
+                p.y -= FigureOf(Def).Feet - 0.01f;
                 shadow.transform.position = p;
                 shadow.transform.rotation = Quaternion.Euler(90f, Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg, 0f);
                 bool visible = rend.enabled && Current is not (State.Attacking or State.Banished) && !(Arch == EntityKind.Kikimora && !dropped);
@@ -565,6 +632,13 @@ namespace GhostWard
                 step += side * (Mathf.Sin(Time.time * 1.3f + Seed) * 0.15f * Time.deltaTime);
             }
             transform.position += step;
+            // летающие не уходят в пол и не упираются в потолок
+            if (!Planar)
+            {
+                var p = transform.position;
+                p.y = game.HoverY(Def, p.y);
+                transform.position = p;
+            }
         }
 
         // переставить в тёмное место комнаты не ближе minAngle к направлению взгляда
