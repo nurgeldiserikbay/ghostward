@@ -71,7 +71,7 @@ namespace GhostWard
     {
         public static readonly EntityDef[] Entities =
         {
-            new EntityDef { Kind = EntityKind.Ghost, Lure = Lure.Photo, Bane = ItemKind.Salt, Height = 1.2f, Stance = Stance.Float,
+            new EntityDef { Kind = EntityKind.Ghost, Lure = Lure.Photo, Bane = ItemKind.Salt, Height = 1.7f, Stance = Stance.Float,
                 Body = new Color(0.78f, 0.84f, 0.9f), Accent = new Color(0.55f, 0.75f, 1f),
                 Clues = new[] { Evidence.Frost, Evidence.Whisper, Evidence.Radio }, Lair = Lair.Far },
             new EntityDef { Kind = EntityKind.Shade, Lure = Lure.MusicBox, Bane = ItemKind.Lantern, Height = 1.8f, Stance = Stance.Floor,

@@ -19,6 +19,7 @@ namespace GhostWard
             ["play"] = new[] { "PLAY", "ИГРАТЬ", "ОЙНАУ", "JUGAR", "JOGAR" },
             ["howto"] = new[] { "HOW TO PLAY", "КАК ИГРАТЬ", "ҚАЛАЙ ОЙНАУ", "CÓMO JUGAR", "COMO JOGAR" },
             ["journal"] = new[] { "JOURNAL", "ДНЕВНИК", "КҮНДЕЛІК", "DIARIO", "DIÁRIO" },
+            ["entities"] = new[] { "ENTITIES", "СУЩНОСТИ", "ТЫЛСЫМДАР", "ENTIDADES", "ENTIDADES" },
             ["settings"] = new[] { "SETTINGS", "НАСТРОЙКИ", "БАПТАУЛАР", "AJUSTES", "AJUSTES" },
             ["tip"] = new[] { "Play in the dark, with headphones", "Играй в темноте и в наушниках", "Қараңғыда, құлаққаппен ойна", "Juega a oscuras y con auriculares", "Jogue no escuro e com fones de ouvido" },
             ["loading"] = new[] { "It's getting dark…", "Темнеет…", "Қараңғыланып келеді…", "Está oscureciendo…", "Está escurecendo…" },

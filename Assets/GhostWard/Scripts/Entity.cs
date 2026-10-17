@@ -268,7 +268,7 @@ namespace GhostWard
             e.mat.SetFloat(WorldId, 1f);   // в мире — та же «камера», что и комната
 
             // тень на полу под ногами
-            if (def.Stance == Stance.Floor)
+            if (def.Stance == Stance.Floor || Game.IsDrifter(def))   // и под парящим призраком — тень на полу
             {
                 e.shadow = GameObject.CreatePrimitive(PrimitiveType.Quad);
                 e.shadow.name = "Shadow";
@@ -421,7 +421,9 @@ namespace GhostWard
                     if (nextEvent < 0.8f) fade = Mathf.Clamp01(nextEvent / 0.8f);
                     if (nextEvent <= 0f)
                     {
-                        Relocate(50f, Mathf.Max(1.4f, FlatDistance() * 0.85f), keepState: true);
+                        // «моргнул» — и стоит почти там же, но ближе: не прыгает по всей комнате
+                        transform.position = game.NearbyPosition(Def, transform.position, 0.85f);
+                        fade = 0f;
                         nextEvent = Random.Range(5f, 8f);
                         // банши воет, возникнув на новом месте
                         if (Def.Kind == EntityKind.Banshee) { voice.PlayOneShot(EntitySounds.Special(Def.Kind), 1f); game.OnWail(this); }
@@ -612,7 +614,7 @@ namespace GhostWard
             if (shadow != null)
             {
                 var p = transform.position;
-                p.y -= FigureOf(Def).Feet - 0.01f;
+                p.y = game.Floor + 0.01f;   // тень всегда на полу, даже под парящим
                 shadow.transform.position = p;
                 shadow.transform.rotation = Quaternion.Euler(90f, Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg, 0f);
                 bool visible = rend.enabled && Current is not (State.Attacking or State.Banished) && !(Arch == EntityKind.Kikimora && !dropped);
@@ -623,7 +625,8 @@ namespace GhostWard
         // ---------- движение ----------
 
         // по полу и по потолку — без вертикального движения, по воздуху — плавно к лицу
-        bool Planar => Def.Stance == Stance.Floor || Arch == EntityKind.Kikimora && !dropped;
+        // призраки тоже: парят над полом на одной высоте и не поднимаются к лицу
+        bool Planar => Def.Stance == Stance.Floor || Game.IsDrifter(Def) || Arch == EntityKind.Kikimora && !dropped;
 
         void Approach(float v)
         {

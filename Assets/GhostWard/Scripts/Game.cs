@@ -48,8 +48,28 @@ namespace GhostWard
             {
                 Stance.Floor => Floor + f.Feet,
                 Stance.Ceiling => Floor + CeilingHeight - (f.Size.y - f.Feet),
+                // призраки (фигура человека в полный рост) парят чуть над полом, а не висят на уровне глаз
+                Stance.Float when IsDrifter(def) => HoverY(def, Floor + Entity.FigureOf(def).Feet + 0.25f),
                 _ => HoverY(def, floatY)
             };
+        }
+
+        public static bool IsDrifter(EntityDef def) => Entity.ArchOf(def.Kind) == EntityKind.Ghost;
+
+        // Рядом с прежним местом: чуть ближе к игроку (closer — доля дистанции) и немного вбок, не в стене.
+        // Для «моргания» призрака: пропал на миг — и стоит почти там же, но ближе.
+        public Vector3 NearbyPosition(EntityDef def, Vector3 from, float closer)
+        {
+            var camPos = cam.transform.position;
+            var flat = from - camPos;
+            flat.y = 0f;
+            float dist = Mathf.Max(1.3f, flat.magnitude * closer);
+            float yaw = Mathf.Atan2(flat.x, flat.z) * Mathf.Rad2Deg + Random.Range(-12f, 12f);
+            float limit = RoomLimit(yaw);
+            if (limit > 0f) dist = Mathf.Clamp(dist, 1.1f, Mathf.Max(limit, 1.1f));
+            var pos = camPos + Quaternion.Euler(0f, yaw, 0f) * Vector3.forward * dist;
+            pos.y = StanceY(def, from.y);
+            return pos;
         }
 
         // половина горизонтального угла обзора: в портретной ориентации кадр узкий (~15°)

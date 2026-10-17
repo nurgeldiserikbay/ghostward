@@ -88,7 +88,10 @@ namespace GhostWard
         RawImage entryPicture, grain, jumpscare;
         Material entryMat, jumpMat;
         float jumpTimer;
-        readonly List<(EntityKind kind, RawImage pic, Material mat, Text name)> cards = new();
+        // карточки списка сущностей: картинка — готовое превью (Thumb), а не живой шейдер — список не тормозит
+        readonly List<(EntityKind kind, RawImage pic, Text name)> cards = new();
+        readonly Dictionary<(EntityKind, bool), RenderTexture> thumbs = new();
+        Coroutine thumbFill;
 
         // записи ночи: всё, что игра сказала, можно перечитать
         readonly List<string> nightLog = new();
@@ -1230,8 +1233,7 @@ namespace GhostWard
                 pic.rectTransform.sizeDelta = new Vector2(200, 245);
                 pic.rectTransform.anchoredPosition = new Vector2(0, -135);
                 pic.raycastTarget = false;
-                var mat = Entity.CreateMaterial(def, 1.7f + i);
-                pic.material = mat;
+                pic.enabled = false;   // превью подгружается, когда список открыт (FillThumbs)
 
                 var name = Label(card, "", 28, new Vector2(0.5f, 0f), new Vector2(0, 40), Bone);
                 name.rectTransform.sizeDelta = new Vector2(cw - 20, 70);
@@ -1239,15 +1241,45 @@ namespace GhostWard
                 name.resizeTextForBestFit = true;
                 name.resizeTextMinSize = 18;
                 name.resizeTextMaxSize = 28;
-                cards.Add((kind, pic, mat, name));
+                cards.Add((kind, pic, name));
             }
 
-            Button(journalList.transform, Loc.T("clues"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalClues), true, 300, -320);
-            Button(journalList.transform, Loc.T("items"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalItems), false, 300, 0);
-            Button(journalList.transform, Loc.T("tools"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalTools), false, 300, 320);
-            Button(journalList.transform, Loc.T("howto"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalHowTo), false, 300, -320);
-            Button(journalList.transform, Loc.T("night_log"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalLog), false, 300, 0);
-            Button(journalList.transform, Loc.T("close"), new Vector2(0.5f, 0.06f), () => SetJournal(false), false, 300, 320);
+            Button(journalList.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalClues), false);
+        }
+
+        // Превью сущности для списка: шейдер рисуется один раз в текстуру (фон прозрачный) и запоминается.
+        // Живых шейдеров в списке больше нет (их было 40 — по шейдеру на карточку каждый кадр).
+        RenderTexture Thumb(EntityDef def, bool locked)
+        {
+            if (thumbs.TryGetValue((def.Kind, locked), out var rt) && rt != null) return rt;
+            rt = new RenderTexture(200, 245, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) { name = "Thumb " + def.Kind };   // sRGB — цвета как у живого шейдера
+            var mat = Entity.CreateMaterial(def, 1.7f + (int)def.Kind);
+            mat.SetFloat("_Locked", locked ? 1f : 0f);
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            GL.Clear(true, true, Color.clear);   // прозрачный фон — под картинкой видна сама карточка
+            RenderTexture.active = prev;
+            // у картинок шейдер читает _MainTex — её Blit и передаёт; процедурному силуэту источник не нужен
+            Graphics.Blit(Entity.Picture(def.Kind) ?? (Texture)Texture2D.blackTexture, rt, mat);
+            if (Application.isPlaying) Destroy(mat); else DestroyImmediate(mat);
+            thumbs[(def.Kind, locked)] = rt;
+            return rt;
+        }
+
+        // подгружаем превью постепенно — по две карточки за кадр, сверху вниз
+        System.Collections.IEnumerator FillThumbs()
+        {
+            int done = 0;
+            foreach (var c in cards)
+            {
+                var def = Catalog.Get(c.kind);
+                bool locked = !Catalog.Seen(c.kind);
+                bool cached = thumbs.ContainsKey((c.kind, locked));
+                c.pic.texture = Thumb(def, locked);
+                c.pic.enabled = true;
+                if (!cached && ++done % 2 == 0) yield return null;
+            }
+            thumbFill = null;
         }
 
         void BuildJournalEntry()
@@ -1357,7 +1389,13 @@ namespace GhostWard
             suspectsText.resizeTextForBestFit = true;
             suspectsText.resizeTextMinSize = 18;
             suspectsText.resizeTextMaxSize = 28;
-            Button(journalClues.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
+            // улики — первая страница журнала: отсюда — список сущностей и остальные разделы
+            Button(journalClues.transform, Loc.T("entities"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalList), true, 300, -320);
+            Button(journalClues.transform, Loc.T("items"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalItems), false, 300, 0);
+            Button(journalClues.transform, Loc.T("tools"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalTools), false, 300, 320);
+            Button(journalClues.transform, Loc.T("howto"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalHowTo), false, 300, -320);
+            Button(journalClues.transform, Loc.T("night_log"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalLog), false, 300, 0);
+            Button(journalClues.transform, Loc.T("close"), new Vector2(0.5f, 0.06f), () => SetJournal(false), false, 300, 320);
             UpdateSuspects();
         }
 
@@ -1378,7 +1416,7 @@ namespace GhostWard
             row++;
             foreach (var k in new[] { Protect.Circle, Protect.Candle, Protect.Tumar, Protect.Calm })
                 ToolRow(row++, r => Icons.ProtectIcon(r, k, Bone), $"<b>{Loc.T($"p.{k}.name")}.</b> {Loc.T($"p.{k}.desc")}");
-            Button(journalTools.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
+            Button(journalTools.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalClues), false);
         }
 
         void ToolRow(int row, Action<RectTransform> icon, string text)
@@ -1635,7 +1673,7 @@ namespace GhostWard
             text.rectTransform.sizeDelta = new Vector2(940, 1400);
             text.fontSize = 28;
             text.alignment = TextAnchor.UpperLeft;
-            Button(journalHowTo.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
+            Button(journalHowTo.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalClues), false);
         }
 
         void BuildJournalItems()
@@ -1695,7 +1733,7 @@ namespace GhostWard
             learnedCount = Label(journalItems.transform, "", 28, new Vector2(0.5f, 0.94f), new Vector2(0, -58), Dim);
             learnedCount.rectTransform.sizeDelta = new Vector2(900, 50);
 
-            Button(journalItems.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
+            Button(journalItems.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalClues), false);
         }
 
         // Тренировка: на экране сущность, которая боится предмета; верный жест — она тает, жест выучен.
@@ -1843,7 +1881,7 @@ namespace GhostWard
             logScroll.content = logContent;
             logScroll.horizontal = false;
             logScroll.scrollSensitivity = 40f;
-            Button(journalLog.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
+            Button(journalLog.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalClues), false);
         }
 
         void RefreshLog()
@@ -1866,6 +1904,7 @@ namespace GhostWard
             journalPractice.SetActive(page == journalPractice);
             if (page == journalItems) RefreshLearned();
             journalList.SetActive(page == journalList);
+            if (page == journalList && thumbFill == null && Application.isPlaying) thumbFill = StartCoroutine(FillThumbs());
             journalEntry.SetActive(page == journalEntry);
             journalItems.SetActive(page == journalItems);
             journalClues.SetActive(page == journalClues);
@@ -1940,7 +1979,8 @@ namespace GhostWard
                 case "clues": ToggleClue(0); ToggleClue(1); ShowJournalPage(journalClues); break;
                 case "howto": ShowJournalPage(journalHowTo); break;
                 case "practice": ShowJournalPage(journalItems); OpenPractice(ItemKind.Mirror); break;
-                case "end": ShowJournalPage(journalList); journalScroll.verticalNormalizedPosition = 0f; break;
+                case "list": ShowJournalPage(journalList); FillThumbsNow(); break;
+                case "end": ShowJournalPage(journalList); FillThumbsNow(); journalScroll.verticalNormalizedPosition = 0f; break;
                 case "log":
                     LogNight(Loc.F("night_n", 3));
                     Narrate(Loc.F("n.Frost", Loc.T("dir_left")));
@@ -1950,6 +1990,12 @@ namespace GhostWard
                     ShowJournalPage(journalLog);
                     break;
             }
+        }
+
+        void FillThumbsNow()
+        {
+            var it = FillThumbs();
+            while (it.MoveNext()) { }
         }
 
         // удаление панели: в игре — обычное, в превью из редактора — сразу
@@ -1980,14 +2026,13 @@ namespace GhostWard
                     bool seen = Catalog.Seen(c.kind);
                     bool known = Know.Name(c.kind);
                     if (known) found++;
-                    c.mat.SetFloat("_Locked", seen ? 0f : 1f);
-                    // до знакомства — «???»; облик открывается после встречи
+                    // до знакомства — «???»; облик открывается после встречи (превью — при открытии списка)
                     c.name.text = known ? Catalog.Get(c.kind).Name : "???";
                     c.name.color = seen ? Bone : Dim;
                 }
                 journalCount.text = Loc.F("journal_count", found, cards.Count);
                 journalScroll.verticalNormalizedPosition = 1f;
-                ShowJournalPage(journalList);
+                ShowJournalPage(journalClues);
             }
             JournalToggled?.Invoke(open);
         }
