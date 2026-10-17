@@ -355,6 +355,7 @@ namespace GhostWard
         }
 
         public string LastSpot { get; private set; } = "";
+        public Vector3 Origin => origin;   // откуда снята карта (игрок мог отойти — тогда она снимается заново)
 
         readonly float[] wallCol = new float[Cols], lowCol = new float[Cols], floorCol = new float[Cols];
         bool spotsDirty = true;
@@ -403,7 +404,9 @@ namespace GhostWard
         }
 
         // Место для сущности по её повадке. darkness(yaw) — темнота сектора 0..1 (-1 — не знаем).
-        public bool TryPickSpot(float viewYaw, float minAngle, float maxDist, Lair lair, System.Func<float, float> darkness, out Spot spot)
+        // maxAngle — не дальше этого угла от взгляда (место прямо в кадре)
+        public bool TryPickSpot(float viewYaw, float minAngle, float maxDist, Lair lair, System.Func<float, float> darkness, out Spot spot,
+                                float maxAngle = 180f)
         {
             spot = default;
             if (!Has) return false;
@@ -433,7 +436,8 @@ namespace GhostWard
             {
                 float wall = wallCol[c];
                 if (wall < 1.5f) continue;   // не осмотрено или стена вплотную
-                if (Mathf.Abs(Mathf.DeltaAngle(ColYaw(c), viewYaw)) < minAngle) continue;
+                float off = Mathf.Abs(Mathf.DeltaAngle(ColYaw(c), viewYaw));
+                if (off < minAngle || off > maxAngle) continue;
 
                 float left = MinWall(c - 5, c - 2), right = MinWall(c + 2, c + 5);
                 float jamb = Mathf.Max(left, right);

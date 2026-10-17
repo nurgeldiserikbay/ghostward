@@ -101,8 +101,17 @@ namespace GhostWard
             camStatus = "запуск";
         }
 
+        // шагомер (Game.OnSteps) сдвигает игрока: камера плавно догоняет место, куда он дошёл
+        Vector3 walkTarget = new(0f, 1.4f, 0f);
+        public void Walk(Vector3 delta)
+        {
+            delta.y = 0f;
+            walkTarget += delta;
+        }
+
         void Update()
         {
+            transform.position = Vector3.MoveTowards(transform.position, walkTarget, Time.deltaTime * 1.8f);
             UpdateRotation();
             FitBackground();
             if (webcam != null && webcam.width >= 32)

@@ -145,6 +145,8 @@ namespace GhostWard
 
         // скорость поворота игрока, °/с — по ней ходит двойник и по ней понятно, замер ли игрок
         public float TurnSpeed { get; private set; }
+        float TurnSign;   // куда игрок поворачивается: +1 вправо, −1 влево
+        float recaptureUntil;
         Vector3 lastForward;
 
         // осмотр комнаты
@@ -515,6 +517,8 @@ namespace GhostWard
 
             var fwd = cam.transform.forward;
             TurnSpeed = Mathf.Lerp(TurnSpeed, Vector3.Angle(fwd, lastForward) / Mathf.Max(dt, 1e-3f), dt * 8f);
+            float turnNow = Vector3.Cross(lastForward, fwd).y;
+            if (Mathf.Abs(turnNow) > 1e-4f) TurnSign = Mathf.Lerp(TurnSign, Mathf.Sign(turnNow), dt * 6f);
             lastForward = fwd;
 
             if (!prologue) nightTime += dt;
@@ -1207,7 +1211,8 @@ namespace GhostWard
             if (room == null) return;
             bool active = phase is Phase.Scan or Phase.Investigate or Phase.Hunt;
             room.Capturing = active && !ui.JournalOpen;
-            room.Interval = phase == Phase.Scan ? 0.3f : 2.5f;
+            // после перехода карта снимается заново — чаще, пока не наберётся
+            room.Interval = phase == Phase.Scan || Time.time < recaptureUntil ? 0.3f : 2.5f;
 
             float dt = Time.deltaTime;
             float turn = Quaternion.Angle(cam.transform.rotation, lastRoomRot) / Mathf.Max(dt, 1e-3f);
@@ -1215,7 +1220,8 @@ namespace GhostWard
             walkCooldown -= dt;
             // жесты предметов и резкие повороты тоже трясут телефон — тогда шаги не считаем
             bool suppress = !active || ui.JournalOpen || gestures.Pressing || turn > 90f;
-            if (steps.Tick(dt, Time.time, suppress)) OnWalk();
+            int stepped = steps.Tick(dt, Time.time, suppress);
+            if (stepped > 0) OnSteps(stepped);
         }
 
         // темнота комнаты по азимуту (карта осмотра) 0..1; -1 — не знаем
@@ -1233,31 +1239,34 @@ namespace GhostWard
             return room != null && room.Has ? room.MaxDistance(yaw) : -1f;
         }
 
-        // игрок пошёл: комната вокруг уже другая — видения рассыпаются и ждут в новом месте
-        void OnWalk()
+        // Игрок идёт (режим гироскопа): каждый шаг — ~0.6 м туда, куда смотрит камера. Сущности, логово, холодное
+        // пятно остаются на своих местах в комнате: подошёл — они ближе и крупнее, отошёл — дальше.
+        // Карта глубины снята с прежнего места — отошёл больше чем на 0.6 м, снимаем её заново.
+        // Во время осмотра комнаты ходить не стоит (карта темноты — по направлениям от одной точки) — подсказка.
+        void OnSteps(int count)
         {
-            if (walkCooldown > 0f) return;
-            walkCooldown = 4f;
-            Room?.Clear(keepHeight: true);   // держит телефон так же — высоту не теряем
-            if (!walkHinted)
+            if (gyroRig == null) return;
+            if (phase == Phase.Scan)
             {
-                walkHinted = true;
-                ui.Hint(Loc.T("h.StandStill"));
+                if (!walkHinted) { walkHinted = true; ui.Hint(Loc.T("h.StandStill")); }
+                return;
             }
-            if (phase == Phase.Scan) return;
+            var fwd = cam.transform.forward;
+            fwd.y = 0f;
+            if (fwd.sqrMagnitude < 1e-3f) return;   // телефон смотрит в пол или в потолок — куда шагнул, не понять
+            float stride = 0.6f * Mathf.Clamp(PhoneHeight / EyeHeight, 0.8f, 1.15f);
+            gyroRig.Walk(fwd.normalized * stride * count);
 
-            if (wanderer != null) wanderer.Kill();
-            foreach (var e in entities)
+            var room = Room;
+            if (room != null && room.Has)
             {
-                if (e == null || !e.Alive) continue;
-                // охотник не отстаёт: возникает в другом месте, но не дальше, чем был
-                e.Shift(e == hunter ? Mathf.Max(e.FlatDistance(), 1.6f) : -1f);
-            }
-            if (phase == Phase.Investigate)
-            {
-                lair = PickPosition(target, 90f, -1f);
-                if (target.Lair == Lair.Ceiling && target.Stance != Stance.Ceiling) lair.y = Floor + CeilingHeight - 0.5f;
-                if (coldSpot != null) coldSpot.transform.position = lair;
+                var moved = cam.transform.position - room.Origin;
+                moved.y = 0f;
+                if (moved.magnitude + stride * count > 0.6f)
+                {
+                    room.Clear(keepHeight: true);   // держит телефон так же — высоту не теряем
+                    recaptureUntil = Time.time + 6f;
+                }
             }
         }
 
@@ -1309,7 +1318,10 @@ namespace GhostWard
         // Место для сущности: сектор карты по привычке её логова, не ближе minAngle к взгляду игрока.
         // Расстояние: если место ниже горизонта — это пол, считаем по наклону и высоте глаз;
         // иначе это проём или дальняя стена — 3–4.5 м. maxDist > 0 ограничивает дальность.
-        public Vector3 PickPosition(EntityDef def, float minAngle, float maxDist)
+        public Vector3 PickPosition(EntityDef def, float minAngle, float maxDist) => PickPosition(def, minAngle, maxDist, 180f);
+
+        // maxAngle — место не дальше этого угла от взгляда
+        public Vector3 PickPosition(EntityDef def, float minAngle, float maxDist, float maxAngle)
         {
             var camPos = cam.transform.position;
             var fwd = cam.transform.forward;
@@ -1325,7 +1337,7 @@ namespace GhostWard
             float viewYawDeg = Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg;
             RoomMap.Spot spot = default;
             bool spotted = arRig == null && room != null
-                           && room.TryPickSpot(viewYawDeg, minAngle, maxDist, def.Lair, DarknessAt, out spot);
+                           && room.TryPickSpot(viewYawDeg, minAngle, maxDist, def.Lair, DarknessAt, out spot, maxAngle);
             if (spotted)
             {
                 yaw = spot.Yaw;
@@ -1799,33 +1811,63 @@ namespace GhostWard
         }
 
         // наблюдение: стоит вдалеке и смотрит. Отвернулся и посмотрел снова — она ближе, на миг
+        // Стоит в комнате — в проёме, в углу, за мебелью (место по карте глубины, прямо в кадре) — и смотрит.
+        // Отвёл взгляд — её там уже нет. Повернулся куда угодно — она стоит рядом, в 1.3–1.8 м,
+        // чуть впереди по ходу поворота: входит в кадр вместе с поворотом. Стоит, пока на неё не посмотрят, и пропадает.
         IEnumerator StareScare()
         {
-            var pos = EdgeOfView(HalfFovX * Random.Range(-0.5f, 0.5f), Random.Range(4.2f, 5f));
+            var pos = PickPosition(target, 0f, -1f, HalfFovX * 0.7f);
             var dir = (pos - cam.transform.position).normalized;
-            wanderer = Apparition.Show(target, pos, cam.transform, 9f, default, false, 0.55f);
-            float wait = 9f;
-            while (wait > 0f && phase == Phase.Investigate && Vector3.Angle(cam.transform.forward, dir) < 45f)
+            wanderer = Apparition.Show(target, pos, cam.transform, 12f, default, false, 0.6f);
+            float wait = 12f;
+            while (wait > 0f && phase == Phase.Investigate && Vector3.Angle(cam.transform.forward, dir) < 40f)
             {
                 wait -= Time.deltaTime;
                 yield return null;
             }
             if (wanderer != null) wanderer.Kill();
             if (wait <= 0f || phase != Phase.Investigate) yield break;
-            // отвернулся — ждём, когда снова посмотрит туда
-            wait = 6f;
-            while (wait > 0f && phase == Phase.Investigate && Vector3.Angle(cam.transform.forward, dir) > 25f)
+
+            // отвернулся — её больше нет на том месте. Ждём, когда игрок снова начнёт поворачиваться
+            yield return new WaitForSeconds(Random.Range(0.8f, 2f));
+            wait = 8f;
+            while (wait > 0f && phase == Phase.Investigate && TurnSpeed < 35f)
             {
                 wait -= Time.deltaTime;
                 yield return null;
             }
             if (wait <= 0f || phase != Phase.Investigate) yield break;
-            var near = cam.transform.position + new Vector3(dir.x, 0f, dir.z).normalized * 1.9f;
-            near.y = pos.y;
-            Apparition.Show(target, near, cam.transform, 0.45f, default, false, 0.9f);
-            music.Play(Music.Stinger.Boom, 0.6f);
-            ui.Shake(0.4f);
-            AddFear(6f);
+
+            // рядом, сразу за краем кадра по ходу поворота
+            var fwd = cam.transform.forward;
+            fwd.y = 0f;
+            fwd = fwd.sqrMagnitude < 1e-3f ? Vector3.forward : fwd.normalized;
+            float side = TurnSign >= 0f ? 1f : -1f;
+            var ahead = Quaternion.Euler(0f, side * (HalfFovX + 10f), 0f) * fwd;
+            float yaw = Mathf.Atan2(ahead.x, ahead.z) * Mathf.Rad2Deg;
+            float limit = RoomLimit(yaw);
+            float dist = Random.Range(1.3f, 1.8f);
+            if (limit > 0f) dist = Mathf.Clamp(dist, 0.9f, Mathf.Max(limit, 0.9f));   // не в стене
+            var near = cam.transform.position + ahead * dist;
+            near.y = StanceY(target, cam.transform.position.y);
+            var close = Apparition.Show(target, near, cam.transform, 4f, default, false, 0.95f);
+
+            // пугаем в тот миг, когда она попала в кадр
+            wait = 4f;
+            while (wait > 0f && close != null && !IsInView(near))
+            {
+                wait -= Time.deltaTime;
+                yield return null;
+            }
+            if (close == null || wait <= 0f) { if (close != null) close.Kill(); yield break; }
+            music.Play(Music.Stinger.Boom, 0.7f);
+            var call = EntitySounds.Call(target.Kind);
+            if (call != null) PlayAt(call, near, 0.8f);
+            ui.Shake(0.45f);
+            AddFear(7f);
+            yield return new WaitForSeconds(0.9f);
+            if (close != null) close.Kill();
+            ui.Flash(new Color(0f, 0f, 0f, 0.6f));
         }
 
         // свет гаснет; когда загорается — она стоит ближе, и снова темно

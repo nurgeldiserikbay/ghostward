@@ -2361,11 +2361,11 @@ namespace GhostWard
                 "Todo se volvió negro… Vuelves en ti. Sigue aquí.",
                 "Tudo escureceu… Você volta a si. Ainda está aqui." },
             ["h.StandStill"] = new[] {
-                "Stand still and just turn around. When you walk, they slip away and wait somewhere else.",
-                "Стой на месте и только поворачивайся. Когда ты ходишь, они ускользают и ждут в другом месте.",
-                "Бір орында тұрып, тек бұрыл. Жүрсең, олар сырғып кетіп, басқа жерде күтеді.",
-                "Quédate quieto y solo gira. Cuando caminas, se escabullen y esperan en otro lugar.",
-                "Fique parado e apenas gire. Quando você anda, eles escapam e esperam em outro lugar." },
+                "While you scan the room, stay in one spot and just turn around. After that you can walk.",
+                "Пока осматриваешь комнату, стой на месте и только поворачивайся. Потом можно ходить.",
+                "Бөлмені қарап шыққанша бір орында тұрып, тек бұрыл. Содан кейін жүре бересің.",
+                "Mientras examinas la habitación, quédate en un sitio y solo gira. Después podrás caminar.",
+                "Enquanto examina o quarto, fique num só lugar e apenas gire. Depois você pode andar." },
             ["h.Invisible"] = new[] {
                 "You can't see it — it's invisible. Turn toward the crashes and use what it fears.",
                 "Его не видно — он невидим. Повернись туда, где грохочет, и примени то, чего он боится.",
