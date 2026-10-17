@@ -1192,7 +1192,7 @@ namespace GhostWard
         {
             string rig = arRig != null ? arRig.Diagnostics() : gyroRig != null ? gyroRig.Diagnostics() : "старт…";
             string micState = mic == null ? "" : mic.Available ? $"\nмикрофон {mic.Level:0.00}" : mic.Denied ? "\nмикрофон запрещён" : "";
-            string room = Room != null ? $"\nглубина: {Room.Status}" + (Room.CeilingHeight > 0f ? $", потолок {Room.CeilingHeight:0.0} м" : "") : "";
+            string room = Room != null ? $"\nглубина: {Room.Status}" + (Room.CeilingHeight > 0f ? $", потолок {Room.CeilingHeight:0.0} м" : "") + (Room.LastSpot != "" ? $"\nместо: {Room.LastSpot}" : "") : "";
             return (map.Empty ? rig : $"{rig}\nкарта {Mathf.RoundToInt(map.Coverage * 100)}%") + room + micState;
         }
 
@@ -1216,6 +1216,13 @@ namespace GhostWard
             // жесты предметов и резкие повороты тоже трясут телефон — тогда шаги не считаем
             bool suppress = !active || ui.JournalOpen || gestures.Pressing || turn > 90f;
             if (steps.Tick(dt, Time.time, suppress)) OnWalk();
+        }
+
+        // темнота комнаты по азимуту (карта осмотра) 0..1; -1 — не знаем
+        float DarknessAt(float yaw)
+        {
+            int c = Mathf.Clamp(Mathf.FloorToInt((Mathf.DeltaAngle(0f, yaw) + 180f) / (360f / DarknessMap.YawCells)), 0, DarknessMap.YawCells - 1);
+            return map.ColumnDarkness(c);
         }
 
         // сколько места по азимуту до стены или шкафа (м по горизонтали); -1 — не знаем
@@ -1310,11 +1317,22 @@ namespace GhostWard
             if (fwd.sqrMagnitude < 1e-3f) fwd = Vector3.forward;
             fwd.Normalize();
 
-            // с картой комнаты: место, где перед фигурой нет стены или шкафа вплотную;
+            // Режим гироскопа с картой комнаты: осмысленное место по повадке — проём, угол, за мебелью (RoomMap.TryPickSpot).
+            // Иначе (AR, карта не снята): сектор карты темноты, место без стены или шкафа вплотную;
             // упёрлись — ищем другое (до шести попыток), иначе ставим как получилось
             var room = Room;
             float yaw = 0f, pitch = 0f, dist = 0f;
-            for (int attempt = 0; attempt < 6; attempt++)
+            float viewYawDeg = Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg;
+            RoomMap.Spot spot = default;
+            bool spotted = arRig == null && room != null
+                           && room.TryPickSpot(viewYawDeg, minAngle, maxDist, def.Lair, DarknessAt, out spot);
+            if (spotted)
+            {
+                yaw = spot.Yaw;
+                dist = spot.Dist;
+                pitch = def.Lair == Lair.Ceiling ? 30f : 0f;
+            }
+            for (int attempt = 0; attempt < 6 && !spotted; attempt++)
             {
                 if (!map.TryPick(fwd, minAngle, def.Lair, out yaw, out pitch))
                 {

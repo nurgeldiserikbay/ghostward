@@ -603,7 +603,11 @@ namespace GhostWard
 
         void LateUpdate()
         {
+            // фигура стоит вертикально, как человек, и поворачивается к игроку только вокруг себя:
+            // вблизи видно половину тела, наклонил телефон — видишь ноги или голову, а не «плакат», который
+            // наклоняется вслед за взглядом
             var dir = transform.position - cam.transform.position;
+            dir.y = 0f;
             if (dir.sqrMagnitude > 1e-4f) transform.rotation = Quaternion.LookRotation(dir, Vector3.up);
             if (shadow != null)
             {

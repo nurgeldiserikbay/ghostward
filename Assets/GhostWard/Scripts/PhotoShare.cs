@@ -109,6 +109,7 @@ namespace GhostWard
             }
             mat.SetFloat("_Fade", k * alpha);
             var dir = transform.position - cam.position;
+            dir.y = 0f;   // стоит вертикально, как сущность
             if (dir.sqrMagnitude > 1e-4f) transform.rotation = Quaternion.LookRotation(dir, Vector3.up);
             if (life <= 0f) Destroy(gameObject);
         }

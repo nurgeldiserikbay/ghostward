@@ -144,6 +144,21 @@ namespace GhostWard.EditorTools
                           $"(препятствие {room.Free(0f, 6f):0.00} м); пол виден до {room.FloorReach(0f):0.00} м; " +
                           $"на уровне глаз {room.Range(0f, 0f):0.00} м, вниз 30° {room.Range(0f, -30f):0.00} м (пол был бы {1.4f / Mathf.Sin(30f * Mathf.Deg2Rad):0.00})");
                 if (ok) RenderOcclusion(src, name, aspect, 1.4f - room.PhoneHeight);
+                if (ok)
+                    foreach (var lair in new[] { Lair.Far, Lair.Near, Lair.DarkCorner, Lair.Floor })
+                    {
+                        var seen = new System.Collections.Generic.Dictionary<string, int>();
+                        for (int k = 0; k < 40; k++)
+                            if (room.TryPickSpot(0f, 0f, -1f, lair, _ => 0.5f, out var spot))
+                            {
+                                string key = $"{spot.Kind} {spot.Yaw:0}° {spot.Dist:0.0}м";
+                                seen[key] = seen.TryGetValue(key, out int n) ? n + 1 : 1;
+                            }
+                        var list = new System.Collections.Generic.List<string>();
+                        foreach (var kv in seen) list.Add($"{kv.Key}×{kv.Value}");
+                        list.Sort();
+                        Debug.Log($"[GhostWard] места {name} {lair}: {string.Join(", ", list.GetRange(0, System.Math.Min(10, list.Count)))}");
+                    }
                 Object.DestroyImmediate(go);
             }
             depth.Dispose();

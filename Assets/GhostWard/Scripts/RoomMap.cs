@@ -225,8 +225,10 @@ namespace GhostWard
             }
             Frames++;
             UpdateCeiling();
+            spotsDirty = true;
             dirty = true;
             Status = $"кадров {Frames}, пол {kept}/{m}, телефон {PhoneHeight:0.00} м" + (HeightMeasured ? " (по потолку)" : " (обычная)");
+            spotsDirty = true;
             Upload();
             return true;
         }
@@ -335,6 +337,163 @@ namespace GhostWard
                     if (Mathf.Abs(above) < 0.18f * Scale) best = Mathf.Max(best, r * Mathf.Cos(p * Mathf.Deg2Rad));
                 }
             return best;
+        }
+
+        // ---------- места, а не случайные точки ----------
+        // По каждому азимуту (шаг 2°): где стена или шкаф на высоте туловища, где низкая мебель, докуда виден пол.
+        // Из этого — места, где сущность выглядит частью комнаты:
+        //  • проём — в середине далеко, по бокам близко (косяки): стоит в двери или виднеется за ней;
+        //  • угол — дальше соседних стен: стоит в углу;
+        //  • за мебелью — стол, диван, кровать ближе стены: стоит за ними, низ закрыт;
+        //  • открытое место — просто перед стеной, на видимом полу.
+        public enum SpotKind { Open, Doorway, Corner, Furniture }
+
+        public struct Spot
+        {
+            public float Yaw, Dist;
+            public SpotKind Kind;
+        }
+
+        public string LastSpot { get; private set; } = "";
+
+        readonly float[] wallCol = new float[Cols], lowCol = new float[Cols], floorCol = new float[Cols];
+        bool spotsDirty = true;
+        const float MaxPlace = 6.5f;
+
+        static float ColYaw(int c) => (c + 0.5f) * 2f - 180f;
+
+        void AnalyzeColumns()
+        {
+            spotsDirty = false;
+            for (int c = 0; c < Cols; c++)
+            {
+                float yaw = ColYaw(c);
+                float wall = float.MaxValue, low = float.MaxValue, floor = -1f;
+                bool any = false;
+                for (float p = -60f; p <= 40f; p += 2f)
+                {
+                    float r = Range(yaw, p);
+                    if (r < 0f) continue;
+                    any = true;
+                    float sin = Mathf.Sin(p * Mathf.Deg2Rad), horiz = r * Mathf.Cos(p * Mathf.Deg2Rad);
+                    float above = PhoneHeight + sin * r;
+                    if (above >= 1f && above <= 2.1f) wall = Mathf.Min(wall, horiz);
+                    else if (above >= 0.25f && above < 1f) low = Mathf.Min(low, horiz);
+                    else if (Mathf.Abs(above) < 0.18f * Scale) floor = Mathf.Max(floor, horiz);
+                }
+                wallCol[c] = !any ? -1f : wall == float.MaxValue ? 12f : wall;
+                lowCol[c] = low == float.MaxValue ? -1f : low;
+                floorCol[c] = floor;
+            }
+        }
+
+        float Wall(int c) => wallCol[((c % Cols) + Cols) % Cols];
+
+        // мин. стена в диапазоне колонок; -1 — там не смотрели
+        float MinWall(int from, int to)
+        {
+            float m = float.MaxValue;
+            for (int c = from; c <= to; c++)
+            {
+                float w = Wall(c);
+                if (w < 0f) return -1f;
+                m = Mathf.Min(m, w);
+            }
+            return m;
+        }
+
+        // Место для сущности по её повадке. darkness(yaw) — темнота сектора 0..1 (-1 — не знаем).
+        public bool TryPickSpot(float viewYaw, float minAngle, float maxDist, Lair lair, System.Func<float, float> darkness, out Spot spot)
+        {
+            spot = default;
+            if (!Has) return false;
+            if (spotsDirty) AnalyzeColumns();
+
+            var spots = new System.Collections.Generic.List<Spot>();
+            var weights = new System.Collections.Generic.List<float>();
+            float total = 0f;
+            void Add(int c, float dist, SpotKind kind, float w)
+            {
+                if (maxDist > 0f) dist = Mathf.Min(dist, maxDist);
+                // дальше 6.5 м фигура мелкая, а глубина по одному кадру ненадёжна (окна, зеркала видятся «далью»)
+                dist = Mathf.Min(dist, MaxPlace);
+                float limit = Wall(c) - 0.35f;
+                dist = Mathf.Min(dist, limit);
+                if (dist < 1.1f || w <= 0f) return;
+                float d = darkness(ColYaw(c));
+                if (d < 0f) d = 0.5f;
+                if (lair == Lair.Bright) d = 1f - d;
+                w *= 0.15f + d * d;
+                spots.Add(new Spot { Yaw = ColYaw(c) + Random.Range(-0.8f, 0.8f), Dist = dist, Kind = kind });
+                weights.Add(w);
+                total += w;
+            }
+
+            for (int c = 0; c < Cols; c++)
+            {
+                float wall = wallCol[c];
+                if (wall < 1.5f) continue;   // не осмотрено или стена вплотную
+                if (Mathf.Abs(Mathf.DeltaAngle(ColYaw(c), viewYaw)) < minAngle) continue;
+
+                float left = MinWall(c - 5, c - 2), right = MinWall(c + 2, c + 5);
+                float jamb = Mathf.Max(left, right);
+                bool doorway = left > 0f && right > 0f && wall > jamb + 1f && wall > 2.2f && jamb < MaxPlace - 0.5f;
+                bool corner = !doorway && left > 0f && right > 0f && wall < MaxPlace + 0.5f
+                              && wall >= MinWall(c - 4, c + 4) && wall >= Wall(c - 4) && wall >= Wall(c + 4)
+                              && wall - (Wall(c - 9) + Wall(c + 9)) * 0.5f > 0.15f;
+                float low = lowCol[c];
+                bool furniture = low > 0.6f && low < wall - 0.9f;
+
+                // вес места для каждой повадки
+                switch (lair)
+                {
+                    case Lair.Far:
+                        if (doorway) Add(c, Mathf.Min(wall - 0.5f, jamb + Random.Range(0.8f, 2.2f)), SpotKind.Doorway, 5f);
+                        if (corner && wall > 3f) Add(c, wall - 0.45f, SpotKind.Corner, 1.5f);
+                        if (wall > 3.5f) Add(c, Random.Range(3.2f, Mathf.Min(wall - 0.4f, MaxPlace)), SpotKind.Open, 0.4f);
+                        break;
+                    case Lair.Near:
+                        if (furniture && low < 2.4f) Add(c, low + 0.55f, SpotKind.Furniture, 4f);
+                        Add(c, Random.Range(1.4f, 2.2f), SpotKind.Open, 0.6f);
+                        break;
+                    case Lair.Floor:
+                        // ползающим — на видимый пол, чтобы было видно, как они там
+                        if (floorCol[c] > 1.4f) Add(c, Random.Range(1.6f, floorCol[c]), SpotKind.Open, 3f);
+                        if (furniture) Add(c, low + 0.5f, SpotKind.Furniture, 1f);
+                        break;
+                    case Lair.DarkCorner:
+                        if (corner) Add(c, wall - 0.45f, SpotKind.Corner, 4f);
+                        if (furniture) Add(c, low + 0.55f, SpotKind.Furniture, 2.5f);
+                        if (doorway) Add(c, jamb + 0.35f, SpotKind.Doorway, 2f);
+                        Add(c, Random.Range(2.2f, Mathf.Min(wall - 0.4f, MaxPlace)), SpotKind.Open, 0.3f);
+                        break;
+                    case Lair.Ceiling:
+                        if (corner) Add(c, wall - 0.5f, SpotKind.Corner, 3f);
+                        Add(c, Random.Range(2.2f, Mathf.Min(wall - 0.4f, MaxPlace)), SpotKind.Open, 1f);
+                        break;
+                    default:   // Behind, Bright — любое разумное место
+                        if (doorway) Add(c, jamb + 0.35f, SpotKind.Doorway, 2f);
+                        if (corner) Add(c, wall - 0.45f, SpotKind.Corner, 2f);
+                        if (furniture) Add(c, low + 0.55f, SpotKind.Furniture, 2f);
+                        Add(c, Random.Range(2f, Mathf.Min(wall - 0.4f, MaxPlace)), SpotKind.Open, 1f);
+                        break;
+                }
+            }
+            if (total <= 0f) return false;
+
+            float r = Random.value * total;
+            for (int i = 0; i < spots.Count; i++)
+            {
+                r -= weights[i];
+                if (r > 0f) continue;
+                spot = spots[i];
+                LastSpot = spot.Kind switch
+                {
+                    SpotKind.Doorway => "проём", SpotKind.Corner => "угол", SpotKind.Furniture => "за мебелью", _ => "открыто"
+                } + $" {spot.Dist:0.0} м";
+                return true;
+            }
+            return false;
         }
 
         // для редактора: картинка панорамы (светлое — близко)
