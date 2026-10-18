@@ -201,6 +201,7 @@ namespace GhostWard.EditorTools
             });
 
             bool ok = report.summary.result == BuildResult.Succeeded;
+            if (TestMode.On) Debug.LogWarning("[GhostWard] ТЕСТОВАЯ СБОРКА (TestMode.On = true): диагностика и тестовые кнопки видны. Перед выкладкой — false.");
             Debug.Log($"[GhostWard] Сборка: {report.summary.result}, {(ok ? new FileInfo("Builds/GhostWard.apk").Length / (1024 * 1024) : 0)} МБ");
             if (Application.isBatchMode) EditorApplication.Exit(ok ? 0 : 1);
             else if (ok) EditorUtility.RevealInFinder("Builds/GhostWard.apk");

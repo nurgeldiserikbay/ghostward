@@ -104,8 +104,8 @@ namespace GhostWard
     // покупки подтверждает Google Play (при подключении биллинга), реклама — AdMob.
     public static class Unlocks
     {
-        // На время тестов всё открыто. Перед релизом — false.
-        public const bool TestUnlockAll = true;
+        // в тестовой сборке всё открыто (TestMode.On)
+        public static bool TestUnlockAll => TestMode.On;
 
         public static bool IsFree(Vision v) => v is Vision.Normal or Vision.Dark;
 

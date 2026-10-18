@@ -247,7 +247,8 @@ namespace GhostWard
             diagText = Label(root, "", 22, new Vector2(1f, 1f), new Vector2(-20, -40), new Color(1, 1, 1, 0.45f));
             diagText.alignment = TextAnchor.UpperRight;
             diagText.rectTransform.pivot = new Vector2(1f, 1f);
-            diagText.rectTransform.sizeDelta = new Vector2(600, 140);
+            diagText.rectTransform.sizeDelta = new Vector2(600, 260);
+            diagText.gameObject.SetActive(TestMode.On);   // диагностика — только в тестовой сборке
 
             journal.transform.SetAsLastSibling();
             tutorial.transform.SetAsLastSibling();
@@ -1322,7 +1323,7 @@ namespace GhostWard
             Button(journalEntry.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalList), false);
 
             // только в тестовой сборке: выбрать, кто придёт следующей ночью
-            if (Unlocks.TestUnlockAll)
+            if (TestMode.On)
             {
                 var test = Button(journalEntry.transform, Loc.T("test_next"), new Vector2(0.5f, 0.21f), () =>
                 {
@@ -1936,7 +1937,7 @@ namespace GhostWard
                 entryName.text = "???";
                 entryOrigin.text = "";
                 entryText.text = $"<i>{Loc.T("unknown_entity")}</i>" +
-                    (Know.Unlocked(kind) ? "" : "\n\n" + Loc.F("unlock_xp", Know.XpFor(kind)));
+                    (Know.Unlocked(kind) ? "" : "\n\n" + Loc.F("unlock_xp", Know.XpFor(kind))) + TestInfo(def);
                 entryItem.text = entryCount.text = "";
                 ShowJournalPage(journalEntry);
                 return;
@@ -1955,7 +1956,7 @@ namespace GhostWard
                     ? $"<b>{Loc.T("hides")}</b> {def.LairText}\n<b>{Loc.T("on_hunt")}</b> {def.Signs}\n\n"
                     : Locked("locked_habits") + "\n\n") +
                 $"<b>{Loc.T("sec_tale")}</b> <i>{Loc.T($"e.{kind}.tale")}</i>\n\n" +
-                (defense ? $"<b>{Loc.T("defense")}</b> {def.Defense}" : Locked("locked_defense"));
+                (defense ? $"<b>{Loc.T("defense")}</b> {def.Defense}" : Locked("locked_defense")) + TestInfo(def);
 
             if (defense)
             {
@@ -1966,6 +1967,19 @@ namespace GhostWard
             }
             else entryItem.text = entryCount.text = "";
             ShowJournalPage(journalEntry);
+        }
+
+        // тестовая сборка: всё о сущности сразу, даже если игрок её ещё не встречал
+        static string TestInfo(EntityDef def)
+        {
+            if (!TestMode.On) return "";
+            var item = Catalog.Get(def.Bane);
+            var clues = new List<string>();
+            foreach (var c in def.Clues) clues.Add(Catalog.Get(c).Name);
+            return $"\n\n<size=24><color=#7fe0c0><b>ТЕСТ</b> {def.Kind} · рост {def.Height:0.0} м · {def.Stance} · логово {def.Lair}\n" +
+                   $"<b>Улики:</b> {string.Join(" · ", clues)}\n" +
+                   $"<b>Приманка:</b> {Loc.T($"l.{def.Lure}.name")}   <b>Изгнать:</b> {item.Name} — {item.Usage.ToLower()}\n" +
+                   $"<b>Прячется:</b> {def.LairText}\n<b>Охота:</b> {def.Signs}\n<b>Защита:</b> {def.Defense}</color></size>";
         }
 
         // для превью из редактора: открыть дневник на нужной странице
@@ -2149,7 +2163,10 @@ namespace GhostWard
                                || RectTransformUtility.RectangleContainsScreenPoint(logButton, screen, null)
                                || bagPanel.gameObject.activeSelf && RectTransformUtility.RectangleContainsScreenPoint(bagPanel, screen, null));
 
-        public void SetDiagnostics(string text) => diagText.text = text;
+        public void SetDiagnostics(string text)
+        {
+            if (TestMode.On) diagText.text = text;
+        }
 
         public void SetModifier(string name) => modifierName = name;
 

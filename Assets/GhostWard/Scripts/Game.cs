@@ -516,7 +516,7 @@ namespace GhostWard
         void Update()
         {
             sfx.volume = Settings.Sfx;
-            ui.SetDiagnostics(DiagnosticsText());
+            if (TestMode.On) ui.SetDiagnostics(DiagnosticsText());
             UpdateRoom();
             if (ui.JournalOpen) return;
 
@@ -1217,7 +1217,17 @@ namespace GhostWard
             string rig = arRig != null ? arRig.Diagnostics() : gyroRig != null ? gyroRig.Diagnostics() : "старт…";
             string micState = mic == null ? "" : mic.Available ? $"\nмикрофон {mic.Level:0.00}" : mic.Denied ? "\nмикрофон запрещён" : "";
             string room = Room != null ? $"\nглубина: {Room.Status}" + (Room.CeilingHeight > 0f ? $", потолок {Room.CeilingHeight:0.0} м" : "") + (Room.LastSpot != "" ? $"\nместо: {Room.LastSpot}" : "") : "";
-            return (map.Empty ? rig : $"{rig}\nкарта {Mathf.RoundToInt(map.Coverage * 100)}%") + room + micState;
+            // кто пришёл этой ночью и где его логово — чтобы проверять улики и защиту
+            string who = "";
+            if (phase is Phase.Investigate or Phase.Hunt)
+            {
+                var flat = lair - cam.transform.position;
+                flat.y = 0f;
+                who = $"\nсущность: {target.Name} ({target.Kind}), {Direction(lair)}, {flat.magnitude:0.0} м" +
+                      $"\nулики: {string.Join(", ", System.Array.ConvertAll(target.Clues, c => c.ToString()))}; изгнать: {target.Bane}" +
+                      $"\nфаза {phase}, злость {anger:0}, страх {fear:0}";
+            }
+            return (map.Empty ? rig : $"{rig}\nкарта {Mathf.RoundToInt(map.Coverage * 100)}%") + room + micState + who;
         }
 
         // Режим гироскопа: карта глубины снимается, пока идёт ночь (в осмотре — часто, потом — изредка, чтобы
