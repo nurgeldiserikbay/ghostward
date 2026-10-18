@@ -516,7 +516,11 @@ namespace GhostWard
         void Update()
         {
             sfx.volume = Settings.Sfx;
-            if (TestMode.On) ui.SetDiagnostics(DiagnosticsText());
+            if (TestMode.On)
+            {
+                ui.SetDiagnostics(DiagnosticsText());
+                ui.SetPhoneHeight(PhoneHeightText());
+            }
             UpdateRoom();
             if (ui.JournalOpen) return;
 
@@ -1210,6 +1214,26 @@ namespace GhostWard
             ui.DarkBase = style switch { Vision.Normal => 0.15f, Vision.Dark => 0.55f, Vision.Thermal => 0.2f, _ => 0.38f }
                           + (modifier == Modifier.NewMoon && phase is Phase.Investigate or Phase.Hunt ? 0.15f : 0f);
             ui.SetGrain(baseGrain + nightVision * 0.08f + glitch * 0.25f);
+        }
+
+        // высота телефона над полом и откуда она известна
+        string PhoneHeightText()
+        {
+            if (cam == null) return "";
+            if (arRig != null)
+                return arRig.TryFloor(out float planeY)
+                    ? $"Телефон: {cam.transform.position.y - planeY:0.00} м над полом
+по полу ARCore"
+                    : $"Телефон: ~{EyeHeight:0.00} м
+AR ещё не нашёл пол";
+            var room = Room;
+            if (room == null || !room.Available) return $"Телефон: {EyeHeight:0.00} м
+обычная, карта глубины выключена";
+            return room.HeightMeasured
+                ? $"Телефон: {room.PhoneHeight:0.00} м над полом
+по потолку, потолок {room.CeilingHeight:0.0} м"
+                : $"Телефон: {room.PhoneHeight:0.00} м (обычная)
+посмотри на потолок, чтобы измерить";
         }
 
         string DiagnosticsText()

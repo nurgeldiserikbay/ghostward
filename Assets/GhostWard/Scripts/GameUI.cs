@@ -82,7 +82,7 @@ namespace GhostWard
         readonly List<(Tool tool, Image bg)> toolButtons = new();
         readonly List<(Protect kind, Text label)> bagRows = new();
         readonly List<(Lure kind, Text label)> lureRows = new();
-        Text nightText, clockText, messageText, supplyText, diagText, dawnText, overText, scanText;
+        Text nightText, clockText, messageText, supplyText, diagText, dawnText, overText, scanText, phoneText;
         Text entryName, entryOrigin, entryText, entryItem, entryCount;
         RectTransform entryItemIcon, entryGestureIcon;
         RawImage entryPicture, grain, jumpscare;
@@ -276,6 +276,10 @@ namespace GhostWard
 
             phaseText = Label(hud.transform, "", 30, new Vector2(0.5f, 1f), new Vector2(0, -275), Dim);
             phaseText.rectTransform.sizeDelta = new Vector2(600, 44);
+            // тестовая сборка: на какой высоте держат телефон (от неё — пол, рост и места сущностей)
+            phoneText = Label(hud.transform, "", 28, new Vector2(0.5f, 1f), new Vector2(0, -500), new Color(1f, 0.75f, 0.45f));
+            phoneText.rectTransform.sizeDelta = new Vector2(640, 80);   // под компасом, не задевая сумку справа
+            phoneText.gameObject.SetActive(TestMode.On);
             BuildCompass();
 
             recText = Label(hud.transform, "● REC", 30, new Vector2(0f, 1f), new Vector2(40, -240), new Color(0.9f, 0.1f, 0.1f));
@@ -2162,6 +2166,11 @@ namespace GhostWard
                                || RectTransformUtility.RectangleContainsScreenPoint(bagButton, screen, null)
                                || RectTransformUtility.RectangleContainsScreenPoint(logButton, screen, null)
                                || bagPanel.gameObject.activeSelf && RectTransformUtility.RectangleContainsScreenPoint(bagPanel, screen, null));
+
+        public void SetPhoneHeight(string text)
+        {
+            if (TestMode.On) phoneText.text = text;
+        }
 
         public void SetDiagnostics(string text)
         {
