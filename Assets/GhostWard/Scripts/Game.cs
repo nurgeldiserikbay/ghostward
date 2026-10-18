@@ -166,6 +166,10 @@ namespace GhostWard
         // скорость поворота игрока, °/с — по ней ходит двойник и по ней понятно, замер ли игрок
         public float TurnSpeed { get; private set; }
         float TurnSign;   // куда игрок поворачивается: +1 вправо, −1 влево
+        // Ходьба в режиме гироскопа — по шагомеру, неточно. Камера при этом «барахлит»: на каждом шаге
+        // картинка рвётся и шипит, фигуры мерцают, а каждые 1.5–2.5 м сигнал на миг пропадает. Это и страшно,
+        // и прячет неточность: пока экран в помехах, мелкий сдвиг сущности относительно комнаты не виден.
+        float walkNoise, walkedSinceLoss, nextSignalLoss = 2f;
         float recaptureUntil;
         Vector3 lastForward;
 
@@ -1181,6 +1185,9 @@ namespace GhostWard
                     if (e.Alive && e.Current != Entity.State.Lurking)
                         near = Mathf.Max(near, Mathf.Clamp01(1f - (e.FlatDistance() - 0.8f) / 2.2f));
                 glitch = Mathf.Max(Mathf.MoveTowards(glitch, 0f, dt * 2f), near * 0.6f);
+                // идёт — помехи не гаснут до конца
+                walkNoise = Mathf.MoveTowards(walkNoise, 0f, dt * 0.7f);
+                glitch = Mathf.Max(glitch, walkNoise * 0.45f);
             }
             else
             {
@@ -1297,6 +1304,36 @@ namespace GhostWard
             if (stepped > 0) OnSteps(stepped);
         }
 
+        void WalkGlitch(float meters)
+        {
+            walkNoise = 1f;
+            glitch = Mathf.Max(glitch, 0.75f);
+            if (wanderer != null) wanderer.Flicker(0.35f);
+            foreach (var e in entities)
+                if (e != null && e.Alive) e.Flicker(Random.Range(0.25f, 0.45f));
+
+            walkedSinceLoss += meters;
+            if (walkedSinceLoss < nextSignalLoss) return;
+            walkedSinceLoss = 0f;
+            nextSignalLoss = Random.Range(1.5f, 2.5f);
+            StartCoroutine(SignalLoss());
+        }
+
+        // сигнал пропал на миг: чёрный кадр, треск, щелчок — и картинка возвращается в помехах
+        IEnumerator SignalLoss()
+        {
+            glitch = 1f;
+            sfx.PlayOneShot(ProceduralAudio.Click(), 0.7f);
+            sfx.PlayOneShot(ProceduralAudio.Static(), 0.35f * Settings.Ambience);
+            ui.Flash(new Color(0f, 0f, 0f, 0.96f));
+            foreach (var e in entities)
+                if (e != null && e.Alive) e.Flicker(0.6f);
+            yield return new WaitForSeconds(Random.Range(0.18f, 0.35f));
+            sfx.PlayOneShot(ProceduralAudio.Click(), 0.5f);
+            ui.Flash(new Color(0f, 0f, 0f, 0.7f));
+            glitch = 1f;
+        }
+
         // темнота комнаты по азимуту (карта осмотра) 0..1; -1 — не знаем
         float DarknessAt(float yaw)
         {
@@ -1329,6 +1366,7 @@ namespace GhostWard
             if (fwd.sqrMagnitude < 1e-3f) return;   // телефон смотрит в пол или в потолок — куда шагнул, не понять
             float stride = 0.6f * Mathf.Clamp(PhoneHeight / EyeHeight, 0.8f, 1.15f);
             gyroRig.Walk(fwd.normalized * stride * count);
+            WalkGlitch(stride * count);
 
             var room = Room;
             if (room != null && room.Has)

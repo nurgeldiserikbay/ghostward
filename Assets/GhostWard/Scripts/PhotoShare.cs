@@ -72,6 +72,10 @@ namespace GhostWard
         public bool Alive => this != null && life > 0f;
         public void Kill() { if (this != null) Destroy(gameObject); }
 
+        // помехи камеры: видение мерцает несколько долей секунды
+        float glitchTime;
+        public void Flicker(float seconds) { if (this != null) glitchTime = Mathf.Max(glitchTime, seconds); }
+
         // drift — скорость дрейфа (м/с); flicker — иногда пропадает на миг; alpha — насколько плотная
         public static Apparition Show(EntityDef def, Vector3 pos, Transform cam, float seconds,
                                       Vector3 drift = default, bool flicker = false, float alpha = 0.6f)
@@ -106,6 +110,11 @@ namespace GhostWard
             {
                 if (blink > 0f) { blink -= dt; k = 0f; }
                 else if (UnityEngine.Random.value < dt * 0.6f) blink = UnityEngine.Random.Range(0.06f, 0.25f);
+            }
+            if (glitchTime > 0f)
+            {
+                glitchTime -= dt;
+                if (UnityEngine.Random.value < 0.45f) k *= 0.08f;
             }
             mat.SetFloat("_Fade", k * alpha);
             var dir = transform.position - cam.position;

@@ -56,7 +56,12 @@ namespace GhostWard
         int throwsLeft;
         bool dashing, dropped;
         float orbit, watchedTime;
-        float shiftTime, shiftMax;  // игрок пошёл: фигура рассыпается и переносится   // джинн: угол на круге; русалка: сколько на неё уже смотрят
+        float shiftTime, shiftMax;
+        float flickerTime, flickerHold;   // помехи камеры (игрок идёт): фигура пропадает урывками
+        bool flickerOff;
+
+        // камера «барахлит»: несколько долей секунды фигура то есть, то нет
+        public void Flicker(float seconds) => flickerTime = Mathf.Max(flickerTime, seconds);  // игрок пошёл: фигура рассыпается и переносится   // джинн: угол на круге; русалка: сколько на неё уже смотрят
         Vector3 baseScale;
 
         // повадка, по которой ходит сущность
@@ -361,7 +366,18 @@ namespace GhostWard
 
             if (Current != State.Banished) Exposure = Mathf.MoveTowards(Exposure, 0f, dt * (Lit ? 0f : 0.4f));
             mat.SetFloat(FlashId, flash);
-            mat.SetFloat(FadeId, fade);
+            if (flickerTime > 0f)
+            {
+                flickerTime -= dt;
+                flickerHold -= dt;
+                if (flickerHold <= 0f)
+                {
+                    flickerOff = !flickerOff && Random.value < 0.6f;
+                    flickerHold = Random.Range(0.04f, 0.11f);
+                }
+            }
+            else flickerOff = false;
+            mat.SetFloat(FadeId, flickerOff ? fade * 0.08f : fade);
             // вдали — темнее, как в настоящей комнате
             mat.SetFloat(DimId, Mathf.Lerp(1f, 0.55f, Mathf.InverseLerp(1.5f, 6f, FlatDistance())));
         }
