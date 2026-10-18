@@ -1222,18 +1222,13 @@ namespace GhostWard
             if (cam == null) return "";
             if (arRig != null)
                 return arRig.TryFloor(out float planeY)
-                    ? $"Телефон: {cam.transform.position.y - planeY:0.00} м над полом
-по полу ARCore"
-                    : $"Телефон: ~{EyeHeight:0.00} м
-AR ещё не нашёл пол";
+                    ? $"Телефон: {cam.transform.position.y - planeY:0.00} м над полом\nпо полу ARCore"
+                    : $"Телефон: ~{EyeHeight:0.00} м\nAR ещё не нашёл пол";
             var room = Room;
-            if (room == null || !room.Available) return $"Телефон: {EyeHeight:0.00} м
-обычная, карта глубины выключена";
+            if (room == null || !room.Available) return $"Телефон: {EyeHeight:0.00} м\nобычная, карта глубины выключена";
             return room.HeightMeasured
-                ? $"Телефон: {room.PhoneHeight:0.00} м над полом
-по потолку, потолок {room.CeilingHeight:0.0} м"
-                : $"Телефон: {room.PhoneHeight:0.00} м (обычная)
-посмотри на потолок, чтобы измерить";
+                ? $"Телефон: {room.PhoneHeight:0.00} м над полом\nпо потолку, потолок {room.CeilingHeight:0.0} м"
+                : $"Телефон: {room.PhoneHeight:0.00} м (обычная)\nпосмотри на потолок, чтобы измерить";
         }
 
         string DiagnosticsText()
