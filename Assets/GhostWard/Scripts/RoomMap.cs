@@ -39,6 +39,7 @@ namespace GhostWard
         public bool Available => !failed && Settings.Quality > 0;
         float Scale => PhoneHeight / EyeHeight;
         public string Status { get; private set; } = "нет";
+        public string LastFrame { get; private set; } = "ещё не было";   // чем кончился последний кадр глубины
 
         readonly float[] inv = new float[Cols * Rows];      // средняя обратная дальность в клетке, 1/м
         readonly float[] weight = new float[Cols * Rows];
@@ -110,7 +111,7 @@ namespace GhostWard
                 crop = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
                 cropMat = new Material(Shader.Find("GhostWard/ViewCrop"));
             }
-            if (!depth.Ready) { failed = true; Status = "нет модели"; return; }
+            if (!depth.Ready) { failed = true; Status = LastFrame = "нет модели"; return; }
 
             timer = Interval;
             rig.SetupViewCrop(cropMat);
@@ -178,7 +179,7 @@ namespace GhostWard
                     wt[m++] = 0.6f;
                 }
             }
-            if (m < 120) { Status = "мало пола"; return false; }
+            if (m < 120) { Status = LastFrame = "мало пола в кадре"; return false; }
 
             var inlier = new bool[m];
             for (int i = 0; i < m; i++) inlier[i] = true;
@@ -204,7 +205,7 @@ namespace GhostWard
                     if (inlier[i]) kept++;
                 }
             }
-            if (s <= 0f || kept < 80 || kept < m / 4) { Status = $"не сошлось {kept}/{m}"; return false; }
+            if (s <= 0f || kept < 80 || kept < m / 4) { Status = $"не сошлось {kept}/{m}"; LastFrame = "масштаб не сошёлся"; return false; }
 
             System.Array.Clear(frameSum, 0, frameSum.Length);
             System.Array.Clear(frameCount, 0, frameCount.Length);
@@ -228,6 +229,7 @@ namespace GhostWard
             spotsDirty = true;
             dirty = true;
             Status = $"кадров {Frames}, пол {kept}/{m}, телефон {PhoneHeight:0.00} м" + (HeightMeasured ? " (по потолку)" : " (обычная)");
+            LastFrame = "ок";
             spotsDirty = true;
             Upload();
             return true;

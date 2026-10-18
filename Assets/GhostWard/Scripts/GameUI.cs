@@ -278,8 +278,15 @@ namespace GhostWard
             phaseText.rectTransform.sizeDelta = new Vector2(600, 44);
             // тестовая сборка: на какой высоте держат телефон (от неё — пол, рост и места сущностей)
             phoneText = Label(hud.transform, "", 28, new Vector2(0.5f, 1f), new Vector2(0, -500), new Color(1f, 0.75f, 0.45f));
-            phoneText.rectTransform.sizeDelta = new Vector2(640, 80);   // под компасом, не задевая сумку справа
+            phoneText.rectTransform.sizeDelta = new Vector2(640, 150);   // под компасом, не задевая сумку справа
+            phoneText.rectTransform.pivot = new Vector2(0.5f, 1f);
+            phoneText.alignment = TextAnchor.UpperCenter;
             phoneText.gameObject.SetActive(TestMode.On);
+            // прицел: расстояние до того, на что он наведён, — в строке выше (проверка глубины рулеткой)
+            var cross = Label(hud.transform, "+", 56, new Vector2(0.5f, 0.5f), Vector2.zero, new Color(1f, 0.75f, 0.45f, 0.8f));
+            cross.rectTransform.sizeDelta = new Vector2(80, 80);
+            cross.raycastTarget = false;
+            cross.gameObject.SetActive(TestMode.On);
             BuildCompass();
 
             recText = Label(hud.transform, "● REC", 30, new Vector2(0f, 1f), new Vector2(40, -240), new Color(0.9f, 0.1f, 0.1f));

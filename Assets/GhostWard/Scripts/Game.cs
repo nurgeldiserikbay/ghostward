@@ -1216,10 +1216,32 @@ namespace GhostWard
             ui.SetGrain(baseGrain + nightVision * 0.08f + glitch * 0.25f);
         }
 
-        // высота телефона над полом и откуда она известна
+        // высота телефона и глубина: сколько кадров глубины сошлось и расстояние до того, что в прицеле
         string PhoneHeightText()
         {
             if (cam == null) return "";
+            return PhoneLine() + "\n" + DepthLine();
+        }
+
+        string DepthLine()
+        {
+            if (arRig != null)
+            {
+                float d = arRig.CenterDistance();
+                return $"Глубина ARCore: {arRig.DepthMode}\nВ прицеле: " + (d > 0f ? $"{d:0.00} м" : "— (не нашёл)");
+            }
+            var room = Room;
+            if (room == null || !room.Available) return "Глубина: выключена (графика «экономная»)";
+            if (!room.Has) return $"Глубина: кадров нет, последний — {room.LastFrame}\nВ прицеле: —";
+            var f = cam.transform.forward;
+            float yaw = Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg, pitch = Mathf.Asin(Mathf.Clamp(f.y, -1f, 1f)) * Mathf.Rad2Deg;
+            float r = room.Range(yaw, pitch);
+            return $"Глубина: кадров {room.Frames}, последний — {room.LastFrame}\nВ прицеле: " +
+                   (r > 0f ? $"{r:0.00} м" : "— (сюда ещё не смотрели)");
+        }
+
+        string PhoneLine()
+        {
             if (arRig != null)
                 return arRig.TryFloor(out float planeY)
                     ? $"Телефон: {cam.transform.position.y - planeY:0.00} м над полом\nпо полу ARCore"

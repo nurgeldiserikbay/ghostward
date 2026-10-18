@@ -246,6 +246,19 @@ namespace GhostWard
             return true;
         }
 
+        public string DepthMode => occlusion != null ? occlusion.currentEnvironmentDepthMode.ToString() : "нет";
+
+        // расстояние до того, что в центре экрана (глубина ARCore или плоскость); -1 — не нашли
+        public float CenterDistance()
+        {
+            if (raycaster == null) return -1f;
+            var ray = new Ray(Cam.transform.position, Cam.transform.forward);
+            if (!raycaster.Raycast(ray, hits, TrackableType.PlaneWithinPolygon | TrackableType.Depth)) return -1f;
+            float best = float.MaxValue;
+            foreach (var h in hits) best = Mathf.Min(best, h.distance);
+            return best;
+        }
+
         public string Diagnostics()
         {
             string depth = occlusion != null ? occlusion.currentEnvironmentDepthMode.ToString() : "-";
