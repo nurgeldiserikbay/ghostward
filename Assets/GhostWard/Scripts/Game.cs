@@ -28,7 +28,7 @@ namespace GhostWard
         float floorY;    // уровень пола, запомненный в начале ночи (в AR телефон может подниматься и опускаться)
         public float Floor => arRig != null ? floorY : cam.transform.position.y - PhoneHeight;
         // высота телефона над полом: в гироскопе — по карте комнаты (пропорция пола и потолка), иначе обычная
-        float PhoneHeight => Room != null ? Room.PhoneHeight : EyeHeight;
+        float PhoneHeight => Room != null ? Room.PhoneHeight : gyroRig != null ? Settings.PostureHeight : EyeHeight;
 
         // Высота середины фигуры: по полу ходят — ступни на полу; летающие парят не ниже 25 см над полом
         // и не упираются в потолок; на потолке — макушкой к потолку.
@@ -300,6 +300,7 @@ namespace GhostWard
                 ui.ShowBonus(inv.Bonus());
             }, () => ui.Message(Loc.T("ad_unavailable"), 2f));
             ui.NamePressed += NameEntity;
+            ui.PostureChanged += () => Room?.PostureChanged();   // другая поза — другой масштаб комнаты
             ui.SharePressed += SharePhoto;
             ui.JournalToggled += open =>
             {
@@ -428,6 +429,7 @@ namespace GhostWard
             if (gyroRig != null || arRig != null)
             {
                 phase = Phase.Scan;
+                ui.ShowPosture(arRig == null);
                 ui.SetScan(0f);
                 if (prologue)
                 {
@@ -1247,10 +1249,10 @@ namespace GhostWard
                     ? $"Телефон: {cam.transform.position.y - planeY:0.00} м над полом\nпо полу ARCore"
                     : $"Телефон: ~{EyeHeight:0.00} м\nAR ещё не нашёл пол";
             var room = Room;
-            if (room == null || !room.Available) return $"Телефон: {EyeHeight:0.00} м\nобычная, карта глубины выключена";
+            if (room == null || !room.Available) return $"Телефон: {PhoneHeight:0.00} м\nпо позе, карта глубины выключена";
             return room.HeightMeasured
                 ? $"Телефон: {room.PhoneHeight:0.00} м над полом\nпо потолку, потолок {room.CeilingHeight:0.0} м"
-                : $"Телефон: {room.PhoneHeight:0.00} м (обычная)\nпосмотри на потолок, чтобы измерить";
+                : $"Телефон: {room.PhoneHeight:0.00} м (по позе)\nпосмотри на потолок, чтобы измерить";
         }
 
         string DiagnosticsText()

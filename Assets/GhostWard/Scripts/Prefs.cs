@@ -38,6 +38,16 @@ namespace GhostWard
             set { PlayerPrefs.SetInt("vibration", value ? 1 : 0); PlayerPrefs.Save(); }
         }
 
+        // как игрок держит телефон (режим гироскопа): 0 — стоя, 1 — сидя, 2 — лёжа.
+        // Это высота телефона над полом, пока её не измерили по потолку; от неё — масштаб всей комнаты
+        public static int Posture
+        {
+            get => PlayerPrefs.GetInt("posture", 0);
+            set { PlayerPrefs.SetInt("posture", value); PlayerPrefs.Save(); }
+        }
+
+        public static float PostureHeight => Posture switch { 1 => 1.0f, 2 => 0.7f, _ => 1.4f };
+
         // 0 — авто (AR, только если сервисы AR уже установлены), 1 — выключен
         public static int ArMode
         {

@@ -34,8 +34,10 @@ namespace GhostWard
         public int Frames { get; private set; }
         public bool Has => Frames > 0;
         public float CeilingHeight { get; private set; } = -1f;   // над полом, -1 — не знаем
-        public float PhoneHeight { get; private set; } = EyeHeight;  // над полом, м
+        // над полом, м: измеренная по потолку, а пока не измерили — по позе, которую выбрал игрок (стоя, сидя, лёжа)
+        public float PhoneHeight => HeightMeasured ? measuredHeight : Settings.PostureHeight;
         public bool HeightMeasured { get; private set; }
+        float measuredHeight;
         public bool Available => !failed && Settings.Quality > 0;
         float Scale => PhoneHeight / EyeHeight;
         public string Status { get; private set; } = "нет";
@@ -66,14 +68,17 @@ namespace GhostWard
             return map;
         }
 
+        // игрок выбрал другую позу — масштаб карты другой: перезалить перекрытие и пересчитать места
+        public void PostureChanged()
+        {
+            dirty = true;
+            spotsDirty = true;
+        }
+
         // keepHeight — игрок просто перешёл на другое место: держит телефон так же, высоту не теряем
         public void Clear(bool keepHeight = false)
         {
-            if (!keepHeight)
-            {
-                PhoneHeight = EyeHeight;
-                HeightMeasured = false;
-            }
+            if (!keepHeight) HeightMeasured = false;
             System.Array.Clear(inv, 0, inv.Length);
             System.Array.Clear(weight, 0, weight.Length);
             Frames = 0;
@@ -259,7 +264,7 @@ namespace GhostWard
             // высота телефона — один раз за ночь, по двум кадрам и больше: иначе фигуры «прыгали» бы по высоте
             if (!HeightMeasured && Frames >= 2)
             {
-                PhoneHeight = Mathf.Clamp(TypicalCeiling * EyeHeight / ceiling, 0.7f, 1.8f);
+                measuredHeight = Mathf.Clamp(TypicalCeiling * EyeHeight / ceiling, 0.4f, 1.8f);
                 HeightMeasured = true;
             }
             CeilingHeight = Mathf.Clamp(ceiling * Scale, 2.1f, 4f);

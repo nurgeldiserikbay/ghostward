@@ -94,6 +94,7 @@ namespace GhostWard
             if (device == null && WebCamTexture.devices.Length > 0) device = WebCamTexture.devices[0].name;
             if (device == null) { camStatus = "камера не найдена"; return; }
 
+            longTan = RealLongSideTan();
             webcam = new WebCamTexture(device, 1280, 720, 30);
             webcam.Play();
             background.texture = webcam;
@@ -158,6 +159,48 @@ namespace GhostWard
         // ориентация телефона (правая система координат) → камера Unity, портретный экран
         static Quaternion Convert(Quaternion q) => Quaternion.Euler(90f, 0f, 0f) * new Quaternion(q.x, q.y, -q.z, -q.w);
 
+        // Угол обзора настоящей камеры: тангенс половины угла по длинной стороне кадра.
+        // Виртуальная камера игры должна видеть ровно тот же угол, что и видео на экране, — иначе при повороте
+        // телефона сущность «едет» относительно комнаты, как картинка, прилепленная к экрану.
+        // Берём из Camera2: фокусное расстояние и физический размер сенсора задней камеры.
+        // Не вышло — ~68° по длинной стороне (основная камера ~26 мм в пересчёте на плёнку).
+        float longTan = Mathf.Tan(34f * Mathf.Deg2Rad);
+        string fovSource = "обычный";
+
+        float RealLongSideTan()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
+                using var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
+                using var manager = activity.Call<AndroidJavaObject>("getSystemService", "camera");
+                using var keys = new AndroidJavaClass("android.hardware.camera2.CameraCharacteristics");
+                using var facingKey = keys.GetStatic<AndroidJavaObject>("LENS_FACING");
+                using var focalKey = keys.GetStatic<AndroidJavaObject>("LENS_INFO_AVAILABLE_FOCAL_LENGTHS");
+                using var sizeKey = keys.GetStatic<AndroidJavaObject>("SENSOR_INFO_PHYSICAL_SIZE");
+                foreach (var id in manager.Call<string[]>("getCameraIdList"))
+                {
+                    using var chars = manager.Call<AndroidJavaObject>("getCameraCharacteristics", id);
+                    using var facing = chars.Call<AndroidJavaObject>("get", facingKey);
+                    if (facing == null || facing.Call<int>("intValue") != 1) continue;   // 1 — задняя камера
+                    using var focals = chars.Call<AndroidJavaObject>("get", focalKey);
+                    using var size = chars.Call<AndroidJavaObject>("get", sizeKey);
+                    if (focals == null || size == null) continue;
+                    var f = AndroidJNIHelper.ConvertFromJNIArray<float[]>(focals.GetRawObject());
+                    float longSide = Mathf.Max(size.Call<float>("getWidth"), size.Call<float>("getHeight"));
+                    if (f == null || f.Length == 0 || f[0] <= 0f || longSide <= 0f) continue;
+                    float t = longSide * 0.5f / f[0];
+                    if (t < 0.3f || t > 1.6f) continue;   // явная ерунда
+                    fovSource = $"камера {id}: f {f[0]:0.00} мм, сенсор {longSide:0.0} мм";
+                    return t;
+                }
+            }
+            catch (System.Exception e) { fovSource = "ошибка: " + e.Message; }
+#endif
+            return Mathf.Tan(34f * Mathf.Deg2Rad);
+        }
+
         // растягиваем видео с обрезкой краёв (cover) с учётом поворота сенсора
         void FitBackground()
         {
@@ -173,6 +216,12 @@ namespace GhostWard
             float scale = Mathf.Max(size.x / texW, size.y / texH);
             var rt = background.rectTransform;
             rt.sizeDelta = new Vector2(webcam.width * scale, webcam.height * scale);
+
+            // вертикальный угол виртуальной камеры = угол видимой на экране части видео
+            // (видео обрезано по краям; тангенс угла пропорционален размеру в пикселях кадра)
+            float longPx = Mathf.Max(webcam.width, webcam.height);
+            float visibleTan = longTan * (size.y / scale) / longPx;
+            Cam.fieldOfView = Mathf.Clamp(2f * Mathf.Atan(visibleTan) * Mathf.Rad2Deg, 30f, 100f);
             rt.localEulerAngles = new Vector3(0f, 0f, -angle);
             background.uvRect = webcam.videoVerticallyMirrored ? new Rect(0f, 1f, 1f, -1f) : new Rect(0f, 0f, 1f, 1f);
         }
@@ -225,7 +274,7 @@ namespace GhostWard
             if (seg != null) seg.SetActive(on);
         }
 
-        public string Diagnostics() => $"гироскоп: {gyroSource}\nкамера: {camStatus}";
+        public string Diagnostics() => $"гироскоп: {gyroSource}\nкамера: {camStatus}, обзор {Cam.fieldOfView:0}° ({fovSource})";
 
         const int SampleSize = 64;
         // вырез кадра «как на экране» для карты глубины: параметры того же преобразования, что в SampleLuma

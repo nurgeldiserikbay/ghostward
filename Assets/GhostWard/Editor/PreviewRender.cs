@@ -433,6 +433,7 @@ namespace GhostWard.EditorTools
                 Shoot($"story_{l}", ui => ui.DebugPanel("story"), "screen");
                 Shoot($"dawn_{l}", ui => ui.DebugPanel("dawn"), "screen");
                 Shoot($"hud_{l}", ui => ui.DebugHud(Inventory.Starting(), false), "screen");
+                Shoot($"scan_{l}", ui => { ui.ShowHud(); ui.SetScan(0.4f); ui.ShowPosture(true); }, "screen");
                 Shoot($"bag_{l}", ui => ui.DebugHud(Inventory.Starting(), true), "screen");
             }
             Loc.Set(Lang.En);

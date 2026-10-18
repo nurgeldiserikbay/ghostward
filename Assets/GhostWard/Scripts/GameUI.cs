@@ -585,6 +585,25 @@ namespace GhostWard
             bar.gameObject.AddComponent<Image>().color = new Color(1, 1, 1, 0.15f);
             scanFill = Rect(bar, "Fill", Vector2.zero, new Vector2(0f, 1f));
             scanFill.gameObject.AddComponent<Image>().color = Bone;
+
+            // как держишь телефон: от этого высота над полом и рост сущностей (в AR не нужно — ARCore знает сам)
+            posture = Rect(scan.transform, "Posture", Vector2.zero, Vector2.one).gameObject;
+            var pt = Label(posture.transform, Loc.T("posture_title"), 32, new Vector2(0.5f, 0.3f), Vector2.zero, Bone);
+            pt.rectTransform.sizeDelta = new Vector2(900, 50);
+            Outline(pt);
+            string[] pk = { "posture_stand", "posture_sit", "posture_lie" };
+            for (int i = 0; i < 3; i++)
+            {
+                int p = i;
+                var b = Button(posture.transform, Loc.T(pk[i]), new Vector2(0.5f, 0.245f), () =>
+                {
+                    Settings.Posture = p;
+                    RefreshPosture();
+                    PostureChanged?.Invoke();
+                }, false, 300, (i - 1) * 320f);
+                postureButtons.Add((b.GetComponent<Image>(), p));
+            }
+            RefreshPosture();
             scan.SetActive(false);
         }
 
@@ -2173,6 +2192,22 @@ namespace GhostWard
                                || RectTransformUtility.RectangleContainsScreenPoint(bagButton, screen, null)
                                || RectTransformUtility.RectangleContainsScreenPoint(logButton, screen, null)
                                || bagPanel.gameObject.activeSelf && RectTransformUtility.RectangleContainsScreenPoint(bagPanel, screen, null));
+
+        public event System.Action PostureChanged;
+        GameObject posture;
+        readonly List<(Image bg, int value)> postureButtons = new();
+
+        void RefreshPosture()
+        {
+            foreach (var (bg, value) in postureButtons) bg.color = value == Settings.Posture ? Blood : Ink;
+        }
+
+        // выбор позы — только в режиме гироскопа
+        public void ShowPosture(bool on)
+        {
+            posture.SetActive(on);
+            RefreshPosture();
+        }
 
         public void SetPhoneHeight(string text)
         {
