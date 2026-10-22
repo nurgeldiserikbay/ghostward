@@ -32,7 +32,16 @@ namespace GhostWard
         public event Action SharePressed;
 
         // можно ли сейчас назвать сущность (идёт расследование и имя ещё не названо)
-        public bool CanName { get; set; }
+        // можно ли сейчас определить сущность (идёт расследование, ещё не распознана)
+        bool canName;
+        public bool CanName
+        {
+            get => canName;
+            set { canName = value; UpdateIdentify(); }
+        }
+        public event Action<Evidence[]> IdentifyPressed;
+        GameObject identifyButton;
+        Text listEmpty;
 
         // базовое затемнение экрана ночью — зависит от вида камеры
         public float DarkBase { get; set; } = 0.55f;
@@ -1276,6 +1285,40 @@ namespace GhostWard
             }
 
             Button(journalList.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalClues), false);
+            listEmpty = Label(journalList.transform, Loc.T("list_empty"), 30, new Vector2(0.5f, 0.6f), Vector2.zero, Dim);
+            listEmpty.rectTransform.sizeDelta = new Vector2(860, 200);
+            listContent = content;
+        }
+
+        RectTransform listContent;
+
+        // В списке — только распознанные сущности (в тестовой сборке — все): остальные скрыты целиком,
+        // без силуэтов и счётчика «из 40» — сколько их всего, игрок не знает.
+        void RefreshCards() => RefreshCards(TestMode.On);
+
+        void RefreshCards(bool showAll)
+        {
+            const int cols = 3, cw = 296, ch = 330, gap = 14;
+            int shown = 0;
+            foreach (var c in cards)
+            {
+                bool visible = showAll || Know.Name(c.kind);
+                var card = (RectTransform)c.pic.transform.parent;
+                card.gameObject.SetActive(visible);
+                if (!visible) continue;
+                int col = shown % cols, row = shown / cols;
+                card.anchoredPosition = new Vector2((col - 1) * (cw + gap), -gap - ch * 0.5f - row * (ch + gap));
+                bool known = Know.Name(c.kind);
+                c.name.text = known ? Catalog.Get(c.kind).Name : "???";
+                c.name.color = Catalog.Seen(c.kind) ? Bone : Dim;
+                shown++;
+            }
+            int rows = (shown + cols - 1) / cols;
+            listContent.sizeDelta = new Vector2(0, rows * (ch + gap) + gap);
+            listEmpty.gameObject.SetActive(shown == 0);
+            int found = 0;
+            foreach (var c in cards) if (Know.Name(c.kind)) found++;
+            journalCount.text = Loc.F("journal_found", found);
         }
 
         // Превью сущности для списка: шейдер рисуется один раз в текстуру (фон прозрачный) и запоминается.
@@ -1303,6 +1346,7 @@ namespace GhostWard
             int done = 0;
             foreach (var c in cards)
             {
+                if (!c.pic.transform.parent.gameObject.activeSelf) continue;
                 var def = Catalog.Get(c.kind);
                 bool locked = !Catalog.Seen(c.kind);
                 bool cached = thumbs.ContainsKey((c.kind, locked));
@@ -1415,8 +1459,15 @@ namespace GhostWard
                 clueRows.Add((box, check));
             }
 
-            suspectsText = Label(journalClues.transform, "", 28, new Vector2(0.5f, 1f), new Vector2(0, -1355), new Color(1f, 0.75f, 0.45f));
-            suspectsText.rectTransform.sizeDelta = new Vector2(940, 150);
+            suspectsText = Label(journalClues.transform, "", 28, new Vector2(0.5f, 1f), new Vector2(0, -1300), new Color(1f, 0.75f, 0.45f));
+            suspectsText.rectTransform.sizeDelta = new Vector2(940, 120);
+            // три отмеченные улики → «Определить»: сошлось — узнаёшь, кто это; нет — она злится
+            identifyButton = Button(journalClues.transform, Loc.T("identify"), new Vector2(0.5f, 0.235f), () =>
+            {
+                var picked = new List<Evidence>();
+                for (int i = 0; i < marks.Length; i++) if (marks[i]) picked.Add((Evidence)i);
+                IdentifyPressed?.Invoke(picked.ToArray());
+            }, true, 520);
             suspectsText.resizeTextForBestFit = true;
             suspectsText.resizeTextMinSize = 18;
             suspectsText.resizeTextMaxSize = 28;
@@ -1427,7 +1478,7 @@ namespace GhostWard
             Button(journalClues.transform, Loc.T("howto"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalHowTo), false, 300, -320);
             Button(journalClues.transform, Loc.T("night_log"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalLog), false, 300, 0);
             Button(journalClues.transform, Loc.T("close"), new Vector2(0.5f, 0.06f), () => SetJournal(false), false, 300, 320);
-            UpdateSuspects();
+            UpdateIdentify();
         }
 
         // Приборы поиска и средства защиты.
@@ -1466,27 +1517,40 @@ namespace GhostWard
         {
             marks[i] = !marks[i];
             clueRows[i].check.gameObject.SetActive(marks[i]);
-            UpdateSuspects();
+            idWrongText = null;
+            UpdateIdentify();
         }
 
-        void UpdateSuspects()
+        // Подозреваемых дневник не подсказывает: только сколько улик отмечено и можно ли определять.
+        string idWrongText;
+
+        void UpdateIdentify()
         {
-            var names = new List<string>();
-            foreach (var e in Catalog.Entities)
-            {
-                if (!Know.Name(e.Kind)) continue;
-                // исключаем, только если игрок знает все улики сущности и отмеченной среди них нет
-                bool fits = true;
-                bool allKnown = Know.AllCluesKnown(e.Kind);
-                for (int i = 0; i < marks.Length; i++)
-                    if (marks[i] && !Know.Clue(e.Kind, (Evidence)i) && allKnown) fits = false;
-                if (fits) names.Add(e.Name);
-            }
+            if (suspectsText == null) return;
             int marked = 0;
             foreach (var m in marks) if (m) marked++;
-            suspectsText.text = marked == 0 ? Loc.T("sus_all")
-                : names.Count == 0 ? Loc.T("sus_none")
-                : Loc.F(names.Count == 1 ? "sus_one" : "sus_many", string.Join(", ", names));
+            identifyButton.SetActive(canName && marked == 3);
+            suspectsText.text = idWrongText ?? (!canName ? "" : marked == 3 ? Loc.T("id_ready")
+                : marked > 3 ? Loc.T("id_too_many") : Loc.F("id_count", marked));
+        }
+
+        // не сошлось: сказать об этом (и сколько попыток осталось)
+        public void IdentifyWrong(string text)
+        {
+            idWrongText = text;
+            Shake(0.3f);
+            UpdateIdentify();
+        }
+
+        // сошлось: статья о ней открывается целиком — прочесть, кто это и как защищаться
+        public void ShowIdentified(EntityKind kind)
+        {
+            canName = false;
+            idWrongText = null;
+            UpdateIdentify();
+            RefreshCards();
+            OpenEntry(kind);
+            Message(Loc.F("id_right", Catalog.Get(kind).Name), 4f);
         }
 
         // шаг пролога; пустой текст — спрятать
@@ -1687,7 +1751,8 @@ namespace GhostWard
                 marks[i] = false;
                 if (i < clueRows.Count) clueRows[i].check.gameObject.SetActive(false);
             }
-            UpdateSuspects();
+            idWrongText = null;
+            UpdateIdentify();
         }
 
         void BuildJournalHowTo()
@@ -1959,7 +2024,7 @@ namespace GhostWard
 
             Clear(entryItemIcon);
             Clear(entryGestureIcon);
-            nameButton.SetActive(CanName && known);
+            nameButton.SetActive(false);   // имя определяется по уликам на странице улик
 
             if (!known)
             {
@@ -2021,6 +2086,10 @@ namespace GhostWard
                 case "entry": OpenEntry(entry); break;
                 case "items": ShowJournalPage(journalItems); break;
                 case "clues": ToggleClue(0); ToggleClue(1); ShowJournalPage(journalClues); break;
+                case "identify": CanName = true; ToggleClue(0); ToggleClue(1); ToggleClue(5); ShowJournalPage(journalClues); break;
+                case "identify_wrong": CanName = true; ToggleClue(0); ToggleClue(2); ToggleClue(5); ShowJournalPage(journalClues);
+                    IdentifyWrong(Loc.F("id_wrong", 2)); break;
+                case "list_player": ShowJournalPage(journalList); RefreshCards(false); FillThumbsNow(); break;
                 case "howto": ShowJournalPage(journalHowTo); break;
                 case "practice": ShowJournalPage(journalItems); OpenPractice(ItemKind.Mirror); break;
                 case "list": ShowJournalPage(journalList); FillThumbsNow(); break;
@@ -2064,17 +2133,7 @@ namespace GhostWard
             journal.SetActive(open);
             if (open)
             {
-                int found = 0;
-                foreach (var c in cards)
-                {
-                    bool seen = Catalog.Seen(c.kind);
-                    bool known = Know.Name(c.kind);
-                    if (known) found++;
-                    // до знакомства — «???»; облик открывается после встречи (превью — при открытии списка)
-                    c.name.text = known ? Catalog.Get(c.kind).Name : "???";
-                    c.name.color = seen ? Bone : Dim;
-                }
-                journalCount.text = Loc.F("journal_count", found, cards.Count);
+                RefreshCards();
                 journalScroll.verticalNormalizedPosition = 1f;
                 ShowJournalPage(journalClues);
             }

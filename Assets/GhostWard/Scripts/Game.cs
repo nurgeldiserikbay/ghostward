@@ -214,7 +214,7 @@ namespace GhostWard
                     samplePoints[y * gx + x] = new Vector2((x + 0.5f) / gx, (y + 0.5f) / gy);
 
             Settings.Apply();
-            Know.EnsureStarters();
+            // бестиарий заполняется только теми, кого игрок распознал сам (Identify); заранее не знаем никого
             Ads.Init();
             Trophies.Unlocked += t => ui.TrophyToast(Loc.F("trophy_got", Trophies.Name(t), Trophies.Reward));
             CreateUI();
@@ -303,7 +303,7 @@ namespace GhostWard
                 bonusTaken = true;
                 ui.ShowBonus(inv.Bonus());
             }, () => ui.Message(Loc.T("ad_unavailable"), 2f));
-            ui.NamePressed += NameEntity;
+            ui.IdentifyPressed += Identify;
             ui.PostureChanged += () => Room?.PostureChanged();   // другая поза — другой масштаб комнаты
             ui.SharePressed += SharePhoto;
             ui.JournalToggled += open =>
@@ -311,7 +311,7 @@ namespace GhostWard
                 Time.timeScale = open ? 0f : 1f;
                 AudioListener.pause = open;
                 gestures.Reset();
-                ui.CanName = open && phase == Phase.Investigate && !named && (!prologue || proStep >= 7);
+                ui.CanName = open && phase == Phase.Investigate && !named && huntPending < 0f && (!prologue || proStep >= 7);
                 if (open) ui.ShowJournal(inv);
             };
         }
@@ -395,7 +395,7 @@ namespace GhostWard
             ui.SetProtection(inv);
             ui.CloseBag();
             target = prologue ? Catalog.Get(EntityKind.Ghost) : dailyMode ? Catalog.Get(Daily.Entity) : PickTarget();
-            newCase = Know.LearnName(target.Kind);
+            newCase = !Know.Name(target.Kind);   // ещё не распознана — «новое дело», имя игрок узнает сам
             EntitySounds.Prewarm(target.Kind);
             music.SetTheme(target.Kind);
             lureMatched = false;
@@ -479,7 +479,8 @@ namespace GhostWard
             nightTime = 0f;
             anger = 0f;
             named = namedRight = wrongItemUsed = false;
-            if (newCase) named = true;   // кто это — уже известно, называть не нужно
+            wrongGuesses = 0;
+            huntPending = -1f;
             banishedTime = -1f;
             clueTimer = Random.Range(3f, 5f);
             fakeTimer = Random.Range(8f, 14f);
@@ -501,7 +502,7 @@ namespace GhostWard
             string intro = dailyMode ? Loc.T("daily_intro") : night == 1 ? Loc.T("intro_first") : Loc.F("intro_n", night);
             if (modifier != Modifier.None)
                 intro += $"\n\n<b>{Modifiers.Name(modifier)}.</b> {Modifiers.Desc(modifier)}\n" + Loc.F("xp_bonus", Modifiers.XpFactor(modifier).ToString("0.0#"));
-            if (newCase) intro = Loc.F("new_case", target.Name);
+            if (newCase && !prologue) intro = Loc.T("new_case");
             if (prologue) Step(2);
             else ui.Message(intro, 7f);
             music.Play(Music.Stinger.Swell, newCase ? 0.6f : 0.25f);
@@ -516,7 +517,7 @@ namespace GhostWard
             CreateColdSpot();
 
             // бонус звания «Чутьё»: одна улика этой ночи отмечена заранее
-            if (Progress.Instinct) ui.MarkClue((int)target.Clues[Random.Range(0, target.Clues.Length)]);
+            // (улики игра больше не подсказывает — даже за звание)
         }
 
         void Update()
@@ -733,7 +734,13 @@ namespace GhostWard
             UpdateWander(dt);
             UpdatePossession(dt);
             UpdateThermalLife();
-            if (phase == Phase.Investigate && anger >= 100f) StartHunt(false);
+            anger = Mathf.Min(anger, 100f);   // злость — чаще и сильнее пугает, но сама на охоту не выводит
+            // распознал (или исчерпал попытки) — она выходит на охоту, когда игрок закрыл дневник
+            if (huntPending >= 0f)
+            {
+                huntPending -= dt;
+                if (huntPending < 0f) StartHunt(namedRight, enraged: !namedRight);
+            }
         }
 
         void EmitClue()
@@ -757,10 +764,14 @@ namespace GhostWard
                     break;
             }
             AddFear(1.5f);
-            markTime = Beginner ? 9f : 6f;
-
-            ui.Narrate(Loc.F("n." + clue, Direction(lair)));
-            if (cluesShown.Add(clue) && Beginner) ui.Hint(Loc.T("h." + clue));
+            // Игра не называет улику и не показывает, откуда она: холод, шёпот, стук, помехи — всё происходит,
+            // а заметить и понять, что это было, должен сам игрок. Подписи остались только в обучении (пролог).
+            if (prologue)
+            {
+                markTime = 9f;
+                ui.Narrate(Loc.F("n." + clue, Direction(lair)));
+            }
+            cluesShown.Add(clue);
             CheckJournalHint();
         }
 
@@ -921,7 +932,7 @@ namespace GhostWard
             {
                 sfx.PlayOneShot(ProceduralAudio.RadioVoice(), 1f);
                 ui.Message(Loc.F("radio", Loc.T("radio_" + Random.Range(1, RadioAnswerCount + 1))), 3f);
-                if (!radioAnswered && Beginner) ui.Hint(Loc.T("h.RadioYes"));
+                if (!radioAnswered && prologue) ui.Hint(Loc.T("h.RadioYes"));
                 radioAnswered = true;
                 CheckJournalHint();
                 glitch = 1f;
@@ -934,25 +945,50 @@ namespace GhostWard
             }
         }
 
-        // игрок назвал сущность в дневнике
-        void NameEntity(EntityKind kind)
+        // Игрок отметил в дневнике три улики и нажал «Определить».
+        // Сошлось — сущность распознана: её статья открывается целиком (суть, повадки, как защищаться),
+        // и с этого мига она нападает. Не сошлось — она злится; попыток три (со званием «Чутьё» — четыре),
+        // потом выходит на охоту сама, в ярости.
+        int wrongGuesses;
+        float huntPending = -1f;
+        int MaxGuesses => Progress.Instinct ? 4 : 3;
+
+        void Identify(Evidence[] picked)
         {
-            if (phase != Phase.Investigate || named) return;
+            if (phase != Phase.Investigate || named || huntPending >= 0f) return;
+            bool right = picked.Length == target.Clues.Length;
+            if (right) foreach (var c in target.Clues) if (System.Array.IndexOf(picked, c) < 0) right = false;
+
+            if (right)
+            {
+                named = namedRight = true;
+                Trophies.OnRightName();
+                Know.LearnName(target.Kind);
+                Know.LearnHabits(target.Kind);
+                Know.LearnDefense(target.Kind);
+                Know.LearnLure(target.Kind);
+                foreach (var c in target.Clues) Know.LearnClue(target.Kind, c);
+                huntPending = 2.5f;   // идёт отсчёт после закрытия дневника
+                music.Play(Music.Stinger.Boom, 0.6f);
+                ui.ShowIdentified(target.Kind);
+                return;
+            }
+
+            wrongGuesses++;
+            anger = Mathf.Min(100f, anger + 20f);
+            AddFear(8f);
+            sfx.PlayOneShot(ProceduralAudio.Whisper(), 0.7f * Settings.Sfx);
+            if (phase != Phase.Investigate) return;   // от страха — конец ночи
+            int left = MaxGuesses - wrongGuesses;
+            if (left > 0)
+            {
+                ui.IdentifyWrong(Loc.F("id_wrong", left));
+                return;
+            }
+            // попытки кончились — она больше не ждёт
             named = true;
-            namedRight = kind == target.Kind;
-            if (namedRight) Trophies.OnRightName();
-            if (namedRight)
-            {
-                ui.Message(Loc.T("named_right"), 3f);
-                StartHunt(true);
-            }
-            else
-            {
-                AddFear(15f);
-                if (phase != Phase.Investigate) return;   // от страха — конец ночи, охоты уже не будет
-                ui.Message(Loc.T("named_wrong"), 3f);
-                StartHunt(false, enraged: true);
-            }
+            huntPending = 1.5f;
+            ui.IdentifyWrong(Loc.T("id_out"));
         }
 
         // ---------- приборы ----------
@@ -1097,7 +1133,7 @@ namespace GhostWard
             hunter.Weakened = weakened;
             entities.Add(hunter);
             ui.SetPhase(Loc.T("phase_hunt"), true);
-            if (!named) ui.Message(Loc.T("hunt_start"), 3.5f);
+            ui.Message(Loc.T(namedRight ? "named_right" : "id_hunt"), 3.5f);
             // верно назвал (или уже изгонял) — расследование окупается: подсказка, как прогнать
             if (namedRight || Know.Defense(target.Kind)) ui.Hint(target.Hint);
             invisibleHinted = false;
@@ -1497,11 +1533,13 @@ namespace GhostWard
             ClearEntities();
             ui.SetHidden(false);
             string supply = inv.Resupply();
-            string verdict = banished
-                ? Loc.F("verdict_banished", target.Name) + (namedRight ? "\n" + Loc.T("verdict_named_right") : "")
-                : Loc.F("verdict_survived", target.Name);
-            if (named && !namedRight) verdict += "\n" + Loc.T("verdict_named_wrong");
-            else if (banished && namedRight && !wrongItemUsed) verdict += "\n" + Loc.T("verdict_clean");
+            // не распознал — имени не называем и на рассвете: узнать его можно только по уликам
+            string verdict = !namedRight
+                ? Loc.T(banished ? "verdict_banished_unknown" : "verdict_survived_unknown")
+                : banished
+                    ? Loc.F("verdict_banished", target.Name) + "\n" + Loc.T("verdict_named_right")
+                    : Loc.F("verdict_survived", target.Name);
+            if (banished && namedRight && !wrongItemUsed) verdict += "\n" + Loc.T("verdict_clean");
             ui.ShowDawn(night, verdict, supply, photo);
             music.Play(Music.Stinger.Dawn, 0.8f);
 
@@ -2058,6 +2096,12 @@ namespace GhostWard
                 music.Play(Music.Stinger.Boom, 0.7f);
             }
             if (Catalog.Seen(e.Def.Kind)) return;
+            // не распознал — имени не узнает, даже увидев её
+            if (!Know.Name(e.Def.Kind))
+            {
+                ui.Message(Loc.T("seen_unknown"), 4f);
+                return;
+            }
             Catalog.MarkSeen(e.Def.Kind);
             Trophies.OnSeen();
             ui.Message(Know.IsStarter(e.Def.Kind) || Know.Defense(e.Def.Kind)

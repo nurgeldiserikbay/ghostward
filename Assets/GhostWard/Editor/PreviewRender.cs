@@ -66,6 +66,9 @@ namespace GhostWard.EditorTools
             Shoot("entry", ui => ui.DebugJournal("entry", EntityKind.Ghost));
             Shoot("entry_locked", ui => ui.DebugJournal("entry", EntityKind.Kikimora));
             Shoot("clues", ui => ui.DebugJournal("clues"));
+            Shoot("identify", ui => ui.DebugJournal("identify"));
+            Shoot("identify_wrong", ui => ui.DebugJournal("identify_wrong"));
+            Shoot("list_player", ui => ui.DebugJournal("list_player"));
             Shoot("howto", ui => ui.DebugJournal("howto"));
 
             // новые сущности, тренировка жестов, поздняя страница истории
