@@ -4,7 +4,7 @@ using UnityEngine;
 namespace GhostWard
 {
     // Что игрок знает о сущностях — бестиарий заполняется по ходу игры.
-    //  • Призрак и Тень — учебные: известны полностью с самого начала, при первой встрече подсказка, как справиться.
+    //  • Заранее не известна ни одна: сущность попадает сюда, когда игрок распознал её по уликам (Game.Identify).
     //  • Остальные открываются по мере роста опыта (UnlockXp; первые шесть совпадают со званиями).
     //    Новая сущность приходит отдельным «делом»:
     //    игрок сразу узнаёт имя, суть и легенду (в легенде — намёк, чего она боится), а способ ищет сам.
@@ -28,6 +28,21 @@ namespace GhostWard
             return true;
         }
 
+        // тестовая сборка: забыть всё о сущностях — бестиарий снова пуст, как у нового игрока
+        public static void ResetAll()
+        {
+            foreach (var def in Catalog.Entities)
+            {
+                foreach (var what in new[] { "name", "habits", "defense", "lure", "banished" })
+                    PlayerPrefs.DeleteKey(Key(def.Kind, what));
+                foreach (Evidence e in System.Enum.GetValues(typeof(Evidence)))
+                    PlayerPrefs.DeleteKey(Key(def.Kind, "clue_" + e));
+                PlayerPrefs.DeleteKey("seen_" + def.Kind);
+            }
+            PlayerPrefs.Save();
+        }
+
+        // (больше не вызывается: заранее известных сущностей нет — бестиарий заполняется распознанными)
         // учебные сущности известны полностью с первого запуска
         public static void EnsureStarters()
         {
