@@ -24,6 +24,18 @@ namespace GhostWard.EditorTools
 
         void OnPreprocessTexture()
         {
+            // глубина картинок сущностей (рельеф): данные, а не цвет — без sRGB и сжатия
+            if (assetPath.Replace('\\', '/').Contains("/Resources/EntityDepth/"))
+            {
+                var d = (TextureImporter)assetImporter;
+                d.textureType = TextureImporterType.Default;
+                d.sRGBTexture = false;
+                d.mipmapEnabled = false;
+                d.wrapMode = TextureWrapMode.Clamp;
+                d.textureCompression = TextureImporterCompression.Uncompressed;
+                d.alphaSource = TextureImporterAlphaSource.None;
+                return;
+            }
             if (!assetPath.Replace('\\', '/').Contains("/Resources/Entities/")) return;
             var importer = (TextureImporter)assetImporter;
             importer.textureType = TextureImporterType.Default;

@@ -101,6 +101,13 @@ namespace GhostWard
                 pm.SetFloat("_Seed", seed);
                 var box = FigureOf(def).Box;
                 pm.SetVector("_Crop", new Vector4(box.x, box.y, box.width, box.height));
+                // рельеф: глубина картинки (нейросеть, заранее в редакторе) — в мире фигура объёмная
+                var relief = Relief(def.Kind);
+                if (relief != null)
+                {
+                    pm.SetTexture("_ReliefTex", relief);
+                    pm.SetFloat("_Relief", Mathf.Clamp(def.Height * 0.2f, 0.15f, 0.4f));
+                }
                 return pm;
             }
 
@@ -176,6 +183,61 @@ namespace GhostWard
             return bw > 0.05f && bh > 0.05f;
         }
 
+        // ---------- рельеф ----------
+        // Глубина картинки сущности: Resources/EntityDepth/<Kind>.png (белое — ближе к игроку), считается
+        // в редакторе нейросетью глубины (DepthTools.EntityDepth). Есть глубина — фигура рисуется сеткой
+        // (ReliefMesh), у которой шейдер выдвигает ближние части тела; нет — обычный плоский квад.
+        static readonly System.Collections.Generic.Dictionary<EntityKind, Texture2D> Reliefs = new();
+
+        public static Texture2D Relief(EntityKind k)
+        {
+            if (!Reliefs.TryGetValue(k, out var tex))
+                Reliefs[k] = tex = Resources.Load<Texture2D>("EntityDepth/" + k);
+            return tex;
+        }
+
+        static Mesh reliefMesh;
+
+        // сетка 40×60 на месте квада (−0.5…0.5, uv 0…1, лицом к −Z — как Unity Quad)
+        public static Mesh ReliefMesh
+        {
+            get
+            {
+                if (reliefMesh != null) return reliefMesh;
+                const int nx = 40, ny = 60;
+                var v = new Vector3[(nx + 1) * (ny + 1)];
+                var uv = new Vector2[v.Length];
+                for (int y = 0; y <= ny; y++)
+                    for (int x = 0; x <= nx; x++)
+                    {
+                        int i = y * (nx + 1) + x;
+                        uv[i] = new Vector2((float)x / nx, (float)y / ny);
+                        v[i] = new Vector3(uv[i].x - 0.5f, uv[i].y - 0.5f, 0f);
+                    }
+                var t = new int[nx * ny * 6];
+                int k = 0;
+                for (int y = 0; y < ny; y++)
+                    for (int x = 0; x < nx; x++)
+                    {
+                        int a = y * (nx + 1) + x, b = a + 1, c = a + nx + 1, d = c + 1;
+                        t[k++] = a; t[k++] = c; t[k++] = b;
+                        t[k++] = b; t[k++] = c; t[k++] = d;
+                    }
+                reliefMesh = new Mesh { name = "Relief", vertices = v, uv = uv, triangles = t };
+                reliefMesh.RecalculateNormals();
+                // рельеф выдвигается к игроку — границы с запасом, чтобы камера не отсекала фигуру
+                reliefMesh.bounds = new Bounds(Vector3.zero, new Vector3(1f, 1f, 2f));
+                return reliefMesh;
+            }
+        }
+
+        // объёмная сетка вместо плоского квада, если у картинки есть глубина
+        public static void UseRelief(GameObject go, EntityDef def)
+        {
+            if (Picture(def.Kind) != null && Relief(def.Kind) != null)
+                go.GetComponent<MeshFilter>().sharedMesh = ReliefMesh;
+        }
+
         static readonly System.Collections.Generic.Dictionary<EntityKind, Texture2D> Pictures = new();
 
         public static Texture2D Picture(EntityKind k)
@@ -221,6 +283,7 @@ namespace GhostWard
             go.transform.position = position;
             var figure = FigureOf(def);
             go.transform.localScale = new Vector3(figure.Size.x, figure.Size.y, 1f);
+            UseRelief(go, def);
 
             var e = go.AddComponent<Entity>();
             e.Def = def;

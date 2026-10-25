@@ -86,6 +86,7 @@ namespace GhostWard
             go.transform.position = pos;
             var figure = Entity.FigureOf(def);
             go.transform.localScale = new Vector3(figure.Size.x, figure.Size.y, 1f);
+            Entity.UseRelief(go, def);
             var a = go.AddComponent<Apparition>();
             a.mat = Entity.CreateMaterial(def, UnityEngine.Random.value * 10f);
             a.mat.SetFloat("_Flip", Entity.ArchOf(def.Kind) == EntityKind.Kikimora ? 1f : 0f);

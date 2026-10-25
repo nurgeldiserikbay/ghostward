@@ -4,6 +4,13 @@
 // свет и зерно; качается и дышит, голова иногда дёргается, ступни уходят в тень, края мягкие.
 // В интерфейсе (дневник, скример) — та же картинка без окраски под камеру.
 // Параметры, общие с процедурным шейдером: _Fade, _Flash, _Dissolve, _Flip, _Locked и трафарет UI.
+//
+// Рельеф (_ReliefTex, _Relief): в мире фигура — не плоский прямоугольник, а сетка (Entity.ReliefMesh),
+// у которой ближние части тела (руки, лицо) выступают к игроку. Глубину картинки заранее считает нейросеть
+// (DepthTools.EntityDepth → Resources/EntityDepth/<Kind>.png). Снизу или сверху фигура выглядит объёмной.
+// Чтобы рельеф не просвечивал сам сквозь себя, проход «глубина» сначала пишет глубину непрозрачной части
+// (в URP он идёт первым — тег SRPDefaultUnlit), потом основной проход рисует цвет поверх. В интерфейсе
+// (Canvas берёт проход 0) рисуется только основной проход, рельефа нет.
 Shader "GhostWard/EntityPhoto"
 {
     Properties
@@ -20,6 +27,8 @@ Shader "GhostWard/EntityPhoto"
         _World ("In world", Float) = 0
         _Dim ("Distance dim", Range(0, 1)) = 1
         _Crop ("Figure box in picture (x, y, w, h)", Vector) = (0, 0, 1, 1)
+        _ReliefTex ("Relief depth (white = near)", 2D) = "black" {}
+        _Relief ("Relief depth, m", Float) = 0
 
         _StencilComp ("Stencil Comparison", Float) = 8
         _Stencil ("Stencil ID", Float) = 0
@@ -29,12 +38,61 @@ Shader "GhostWard/EntityPhoto"
         _ColorMask ("Color Mask", Float) = 15
     }
 
+    CGINCLUDE
+    #include "UnityCG.cginc"
+    #include "LookCommon.cginc"
+
+    sampler2D _MainTex;
+    float4 _MainTex_TexelSize;
+    sampler2D _ReliefTex;
+    fixed4 _Color;
+    float _Fade, _Flash, _Dissolve, _Seed, _Flip, _Locked, _Key, _World, _Dim, _Relief;
+    float4 _Crop;   // в мире квад обтягивает саму фигуру: ступни — ровно по нижнему краю
+
+    struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
+    struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 screen : TEXCOORD1; float3 world : TEXCOORD2; };
+
+    v2f vert(appdata v)
+    {
+        // рельеф: точка картинки выдвигается к игроку (локальная −Z — сторона камеры) на свою глубину
+        if (_World > 0.5 && _Relief > 0.0)
+        {
+            float2 ruv = v.uv;
+            if (_Flip > 0.5) ruv.y = 1.0 - ruv.y;
+            ruv = _Crop.xy + ruv * _Crop.zw;
+            v.vertex.z -= (tex2Dlod(_ReliefTex, float4(ruv, 0, 0)).r - 0.5) * _Relief;   // вокруг своего места: рост не меняется
+        }
+        v2f o;
+        o.pos = UnityObjectToClipPos(v.vertex);
+        o.uv = v.uv;
+        o.screen = ComputeScreenPos(o.pos);
+        o.world = mul(unity_ObjectToWorld, v.vertex).xyz;
+        return o;
+    }
+
+    float hash11(float x) { return frac(sin(x * 127.1) * 43758.5453); }
+    float hash21(float2 p) { return frac(sin(dot(p, float2(12.9898, 78.233))) * 43758.5453); }
+
+    // цвет и непрозрачность картинки в точке: прозрачность из PNG и вырезка чёрного фона
+    float4 Sample(float2 uv)
+    {
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0;
+        if (_World > 0.5) uv = _Crop.xy + uv * _Crop.zw;
+        float4 c = tex2D(_MainTex, uv);
+        float lum = max(c.r, max(c.g, c.b));
+        float a = c.a * lerp(1.0, smoothstep(0.012, 0.05, lum), _Key);
+        return float4(c.rgb, a);
+    }
+    ENDCG
+
     SubShader
     {
         Tags { "RenderType" = "Transparent" "Queue" = "Transparent" "IgnoreProjector" = "True" }
 
+        // проход 0 — цвет (его же берёт интерфейс)
         Pass
         {
+            Tags { "LightMode" = "UniversalForward" }
             Stencil
             {
                 Ref [_Stencil]
@@ -52,41 +110,6 @@ Shader "GhostWard/EntityPhoto"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #include "UnityCG.cginc"
-            #include "LookCommon.cginc"
-
-            sampler2D _MainTex;
-            float4 _MainTex_TexelSize;
-            fixed4 _Color;
-            float _Fade, _Flash, _Dissolve, _Seed, _Flip, _Locked, _Key, _World, _Dim;
-            float4 _Crop;   // в мире квад обтягивает саму фигуру: ступни — ровно по нижнему краю
-
-            struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
-            struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 screen : TEXCOORD1; float3 world : TEXCOORD2; };
-
-            v2f vert(appdata v)
-            {
-                v2f o;
-                o.pos = UnityObjectToClipPos(v.vertex);
-                o.uv = v.uv;
-                o.screen = ComputeScreenPos(o.pos);
-                o.world = mul(unity_ObjectToWorld, v.vertex).xyz;
-                return o;
-            }
-
-            float hash11(float x) { return frac(sin(x * 127.1) * 43758.5453); }
-            float hash21(float2 p) { return frac(sin(dot(p, float2(12.9898, 78.233))) * 43758.5453); }
-
-            // цвет и непрозрачность картинки в точке: прозрачность из PNG и вырезка чёрного фона
-            float4 Sample(float2 uv)
-            {
-                if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0;
-                if (_World > 0.5) uv = _Crop.xy + uv * _Crop.zw;
-                float4 c = tex2D(_MainTex, uv);
-                float lum = max(c.r, max(c.g, c.b));
-                float a = c.a * lerp(1.0, smoothstep(0.012, 0.05, lum), _Key);
-                return float4(c.rgb, a);
-            }
 
             fixed4 frag(v2f i) : SV_Target
             {
@@ -164,6 +187,33 @@ Shader "GhostWard/EntityPhoto"
 
                 col = lerp(col, float3(1, 1, 1), _Flash);
                 return fixed4(saturate(col), saturate(alpha) * _Fade);
+            }
+            ENDCG
+        }
+
+        // проход 1 — только глубина плотной части рельефной фигуры (в URP рисуется раньше прохода 0):
+        // выступающая рука закрывает то, что за ней, а не просвечивает
+        Pass
+        {
+            Tags { "LightMode" = "SRPDefaultUnlit" }
+            ColorMask 0
+            ZWrite On
+            ZTest LEqual
+            Cull Off
+
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment fragDepth
+
+            fixed4 fragDepth(v2f i) : SV_Target
+            {
+                if (_World < 0.5 || _Relief <= 0.0) discard;
+                float2 uv = i.uv;
+                if (_Flip > 0.5) uv.y = 1.0 - uv.y;
+                float a = Sample(uv).a * _Fade * GW_Occlusion(i.world);
+                if (_Dissolve > 0.0) a *= step(_Dissolve, hash21(floor(i.uv * 40.0) + _Seed));
+                clip(a - 0.6);
+                return 0;
             }
             ENDCG
         }
