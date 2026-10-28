@@ -1311,24 +1311,23 @@ namespace GhostWard
         }
 
         RectTransform listContent;
+        GameObject entitiesButton;
 
         // В списке — только распознанные сущности (в тестовой сборке — все): остальные скрыты целиком,
         // без силуэтов и счётчика «из 40» — сколько их всего, игрок не знает.
-        // showAll — только для тестовой кнопки «ТЕСТ: ВСЕ» (выбрать, кто придёт); у игрока список — только распознанные
-        void RefreshCards(bool showAll)
+        void RefreshCards()
         {
             const int cols = 3, cw = 296, ch = 330, gap = 14;
             int shown = 0;
             foreach (var c in cards)
             {
-                bool visible = showAll || Know.Name(c.kind);
+                bool visible = Know.Name(c.kind);
                 var card = (RectTransform)c.pic.transform.parent;
                 card.gameObject.SetActive(visible);
                 if (!visible) continue;
                 int col = shown % cols, row = shown / cols;
                 card.anchoredPosition = new Vector2((col - 1) * (cw + gap), -gap - ch * 0.5f - row * (ch + gap));
-                bool known = Know.Name(c.kind);
-                c.name.text = known ? Catalog.Get(c.kind).Name : "???";
+                c.name.text = Catalog.Get(c.kind).Name;
                 c.name.color = Catalog.Seen(c.kind) ? Bone : Dim;
                 shown++;
             }
@@ -1337,12 +1336,12 @@ namespace GhostWard
             listEmpty.gameObject.SetActive(shown == 0);
             int found = 0;
             foreach (var c in cards) if (Know.Name(c.kind)) found++;
-            journalCount.text = showAll ? "ТЕСТ: все сущности" : Loc.F("journal_found", found);
+            journalCount.text = Loc.F("journal_found", found);
         }
 
-        void OpenList(bool showAll)
+        void OpenList()
         {
-            RefreshCards(showAll);   // до показа: превью подгружаются только у видимых карточек
+            RefreshCards();   // до показа: превью подгружаются только у видимых карточек
             ShowJournalPage(journalList);
         }
 
@@ -1497,16 +1496,16 @@ namespace GhostWard
             suspectsText.resizeTextMinSize = 18;
             suspectsText.resizeTextMaxSize = 28;
             // улики — первая страница журнала: отсюда — список сущностей и остальные разделы
-            Button(journalClues.transform, Loc.T("entities"), new Vector2(0.5f, 0.135f), () => OpenList(false), true, 300, -320);
-            // тестовая сборка: полный список (выбрать, кто придёт следующей ночью) и сброс знаний — проверить игру с нуля
+            // список сущностей — только когда в нём кто-то есть: пока ни одной не распознал, кнопки нет
+            entitiesButton = Button(journalClues.transform, Loc.T("entities"), new Vector2(0.5f, 0.135f), OpenList, true, 300, -320);
+            // тестовая сборка: сброс знаний — проверить игру с нуля
             if (TestMode.On)
             {
-                var all = Button(journalClues.transform, "ТЕСТ: ВСЕ", new Vector2(0.5f, 0.95f), () => OpenList(true), false, 200, -340);
-                all.GetComponentInChildren<Text>().fontSize = 24;
                 var reset = Button(journalClues.transform, "ТЕСТ: СБРОС", new Vector2(0.5f, 0.95f), () =>
                 {
                     Know.ResetAll();
-                    RefreshCards(false);
+                    RefreshCards();
+                    entitiesButton.SetActive(false);
                     Message("ТЕСТ: знания о сущностях стёрты — бестиарий пуст", 3f);
                 }, false, 200, 340);
                 reset.GetComponentInChildren<Text>().fontSize = 24;
@@ -1586,7 +1585,7 @@ namespace GhostWard
             canName = false;
             idWrongText = null;
             UpdateIdentify();
-            RefreshCards(false);
+            RefreshCards();
             OpenEntry(kind);
             Message(Loc.F("id_right", Catalog.Get(kind).Name), 4f);
         }
@@ -2042,6 +2041,7 @@ namespace GhostWard
             journalEntry.SetActive(page == journalEntry);
             journalItems.SetActive(page == journalItems);
             journalClues.SetActive(page == journalClues);
+            if (page == journalClues) entitiesButton.SetActive(Know.AnyRecognized());
             journalHowTo.SetActive(page == journalHowTo);
             journalTools.SetActive(page == journalTools);
         }
@@ -2127,7 +2127,7 @@ namespace GhostWard
                 case "identify": CanName = true; ToggleClue(0); ToggleClue(1); ToggleClue(5); ShowJournalPage(journalClues); break;
                 case "identify_wrong": CanName = true; ToggleClue(0); ToggleClue(2); ToggleClue(5); ShowJournalPage(journalClues);
                     IdentifyWrong(Loc.F("id_wrong", 2)); break;
-                case "list_player": ShowJournalPage(journalList); RefreshCards(false); FillThumbsNow(); break;
+                case "list_player": ShowJournalPage(journalList); RefreshCards(); FillThumbsNow(); break;
                 case "howto": ShowJournalPage(journalHowTo); break;
                 case "practice": ShowJournalPage(journalItems); OpenPractice(ItemKind.Mirror); break;
                 case "list": ShowJournalPage(journalList); FillThumbsNow(); break;
@@ -2171,7 +2171,7 @@ namespace GhostWard
             journal.SetActive(open);
             if (open)
             {
-                RefreshCards(false);
+                RefreshCards();
                 journalScroll.verticalNormalizedPosition = 1f;
                 ShowJournalPage(journalClues);
             }

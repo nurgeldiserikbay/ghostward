@@ -20,9 +20,11 @@ namespace GhostWard
     // Страх растёт от улик, близости и нападений; на 100% игра окончена.
     public class Game : MonoBehaviour
     {
-        enum Phase { Loading, Menu, Scan, Investigate, Hunt, Dawn, Over }
+        enum Phase { Loading, Menu, Scan, Investigate, Hunt, Lull, Dawn, Over }
 
         const float NightSeconds = 300f;
+        const float LullSeconds = 9f;   // между ночами подряд: итог ночи на экране, потом приходит следующая
+        float lullTime;
         const float FearDecay = 2.5f;
         const float EyeHeight = 1.4f;
         float floorY;    // уровень пола, запомненный в начале ночи (в AR телефон может подниматься и опускаться)
@@ -186,6 +188,7 @@ namespace GhostWard
         IEnumerator Start()
         {
             Application.targetFrameRate = 60;
+            Know.MigrateOnce();
             Screen.sleepTimeout = SleepTimeout.NeverSleep;
             Screen.orientation = ScreenOrientation.Portrait;
 
@@ -372,6 +375,9 @@ namespace GhostWard
             night = 0;
             fear = 0f;
             prologue = !Settings.PrologueDone && !dailyMode;
+            // комнату осматриваем один раз за игру: дальше ночи идут в той же комнате
+            map.Clear();
+            Room?.Clear();
             StartNight();
         }
 
@@ -425,14 +431,13 @@ namespace GhostWard
             ui.ClearEvidence();
             mic.Begin();
 
-            // карта темноты строится заново каждую ночь: свет в комнате мог измениться
-            map.Clear();
-            Room?.Clear();
+            // осмотр — только если комната ещё не осмотрена (начало игры); карта глубины, сброшенная
+            // при ходьбе, снимается заново сама (UpdateRoom)
             steps.Reset();
             walkHinted = false;
             scanFailTime = scanWait = 0f;
             ceilingAsked = false;
-            if (gyroRig != null || arRig != null)
+            if ((gyroRig != null || arRig != null) && map.Coverage < ScanCoverage)
             {
                 phase = Phase.Scan;
                 ui.ShowPosture(arRig == null);
@@ -541,6 +546,14 @@ namespace GhostWard
 
             if (cam != null) ui.SetMapStrip(map, cam.transform.forward, phase == Phase.Scan);
             if (phase == Phase.Scan) { music.SetScan(); UpdateScan(); UpdateLook(Time.deltaTime); return; }   // приборы видны и во время осмотра
+            if (phase == Phase.Lull)
+            {
+                music.SetScan();
+                UpdateLook(Time.deltaTime);
+                lullTime -= Time.deltaTime;
+                if (lullTime <= 0f) StartNight();
+                return;
+            }
             if (phase is not (Phase.Investigate or Phase.Hunt))
             {
                 if (phase == Phase.Over) music.SetSilence();
@@ -1542,9 +1555,13 @@ namespace GhostWard
             return pos;
         }
 
+        // Рассвет. В обычной игре ночи идут подряд, пока игрок жив: итог ночи — сообщением поверх камеры,
+        // через несколько секунд приходит следующая сущность в ту же комнату — без меню и без нового осмотра.
+        // Экран рассвета с кнопкой «Следующая ночь» — только после пролога и в деле дня.
         void Dawn(bool banished)
         {
-            phase = Phase.Dawn;
+            bool straightOn = !dailyMode && !prologue;
+            phase = straightOn ? Phase.Lull : Phase.Dawn;
             ClearEntities();
             ui.SetHidden(false);
             string supply = inv.Resupply();
@@ -1555,7 +1572,7 @@ namespace GhostWard
                     ? Loc.F("verdict_banished", target.Name) + "\n" + Loc.T("verdict_named_right")
                     : Loc.F("verdict_survived", target.Name);
             if (banished && namedRight && !wrongItemUsed) verdict += "\n" + Loc.T("verdict_clean");
-            ui.ShowDawn(night, verdict, supply, photo);
+            if (!straightOn) ui.ShowDawn(night, verdict, supply, photo);
             music.Play(Music.Stinger.Dawn, 0.8f);
 
             // опыт за ночь: дожил, изгнал, назвал верно, без ошибок, находки
@@ -1592,6 +1609,16 @@ namespace GhostWard
                 Settings.TutorialSeen = true;
                 ui.SetInstruction("", 0, 0);
                 extra = JoinLines(Loc.T("pro_dawn"), extra);
+            }
+            if (straightOn)
+            {
+                string text = Loc.F("dawn_night", night) + "\n" + verdict;
+                text = JoinLines(text, Loc.F("found", supply));
+                text = JoinLines(text, extra);
+                if (rankUp) text = JoinLines(text, Loc.F("rank_up", Progress.RankName(Progress.Rank), Progress.Perk(Progress.Rank)));
+                ui.Message(text, LullSeconds);
+                lullTime = LullSeconds;
+                return;
             }
             ui.ShowNightProgress(xp, rankUp, newPage, extra);
             ui.SetNextNightVisible(!dailyMode);

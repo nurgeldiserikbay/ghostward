@@ -28,6 +28,22 @@ namespace GhostWard
             return true;
         }
 
+        // Старые сохранения (до распознавания по уликам) знали сущностей заранее — бестиарий у них не пустой.
+        // Один раз стираем эти знания: список сущностей у всех начинается пустым
+        public static void MigrateOnce()
+        {
+            if (PlayerPrefs.GetInt("know_ver", 0) >= 2) return;
+            ResetAll();
+            PlayerPrefs.SetInt("know_ver", 2);
+            PlayerPrefs.Save();
+        }
+
+        public static bool AnyRecognized()
+        {
+            foreach (var def in Catalog.Entities) if (Name(def.Kind)) return true;
+            return false;
+        }
+
         // тестовая сборка: забыть всё о сущностях — бестиарий снова пуст, как у нового игрока
         public static void ResetAll()
         {
