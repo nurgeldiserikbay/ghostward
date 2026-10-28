@@ -322,7 +322,8 @@ namespace GhostWard
             if (cam == null)
             {
                 ui.ShowLoading();
-                yield return ArRig.TryCreate(r => arRig = r, ui.SetDiagnostics);
+                // последняя строка запуска AR — почему не AR (выключен, нет сервисов, не поддерживается)
+                yield return ArRig.TryCreate(r => arRig = r, msg => { arReason = msg; ui.SetDiagnostics(msg); });
                 if (arRig != null)
                 {
                     cam = arRig.Cam;
@@ -336,6 +337,7 @@ namespace GhostWard
                     }
                     if (!arRig.ReceivingFrames)
                     {
+                        arReason = "AR: камера AR не дала кадров за 8 с";
                         arRig.Shutdown();
                         arRig = null;
                     }
@@ -1268,11 +1270,18 @@ namespace GhostWard
         }
 
         // высота телефона и глубина: сколько кадров глубины сошлось и расстояние до того, что в прицеле
+        string arReason = "";
+
         string PhoneHeightText()
         {
             if (cam == null) return "";
-            return PhoneLine() + "\n" + DepthLine();
+            return ModeLine() + "\n" + PhoneLine() + "\n" + DepthLine();
         }
+
+        // какой режим сейчас работает: AR (ARCore следит за положением телефона) или гироскоп (только поворот)
+        string ModeLine() => arRig != null
+            ? "РЕЖИМ: AR (ARCore)"
+            : "РЕЖИМ: ГИРОСКОП" + (arReason != "" ? " — " + arReason.Replace("AR недоступен: ", "").Replace("AR: ", "") : "");
 
         string DepthLine()
         {
