@@ -20,7 +20,8 @@ namespace GhostWard
     //  • перекрытие: стол, диван, косяк двери ближе сущности — заслоняют её (шейдеры, _GW_Room).
     public class RoomMap : MonoBehaviour
     {
-        public const int Cols = 180, Rows = 90;   // клетки по 2°
+        public const int Cols = 360, Rows = 180;   // клетки по 1°: край дивана или стола проходит точнее
+        const float Cell = 360f / Cols;
         public const float EyeHeight = 1.4f;       // высота телефона, пока не измерили
         const float TypicalCeiling = 2.6f;
         const float Unknown = 50f;                 // в текстуре: «ничего не известно» — ничего не заслоняет
@@ -142,9 +143,9 @@ namespace GhostWard
         {
             float yaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
             float pitch = Mathf.Asin(Mathf.Clamp(dir.y, -1f, 1f)) * Mathf.Rad2Deg;
-            int c = Mathf.FloorToInt((yaw + 180f) * 0.5f);
+            int c = Mathf.FloorToInt((yaw + 180f) / Cell);
             c = ((c % Cols) + Cols) % Cols;
-            int r = Mathf.Clamp(Mathf.FloorToInt((pitch + 90f) * 0.5f), 0, Rows - 1);
+            int r = Mathf.Clamp(Mathf.FloorToInt((pitch + 90f) / Cell), 0, Rows - 1);
             return r * Cols + c;
         }
 
@@ -245,9 +246,9 @@ namespace GhostWard
         void UpdateCeiling()
         {
             var bins = new int[35];   // 1.6 … 5.0 м по 10 см — в единицах карты «при 1.4 м»
-            for (int r = Rows / 2 + 7; r < Rows; r++)
+            for (int r = Rows / 2 + Mathf.RoundToInt(15f / Cell); r < Rows; r++)   // выше 15°
             {
-                float sin = Mathf.Sin(((r + 0.5f) * 2f - 90f) * Mathf.Deg2Rad);
+                float sin = Mathf.Sin(((r + 0.5f) * Cell - 90f) * Mathf.Deg2Rad);
                 for (int c = 0; c < Cols; c++)
                 {
                     int i = r * Cols + c;
@@ -364,7 +365,8 @@ namespace GhostWard
         public string LastSpot { get; private set; } = "";
         public Vector3 Origin => origin;   // откуда снята карта (игрок мог отойти — тогда она снимается заново)
 
-        readonly float[] wallCol = new float[Cols], lowCol = new float[Cols], floorCol = new float[Cols];
+        const int SpotCols = 180;   // анализ мест — по 2° азимута
+        readonly float[] wallCol = new float[SpotCols], lowCol = new float[SpotCols], floorCol = new float[SpotCols];
         bool spotsDirty = true;
         const float MaxPlace = 6.5f;
 
@@ -373,7 +375,7 @@ namespace GhostWard
         void AnalyzeColumns()
         {
             spotsDirty = false;
-            for (int c = 0; c < Cols; c++)
+            for (int c = 0; c < SpotCols; c++)
             {
                 float yaw = ColYaw(c);
                 float wall = float.MaxValue, low = float.MaxValue, floor = -1f;
@@ -395,7 +397,7 @@ namespace GhostWard
             }
         }
 
-        float Wall(int c) => wallCol[((c % Cols) + Cols) % Cols];
+        float Wall(int c) => wallCol[((c % SpotCols) + SpotCols) % SpotCols];
 
         // мин. стена в диапазоне колонок; -1 — там не смотрели
         float MinWall(int from, int to)
@@ -439,7 +441,7 @@ namespace GhostWard
                 total += w;
             }
 
-            for (int c = 0; c < Cols; c++)
+            for (int c = 0; c < SpotCols; c++)
             {
                 float wall = wallCol[c];
                 if (wall < 1.5f) continue;   // не осмотрено или стена вплотную

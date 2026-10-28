@@ -523,6 +523,12 @@ namespace GhostWard
         void Update()
         {
             sfx.volume = Settings.Sfx;
+            if (TestMode.On && ui.DepthViewOn && cam != null)
+            {
+                // для наложения глубины: луч каждого пикселя экрана
+                Shader.SetGlobalMatrix("_GW_InvViewProj", (cam.projectionMatrix * cam.worldToCameraMatrix).inverse);
+                Shader.SetGlobalVector("_GW_CamPos", cam.transform.position);
+            }
             if (TestMode.On)
             {
                 ui.SetDiagnostics(DiagnosticsText());

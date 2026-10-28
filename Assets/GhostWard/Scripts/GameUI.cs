@@ -267,6 +267,11 @@ namespace GhostWard
         void BuildHud()
         {
             hud = Rect(shakeRoot, "HUD", Vector2.zero, Vector2.one).gameObject;
+            // тестовая сборка: карта глубины поверх камеры (под остальным интерфейсом)
+            depthView = Rect(hud.transform, "DepthView", Vector2.zero, Vector2.one).gameObject.AddComponent<RawImage>();
+            depthView.material = new Material(Shader.Find("GhostWard/DepthView"));
+            depthView.raycastTarget = false;
+            depthView.gameObject.SetActive(false);
 
             nightText = Label(hud.transform, "", 34, new Vector2(0.5f, 1f), new Vector2(0, -80), Dim);
 
@@ -345,6 +350,21 @@ namespace GhostWard
             btn.transition = Selectable.Transition.None;
             btn.onClick.AddListener(() => SetJournal(true));
             Icons.Book(journalButton, Dim);
+
+            // тестовая сборка: кнопка «глубина» — показать, что видит нейросеть
+            if (TestMode.On)
+            {
+                var dv = Button(hud.transform, "ГЛУБ.", new Vector2(0f, 1f), () =>
+                {
+                    DepthViewOn = !DepthViewOn;
+                    depthView.gameObject.SetActive(DepthViewOn);
+                }, false, 150, 0);
+                var dvr = (RectTransform)dv.transform;
+                dvr.anchorMin = dvr.anchorMax = new Vector2(0f, 1f);
+                dvr.sizeDelta = new Vector2(150, 80);
+                dvr.anchoredPosition = new Vector2(100, -400);
+                dv.GetComponentInChildren<Text>().fontSize = 26;
+            }
 
             // записи ночи — три строки под дневником
             logButton = Rect(hud.transform, "LogButton", new Vector2(0f, 1f), new Vector2(0f, 1f));
@@ -2271,6 +2291,8 @@ namespace GhostWard
                                || bagPanel.gameObject.activeSelf && RectTransformUtility.RectangleContainsScreenPoint(bagPanel, screen, null));
 
         public event System.Action PostureChanged;
+        public bool DepthViewOn { get; private set; }
+        RawImage depthView;
         GameObject posture;
         readonly List<(Image bg, int value)> postureButtons = new();
 

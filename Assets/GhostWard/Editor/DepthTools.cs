@@ -85,6 +85,24 @@ namespace GhostWard.EditorTools
             tex.Apply();
             RenderTexture.active = null;
             File.WriteAllBytes($"Logs/occl_{name}.png", tex.EncodeToPNG());
+
+            // тот же кадр с наложением глубины (кнопка «ГЛУБ.» в тестовой сборке)
+            foreach (var g in made) if (g != cam.gameObject && g != feed) g.SetActive(false);
+            var ov = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            float oh = 2f * 1f * Mathf.Tan(30f * Mathf.Deg2Rad);
+            ov.transform.position = cam.transform.position + Vector3.forward * 1f;
+            ov.transform.localScale = new Vector3(oh * aspect, oh, 1f);
+            ov.GetComponent<MeshRenderer>().sharedMaterial = new Material(Shader.Find("GhostWard/DepthView"));
+            made.Add(ov);
+            Shader.SetGlobalMatrix("_GW_InvViewProj", (cam.projectionMatrix * cam.worldToCameraMatrix).inverse);
+            Shader.SetGlobalVector("_GW_CamPos", cam.transform.position);
+            if (UnityEngine.Rendering.RenderPipeline.SupportsRenderRequest(cam, request)) UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, request);
+            else cam.Render();
+            RenderTexture.active = rt;
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+            RenderTexture.active = null;
+            File.WriteAllBytes($"Logs/depthview_{name}.png", tex.EncodeToPNG());
             foreach (var g in made) Object.DestroyImmediate(g);
         }
 
