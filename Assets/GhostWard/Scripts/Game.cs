@@ -20,11 +20,14 @@ namespace GhostWard
     // Страх растёт от улик, близости и нападений; на 100% игра окончена.
     public class Game : MonoBehaviour
     {
-        enum Phase { Loading, Menu, Scan, Investigate, Hunt, Lull, Dawn, Over }
+        enum Phase { Loading, Menu, Scan, Investigate, Hunt, Quiet, Dawn, Over }
 
+        // Игра без ночей и без конца, пока игрок жив: сущности приходят по одной в случайный момент.
+        // NightSeconds — сколько сущность пробудет в доме, если её не изгнать; потом уходит сама.
+        // Между визитами — затишье случайной длины (Quiet): ни экрана, ни сообщения «пришла».
         const float NightSeconds = 300f;
-        const float LullSeconds = 9f;   // между ночами подряд: итог ночи на экране, потом приходит следующая
-        float lullTime;
+        float lullLeft;      // сколько ещё длится затишье
+        float sessionTime;   // сколько игрок продержался с начала игры (часы на экране, рекорд)
         const float FearDecay = 2.5f;
         const float EyeHeight = 1.4f;
         float floorY;    // уровень пола, запомненный в начале ночи (в AR телефон может подниматься и опускаться)
@@ -374,6 +377,7 @@ namespace GhostWard
             inv = Inventory.Starting();
             night = 0;
             fear = 0f;
+            sessionTime = 0f;
             prologue = !Settings.PrologueDone && !dailyMode;
             // комнату осматриваем один раз за игру: дальше ночи идут в той же комнате
             map.Clear();
@@ -423,10 +427,9 @@ namespace GhostWard
             thunderMask = 0f;
             ui.SetModifier(modifier == Modifier.None ? "" : Modifiers.Name(modifier));
             ui.ShowHud();
-            ui.SetNight(night);
-            if (prologue) ui.SetNightTitle(Loc.T("prologue"));
-            ui.LogNight(prologue ? Loc.T("prologue") : Loc.F("night_n", night));
-            ui.SetClock(0f);
+            ui.SetNightTitle(prologue ? Loc.T("prologue") : "");
+            ui.LogNight(prologue ? Loc.T("prologue") : GameUI.Clock(sessionTime));
+            ui.SetClock(sessionTime);
             ui.SetPhase("", false);
             ui.ClearEvidence();
             mic.Begin();
@@ -506,13 +509,14 @@ namespace GhostWard
             phase = Phase.Investigate;
             ui.SetPhase(Loc.T("phase_investigate"), false);
             ui.SetCameraOverlay(Settings.Vision);
-            string intro = dailyMode ? Loc.T("daily_intro") : night == 1 ? Loc.T("intro_first") : Loc.F("intro_n", night);
+            // о приходе сущности игра не объявляет: игрок понимает это сам — по событиям.
+            // Объясняем только в первый раз за игру, что искать; особые условия — коротко
+            string intro = dailyMode ? Loc.T("daily_intro") : night == 1 ? Loc.T("intro_first") : "";
             if (modifier != Modifier.None)
-                intro += $"\n\n<b>{Modifiers.Name(modifier)}.</b> {Modifiers.Desc(modifier)}\n" + Loc.F("xp_bonus", Modifiers.XpFactor(modifier).ToString("0.0#"));
-            if (newCase && !prologue) intro = Loc.T("new_case");
+                intro = JoinLines(intro, $"<b>{Modifiers.Name(modifier)}.</b> {Modifiers.Desc(modifier)}");
             if (prologue) Step(2);
-            else ui.Message(intro, 7f);
-            music.Play(Music.Stinger.Swell, newCase ? 0.6f : 0.25f);
+            else if (intro != "") ui.Message(intro, 7f);
+            if (night == 1) music.Play(Music.Stinger.Swell, 0.25f);
 
             cluesShown.Clear();
             radioAnswered = radioHinted = journalHinted = lureUsed = lureHinted = false;
@@ -546,12 +550,19 @@ namespace GhostWard
 
             if (cam != null) ui.SetMapStrip(map, cam.transform.forward, phase == Phase.Scan);
             if (phase == Phase.Scan) { music.SetScan(); UpdateScan(); UpdateLook(Time.deltaTime); return; }   // приборы видны и во время осмотра
-            if (phase == Phase.Lull)
+            if (phase == Phase.Quiet)
             {
+                // затишье: никого нет, страх понемногу отпускает; потом незаметно приходит следующая
                 music.SetScan();
+                drone.volume = Mathf.MoveTowards(drone.volume, 0.2f * Settings.Ambience, Time.deltaTime * 0.3f);
+                staticNoise.volume = 0f;
                 UpdateLook(Time.deltaTime);
-                lullTime -= Time.deltaTime;
-                if (lullTime <= 0f) StartNight();
+                sessionTime += Time.deltaTime;
+                ui.SetClock(sessionTime);
+                fear = Mathf.Max(0f, fear - Time.deltaTime * 1.5f);
+                ui.SetFear(fear / 100f);
+                lullLeft -= Time.deltaTime;
+                if (lullLeft <= 0f) StartNight();
                 return;
             }
             if (phase is not (Phase.Investigate or Phase.Hunt))
@@ -574,7 +585,8 @@ namespace GhostWard
             lastForward = fwd;
 
             if (!prologue) nightTime += dt;
-            ui.SetClock(nightTime / NightSeconds);
+            sessionTime += dt;
+            ui.SetClock(sessionTime);
             if (nightTime >= NightSeconds) { Dawn(false); return; }
 
             if (phase == Phase.Investigate) UpdateInvestigation(dt);
@@ -1555,16 +1567,16 @@ namespace GhostWard
             return pos;
         }
 
-        // Рассвет. В обычной игре ночи идут подряд, пока игрок жив: итог ночи — сообщением поверх камеры,
-        // через несколько секунд приходит следующая сущность в ту же комнату — без меню и без нового осмотра.
-        // Экран рассвета с кнопкой «Следующая ночь» — только после пролога и в деле дня.
+        // Сущность ушла: изгнали или пробыла своё. В обычной игре — короткая строка поверх камеры и затишье,
+        // потом следующая (без меню и без нового осмотра). Экран рассвета — только в деле дня (одна сущность).
+        // Припасы пополняются только за изгнание: пережил, не изгнав, — запас тает.
         void Dawn(bool banished)
         {
-            bool straightOn = !dailyMode && !prologue;
-            phase = straightOn ? Phase.Lull : Phase.Dawn;
+            bool straightOn = !dailyMode;
+            phase = straightOn ? Phase.Quiet : Phase.Dawn;
             ClearEntities();
             ui.SetHidden(false);
-            string supply = inv.Resupply();
+            string supply = !straightOn || banished ? inv.Resupply() : "";
             // не распознал — имени не называем и на рассвете: узнать его можно только по уликам
             string verdict = !namedRight
                 ? Loc.T(banished ? "verdict_banished_unknown" : "verdict_survived_unknown")
@@ -1612,12 +1624,15 @@ namespace GhostWard
             }
             if (straightOn)
             {
-                string text = Loc.F("dawn_night", night) + "\n" + verdict;
-                text = JoinLines(text, Loc.F("found", supply));
+                string text = banished ? verdict : namedRight ? Loc.F("left_named", target.Name) : Loc.T("left_unknown");
+                if (supply != "") text = JoinLines(text, Loc.F("found", supply));
                 text = JoinLines(text, extra);
                 if (rankUp) text = JoinLines(text, Loc.F("rank_up", Progress.RankName(Progress.Rank), Progress.Perk(Progress.Rank)));
-                ui.Message(text, LullSeconds);
-                lullTime = LullSeconds;
+                ui.Message(text, 6f);
+                ui.SetPhase("", false);
+                ui.SetModifier("");
+                // в тестовой сборке затишье короче — проверять быстрее
+                lullLeft = TestMode.On ? Random.Range(10f, 20f) : Random.Range(30f, 90f);
                 return;
             }
             ui.ShowNightProgress(xp, rankUp, newPage, extra);
@@ -1632,10 +1647,11 @@ namespace GhostWard
             DestroyStash();
             ui.SetHidden(false);
             ui.SetSecondChance(!revivedThisNight);
-            int best = Mathf.Max(night, PlayerPrefs.GetInt("bestNight", 0));
-            PlayerPrefs.SetInt("bestNight", best);
+            // рекорд — сколько продержался; кто забрал — по имени, только если игрок его распознал
+            float best = Mathf.Max(sessionTime, PlayerPrefs.GetFloat("bestTime", 0f));
+            PlayerPrefs.SetFloat("bestTime", best);
             PlayerPrefs.Save();
-            ui.ShowGameOver(night, nightTime / NightSeconds, best, target.Name, photo);
+            ui.ShowGameOver(sessionTime, night - 1, best, Know.Name(target.Kind) ? target.Name : "???", photo);
 
             // за проигранную ночь — немного опыта за пройденное время (один раз за ночь)
             if (!overXpGiven)

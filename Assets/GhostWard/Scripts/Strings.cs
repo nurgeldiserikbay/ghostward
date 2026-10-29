@@ -162,11 +162,23 @@ namespace GhostWard
             ["next_night"] = new[] { "NEXT NIGHT", "СЛЕДУЮЩАЯ НОЧЬ", "КЕЛЕСІ ТҮН", "SIGUIENTE NOCHE", "PRÓXIMA NOITE" },
             ["taken"] = new[] { "TAKEN", "ТЕБЯ ЗАБРАЛИ", "СЕНІ АЛЫП КЕТТІ", "TE HAN LLEVADO", "LEVARAM VOCÊ" },
             ["over_text"] = new[] {
-                "Night {0}, {1}\nIt was: {2}\nLongest: night {3}",
-                "Ночь {0}, {1}\nЭто была: {2}\nДольше всего: ночь {3}",
-                "{0}-түн, {1}\nБұл — {2} еді\nЕң ұзағы: {3}-түн",
-                "Noche {0}, {1}\nEra: {2}\nRécord: noche {3}",
-                "Noite {0}, {1}\nEra: {2}\nRecorde: noite {3}" },
+                "You held out {0}\nOutlasted: {1}\nIt was: {2}\nRecord: {3}",
+                "Ты продержался {0}\nПережито сущностей: {1}\nЭто было: {2}\nРекорд: {3}",
+                "Сен {0} шыдадың\nАман қалдың: {1}\nБұл — {2} еді\nРекорд: {3}",
+                "Resististe {0}\nSuperadas: {1}\nEra: {2}\nRécord: {3}",
+                "Você resistiu {0}\nSuperadas: {1}\nEra: {2}\nRecorde: {3}" },
+            ["left_unknown"] = new[] {
+                "It's quiet. Whatever it was, it's gone… for now.",
+                "Стало тихо. Что бы это ни было — оно ушло… пока.",
+                "Тынышталды. Ол не болса да — кетті… әзірге.",
+                "Silencio. Fuera lo que fuera, se ha ido… por ahora.",
+                "Silêncio. Seja o que for, foi embora… por enquanto." },
+            ["left_named"] = new[] {
+                "It's quiet. {0} is gone… for now.",
+                "Стало тихо. {0} больше не здесь… пока.",
+                "Тынышталды. {0} енді мұнда жоқ… әзірге.",
+                "Silencio. {0} se ha ido… por ahora.",
+                "Silêncio. {0} foi embora… por enquanto." },
             ["again"] = new[] { "TRY AGAIN", "ЕЩЁ РАЗ", "ТАҒЫ БІР РЕТ", "OTRA VEZ", "DE NOVO" },
 
             // ---------- дневник ----------
@@ -790,7 +802,7 @@ namespace GhostWard
             ["pro_6b"] = new[] { "No microphone? Tap here — the radio will catch a voice anyway.", "Нет микрофона? Коснись экрана — радио всё равно поймает голос.", "Микрофон жоқ па? Экранды түрт — радио бәрібір дауысты ұстайды.", "¿Sin micrófono? Toca la pantalla: la radio captará una voz igualmente.", "Sem microfone? Toque na tela — o rádio vai captar uma voz mesmo assim." },
             ["pro_7"] = new[] { "It answered. Mark “Radio”: cold, whisper, radio — three clues. Press “Identify”.", "Ответило. Отметь «Радио»: холод, шёпот, радио — три улики. Нажми «Определить».", "Жауап берді. «Радио» белгіле: суық, сыбыр, радио — үш дәлел. «Анықтау» түймесін бас.", "Ha respondido. Marca «Radio»: frío, susurro, radio, tres pistas. Pulsa «Identificar».", "Respondeu. Marque “Rádio”: frio, sussurro, rádio — três pistas. Toque em “Identificar”." },
             ["pro_8"] = new[] { "It is coming. Do not make a sound. When you see it — swipe up: salt.", "Она идёт. Не издавай ни звука. Когда увидишь её — смахни пальцем вверх: соль.", "Ол келе жатыр. Дыбыс шығарма. Оны көргенде — саусақпен жоғары сырғыт: тұз.", "Viene. No hagas ruido. Cuando la veas, desliza hacia arriba: sal.", "Ela está vindo. Não faça barulho. Quando a vir — deslize para cima: sal." },
-            ["pro_dawn"] = new[] { "You lived to see dawn.\n\nEvery night gives experience. Ranks bring new entities to the house — each one you will have to figure out yourself. The journal remembers everything you learn. And the previous tenants' diary will tell you what is wrong with this house.", "Ты дожил до рассвета.\n\nКаждая ночь даёт опыт. Звания приводят в дом новых сущностей — каждую придётся разгадать самому. Дневник запоминает всё, что ты узнаёшь. А дневник прежних жильцов расскажет, что не так с этим домом.", "Сен таңға дейін аман қалдың.\n\nӘр түн тәжірибе береді. Атақтар үйге жаңа тылсым күштерді әкеледі — әрқайсысын өзің шешуің керек. Күнделік білгеніңнің бәрін есте сақтайды. Ал бұрынғы тұрғындардың күнделігі бұл үйдің не болғанын айтып береді.", "Viviste para ver el amanecer.\n\nCada noche da experiencia. Los rangos traen nuevas entidades a la casa: a cada una tendrás que descifrarla tú. El diario recuerda todo lo que aprendes. Y el diario de los inquilinos anteriores te contará qué le pasa a esta casa.", "Você viveu para ver o amanhecer.\n\nCada noite dá experiência. As patentes trazem novas entidades para a casa — cada uma você terá de decifrar sozinho. O diário lembra tudo o que você aprende. E o diário dos antigos moradores vai contar o que há de errado com esta casa." },
+            ["pro_dawn"] = new[] { "It is gone. Others will come — without warning. Notice the strange, mark the clues, figure out who it is and drive it out. Every one you outlast gives experience; ranks bring new entities to the house. The journal remembers everything you learn.", "Оно ушло. Придут другие — без предупреждения. Замечай странное, отмечай улики, пойми, кто это, и прогони. Каждая пережитая сущность даёт опыт, звания приводят в дом новых. Дневник запоминает всё, что ты узнаёшь.", "Ол кетті. Басқалары келеді — ескертусіз. Оғаш нәрсені байқа, дәлелдерді белгіле, кім екенін түсініп, қуып жібер. Әр аман өткен тылсым күш тәжірибе береді, атақтар үйге жаңаларын әкеледі. Күнделік білгеніңнің бәрін есте сақтайды.", "Se ha ido. Vendrán otras, sin aviso. Fíjate en lo extraño, marca las pistas, descubre quién es y expúlsala. Cada una que superas da experiencia; los rangos traen nuevas entidades a la casa. El diario recuerda todo lo que aprendes.", "Foi embora. Outras virão — sem aviso. Repare no estranho, marque as pistas, descubra quem é e expulse. Cada uma que você supera dá experiência; as patentes trazem novas entidades para a casa. O diário lembra tudo o que você aprende." },
             ["step_n"] = new[] { "{0} / {1}", "{0} / {1}", "{0} / {1}", "{0} / {1}", "{0} / {1}" },
             ["music_vol"] = new[] { "Music", "Музыка", "Музыка", "Música", "Música" },
             ["e.Banshee.name"] = new[] { "Banshee", "Банши", "Банши", "Banshee", "Banshee" },
@@ -2386,8 +2398,8 @@ namespace GhostWard
                 "Ол көрінбейді — ол көзге көрінбейтін. Тарсыл шыққан жаққа бұрыл да, оның неден қорқатынын қолдан.",
                 "No se ve: es invisible. Gírate hacia los golpes y usa lo que teme.",
                 "Não dá para ver — é invisível. Vire-se para onde vêm as batidas e use o que ele teme." },
-            ["test_next"] = new[] { "TEST: NEXT NIGHT", "ТЕСТ: СЛЕДУЮЩЕЙ НОЧЬЮ", "ТЕСТ: КЕЛЕСІ ТҮНІ", "PRUEBA: PRÓXIMA NOCHE", "TESTE: PRÓXIMA NOITE" },
-            ["test_next_set"] = new[] { "Next night: {0}", "Следующей ночью придёт: {0}", "Келесі түні келеді: {0}", "La próxima noche vendrá: {0}", "Na próxima noite virá: {0}" },
+            ["test_next"] = new[] { "TEST: COMES NEXT", "ТЕСТ: ПРИДЁТ СЛЕДУЮЩЕЙ", "ТЕСТ: КЕЛЕСІ ТҮНІ", "PRUEBA: PRÓXIMA NOCHE", "TESTE: PRÓXIMA NOITE" },
+            ["test_next_set"] = new[] { "Comes next: {0}", "Следующей придёт: {0}", "Келесі түні келеді: {0}", "La próxima noche vendrá: {0}", "Na próxima noite virá: {0}" },
             ["n.Possession"] = new[] {
                 "Their eyes went black for a moment. Something is looking out through them.",
                 "На миг их глаза стали чёрными. Сквозь них смотрит что-то другое.",

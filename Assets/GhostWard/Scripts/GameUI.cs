@@ -94,13 +94,11 @@ namespace GhostWard
         Text nightText, clockText, messageText, supplyText, diagText, dawnText, overText, scanText, phoneText;
         Text entryName, entryOrigin, entryText, entryItem, entryCount;
         RectTransform entryItemIcon, entryGestureIcon;
-        RawImage entryPicture, grain, jumpscare;
-        Material entryMat, jumpMat;
+        RawImage grain, jumpscare;
+        Material jumpMat;
         float jumpTimer;
         // карточки списка сущностей: картинка — готовое превью (Thumb), а не живой шейдер — список не тормозит
-        readonly List<(EntityKind kind, RawImage pic, Text name)> cards = new();
-        readonly Dictionary<(EntityKind, bool), RenderTexture> thumbs = new();
-        Coroutine thumbFill;
+        readonly List<(EntityKind kind, RectTransform card, Text name)> cards = new();
 
         // записи ночи: всё, что игра сказала, можно перечитать
         readonly List<string> nightLog = new();
@@ -554,7 +552,7 @@ namespace GhostWard
         {
             ShowHud();
             SetNight(2);
-            SetClock(0.4f);
+            SetClock(754f);
             SetPhase(Loc.T("phase_investigate"), false);
             SetTool(Tool.Emf);
             SetToolReadout("EMF  ■■■□□", new Color(1f, 0.8f, 0.4f));
@@ -1264,7 +1262,7 @@ namespace GhostWard
             view.gameObject.AddComponent<Mask>().showMaskGraphic = false;
             var content = Rect(view, "Content", new Vector2(0f, 1f), new Vector2(1f, 1f));
             content.pivot = new Vector2(0.5f, 1f);
-            const int cols = 3, cw = 296, ch = 330, gap = 14;
+            const int cols = 2, cw = 450, ch = 110, gap = 14;
             int rows = (Catalog.Entities.Length + cols - 1) / cols;
             content.sizeDelta = new Vector2(0, rows * (ch + gap) + gap);
             var scroll = view.gameObject.AddComponent<ScrollRect>();
@@ -1280,7 +1278,7 @@ namespace GhostWard
                 int col = i % cols, row = i / cols;
                 var card = Rect(content, def.Kind.ToString(), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
                 card.sizeDelta = new Vector2(cw, ch);
-                card.anchoredPosition = new Vector2((col - 1) * (cw + gap), -gap - ch * 0.5f - row * (ch + gap));
+                card.anchoredPosition = new Vector2((col - 0.5f) * (cw + gap), -gap - ch * 0.5f - row * (ch + gap));
                 var bg = card.gameObject.AddComponent<Image>();
                 bg.color = Ink;
                 var btn = card.gameObject.AddComponent<UnityEngine.UI.Button>();
@@ -1289,19 +1287,14 @@ namespace GhostWard
                 btn.onClick.AddListener(() => OpenEntry(kind));
                 Frame(card, cw, ch, Dim, 3f);
 
-                var pic = Rect(card, "Picture", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f)).gameObject.AddComponent<RawImage>();
-                pic.rectTransform.sizeDelta = new Vector2(200, 245);
-                pic.rectTransform.anchoredPosition = new Vector2(0, -135);
-                pic.raycastTarget = false;
-                pic.enabled = false;   // превью подгружается, когда список открыт (FillThumbs)
-
-                var name = Label(card, "", 28, new Vector2(0.5f, 0f), new Vector2(0, 40), Bone);
-                name.rectTransform.sizeDelta = new Vector2(cw - 20, 70);
+                // только имя, без картинки: по облику сущность узнавалась бы с одного взгляда, а узнают её по уликам
+                var name = Label(card, "", 30, new Vector2(0.5f, 0.5f), Vector2.zero, Bone);
+                name.rectTransform.sizeDelta = new Vector2(cw - 30, ch - 20);
                 name.fontStyle = FontStyle.Bold;
                 name.resizeTextForBestFit = true;
                 name.resizeTextMinSize = 18;
-                name.resizeTextMaxSize = 28;
-                cards.Add((kind, pic, name));
+                name.resizeTextMaxSize = 30;
+                cards.Add((kind, card, name));
             }
 
             Button(journalList.transform, Loc.T("back"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalClues), false);
@@ -1317,16 +1310,16 @@ namespace GhostWard
         // без силуэтов и счётчика «из 40» — сколько их всего, игрок не знает.
         void RefreshCards()
         {
-            const int cols = 3, cw = 296, ch = 330, gap = 14;
+            const int cols = 2, cw = 450, ch = 110, gap = 14;
             int shown = 0;
             foreach (var c in cards)
             {
                 bool visible = Know.Name(c.kind);
-                var card = (RectTransform)c.pic.transform.parent;
+                var card = c.card;
                 card.gameObject.SetActive(visible);
                 if (!visible) continue;
                 int col = shown % cols, row = shown / cols;
-                card.anchoredPosition = new Vector2((col - 1) * (cw + gap), -gap - ch * 0.5f - row * (ch + gap));
+                card.anchoredPosition = new Vector2((col - 0.5f) * (cw + gap), -gap - ch * 0.5f - row * (ch + gap));
                 c.name.text = Catalog.Get(c.kind).Name;
                 c.name.color = Catalog.Seen(c.kind) ? Bone : Dim;
                 shown++;
@@ -1341,73 +1334,31 @@ namespace GhostWard
 
         void OpenList()
         {
-            RefreshCards();   // до показа: превью подгружаются только у видимых карточек
+            RefreshCards();
             ShowJournalPage(journalList);
-        }
-
-        // Превью сущности для списка: шейдер рисуется один раз в текстуру (фон прозрачный) и запоминается.
-        // Живых шейдеров в списке больше нет (их было 40 — по шейдеру на карточку каждый кадр).
-        RenderTexture Thumb(EntityDef def, bool locked)
-        {
-            if (thumbs.TryGetValue((def.Kind, locked), out var rt) && rt != null) return rt;
-            rt = new RenderTexture(200, 245, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) { name = "Thumb " + def.Kind };   // sRGB — цвета как у живого шейдера
-            var mat = Entity.CreateMaterial(def, 1.7f + (int)def.Kind);
-            mat.SetFloat("_Locked", locked ? 1f : 0f);
-            var prev = RenderTexture.active;
-            RenderTexture.active = rt;
-            GL.Clear(true, true, Color.clear);   // прозрачный фон — под картинкой видна сама карточка
-            RenderTexture.active = prev;
-            // у картинок шейдер читает _MainTex — её Blit и передаёт; процедурному силуэту источник не нужен
-            Graphics.Blit(Entity.Picture(def.Kind) ?? (Texture)Texture2D.blackTexture, rt, mat);
-            if (Application.isPlaying) Destroy(mat); else DestroyImmediate(mat);
-            thumbs[(def.Kind, locked)] = rt;
-            return rt;
-        }
-
-        // подгружаем превью постепенно — по две карточки за кадр, сверху вниз
-        System.Collections.IEnumerator FillThumbs()
-        {
-            int done = 0;
-            foreach (var c in cards)
-            {
-                if (!c.pic.transform.parent.gameObject.activeSelf) continue;
-                var def = Catalog.Get(c.kind);
-                bool locked = !Catalog.Seen(c.kind);
-                bool cached = thumbs.ContainsKey((c.kind, locked));
-                c.pic.texture = Thumb(def, locked);
-                c.pic.enabled = true;
-                if (!cached && ++done % 2 == 0) yield return null;
-            }
-            thumbFill = null;
         }
 
         void BuildJournalEntry()
         {
             journalEntry = Rect(journal.transform, "Entry", Vector2.zero, Vector2.one).gameObject;
-            entryPicture = Rect(journalEntry.transform, "Picture", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f)).gameObject.AddComponent<RawImage>();
-            entryPicture.rectTransform.sizeDelta = new Vector2(420, 520);
-            entryPicture.rectTransform.anchoredPosition = new Vector2(-250, -340);
-            entryPicture.raycastTarget = false;
-
-            entryName = Label(journalEntry.transform, "", 64, new Vector2(0.5f, 1f), new Vector2(230, -230), Bone);
-            entryName.rectTransform.sizeDelta = new Vector2(500, 100);
+            // без картинки сущности: узнают её по уликам, а не по облику
+            entryName = Label(journalEntry.transform, "", 64, new Vector2(0.5f, 1f), new Vector2(0, -230), Bone);
+            entryName.rectTransform.sizeDelta = new Vector2(940, 100);
             entryName.fontStyle = FontStyle.Bold;
-            entryName.alignment = TextAnchor.MiddleLeft;
-            entryOrigin = Label(journalEntry.transform, "", 28, new Vector2(0.5f, 1f), new Vector2(230, -300), Dim);
-            entryOrigin.rectTransform.sizeDelta = new Vector2(500, 80);
-            entryOrigin.alignment = TextAnchor.UpperLeft;
+            entryOrigin = Label(journalEntry.transform, "", 28, new Vector2(0.5f, 1f), new Vector2(0, -300), Dim);
+            entryOrigin.rectTransform.sizeDelta = new Vector2(940, 60);
 
             // чем защищаться: иконка предмета, жест, остаток
             entryItemIcon = Rect(journalEntry.transform, "ItemIcon", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
-            entryItemIcon.anchoredPosition = new Vector2(80, -470);
+            entryItemIcon.anchoredPosition = new Vector2(-150, -420);
             entryGestureIcon = Rect(journalEntry.transform, "GestureIcon", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
-            entryGestureIcon.anchoredPosition = new Vector2(380, -470);
-            entryItem = Label(journalEntry.transform, "", 30, new Vector2(0.5f, 1f), new Vector2(230, -590), Bone);
-            entryItem.rectTransform.sizeDelta = new Vector2(500, 90);
-            entryCount = Label(journalEntry.transform, "", 26, new Vector2(0.5f, 1f), new Vector2(230, -640), Dim);
-            entryCount.rectTransform.sizeDelta = new Vector2(500, 40);
+            entryGestureIcon.anchoredPosition = new Vector2(150, -420);
+            entryItem = Label(journalEntry.transform, "", 30, new Vector2(0.5f, 1f), new Vector2(0, -540), Bone);
+            entryItem.rectTransform.sizeDelta = new Vector2(940, 60);
+            entryCount = Label(journalEntry.transform, "", 26, new Vector2(0.5f, 1f), new Vector2(0, -590), Dim);
+            entryCount.rectTransform.sizeDelta = new Vector2(940, 40);
 
-            entryText = Label(journalEntry.transform, "", 29, new Vector2(0.5f, 1f), new Vector2(0, -690), Bone);
+            entryText = Label(journalEntry.transform, "", 29, new Vector2(0.5f, 1f), new Vector2(0, -640), Bone);
             entryText.rectTransform.pivot = new Vector2(0.5f, 1f);
             entryText.rectTransform.sizeDelta = new Vector2(940, 860);
             entryText.alignment = TextAnchor.UpperLeft;
@@ -2037,7 +1988,6 @@ namespace GhostWard
             journalPractice.SetActive(page == journalPractice);
             if (page == journalItems) RefreshLearned();
             journalList.SetActive(page == journalList);
-            if (page == journalList && thumbFill == null && Application.isPlaying) thumbFill = StartCoroutine(FillThumbs());
             journalEntry.SetActive(page == journalEntry);
             journalItems.SetActive(page == journalItems);
             journalClues.SetActive(page == journalClues);
@@ -2050,15 +2000,9 @@ namespace GhostWard
         {
             var def = Catalog.Get(kind);
             var item = Catalog.Get(def.Bane);
-            bool seen = Catalog.Seen(kind);
             bool known = Know.Name(kind);
             bool defense = Know.Defense(kind);
             openedEntry = kind;
-
-            if (entryMat != null) Destroy(entryMat);
-            entryMat = Entity.CreateMaterial(def, 3.3f);
-            entryMat.SetFloat("_Locked", seen ? 0f : 1f);
-            entryPicture.material = entryMat;
 
             Clear(entryItemIcon);
             Clear(entryGestureIcon);
@@ -2127,11 +2071,11 @@ namespace GhostWard
                 case "identify": CanName = true; ToggleClue(0); ToggleClue(1); ToggleClue(5); ShowJournalPage(journalClues); break;
                 case "identify_wrong": CanName = true; ToggleClue(0); ToggleClue(2); ToggleClue(5); ShowJournalPage(journalClues);
                     IdentifyWrong(Loc.F("id_wrong", 2)); break;
-                case "list_player": ShowJournalPage(journalList); RefreshCards(); FillThumbsNow(); break;
+                case "list_player": ShowJournalPage(journalList); RefreshCards(); break;
                 case "howto": ShowJournalPage(journalHowTo); break;
                 case "practice": ShowJournalPage(journalItems); OpenPractice(ItemKind.Mirror); break;
-                case "list": ShowJournalPage(journalList); FillThumbsNow(); break;
-                case "end": ShowJournalPage(journalList); FillThumbsNow(); journalScroll.verticalNormalizedPosition = 0f; break;
+                case "list": ShowJournalPage(journalList); break;
+                case "end": ShowJournalPage(journalList); journalScroll.verticalNormalizedPosition = 0f; break;
                 case "log":
                     LogNight(Loc.F("night_n", 3));
                     Narrate(Loc.F("n.Frost", Loc.T("dir_left")));
@@ -2143,11 +2087,6 @@ namespace GhostWard
             }
         }
 
-        void FillThumbsNow()
-        {
-            var it = FillThumbs();
-            while (it.MoveNext()) { }
-        }
 
         // удаление панели: в игре — обычное, в превью из редактора — сразу
         static void Kill(GameObject go)
@@ -2220,9 +2159,9 @@ namespace GhostWard
             ClearEffects();
         }
 
-        public void ShowGameOver(int night, float progress, int best, string who, Texture2D photo)
+        public void ShowGameOver(float time, int survived, float best, string who, Texture2D photo)
         {
-            overText.text = Loc.F("over_text", night, Clock(progress), who, best);
+            overText.text = Loc.F("over_text", Clock(time), survived, who, Clock(best));
             ShowOnly(over);
             ClearEffects();
         }
@@ -2250,11 +2189,12 @@ namespace GhostWard
         // ---------- HUD ----------
 
         public void SetNight(int night) => nightText.text = Loc.F("night_n", night);
-        public void SetClock(float progress) => clockText.text = Clock(progress);
-        static string Clock(float progress)
+        // часы — сколько игрок продержался с начала игры
+        public void SetClock(float seconds) => clockText.text = Clock(seconds);
+        public static string Clock(float seconds)
         {
-            int minutes = Mathf.FloorToInt(Mathf.Clamp01(progress) * 240f);
-            return $"{minutes / 60:00}:{minutes % 60:00}";
+            int s = Mathf.FloorToInt(Mathf.Max(seconds, 0f));
+            return s >= 3600 ? $"{s / 3600}:{s / 60 % 60:00}:{s % 60:00}" : $"{s / 60:00}:{s % 60:00}";
         }
 
         public void SetFear(float v)
