@@ -60,6 +60,18 @@ namespace GhostWard
             themeTaskKind = k;
         }
 
+        // Тема молчит, пока сущность не распознана: по мотиву её узнавали бы без улик,
+        // а смена мотива выдавала бы, что кто-то пришёл.
+        public void ClearTheme()
+        {
+            themeKind = null;
+            themeTask = null;
+            theme.Stop();
+            theme.volume = 0f;
+            theme.clip = null;
+            if (ownedTheme != null) { Destroy(ownedTheme); ownedTheme = null; }
+        }
+
         System.Threading.Tasks.Task<float[]> themeTask;
         EntityKind themeTaskKind;
 

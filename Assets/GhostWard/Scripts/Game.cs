@@ -126,7 +126,11 @@ namespace GhostWard
 
         // второй шанс, припасы за рекламу, тайники, пугающие события
         Phase lostIn;
-        bool revivedThisNight, bonusTaken, overXpGiven;
+        bool revivedThisGame, bonusTaken, overXpGiven;   // второй шанс — один на игру: иначе рекорд времени ничего не значит
+        // модификатор следующего визита выбирается, когда начинается затишье, и сразу виден:
+        // если бы он появлялся с приходом сущности, он бы этот приход выдавал
+        Modifier nextModifier;
+        bool nextModifierRolled;
         int nightXp;   // опыт за находки этой ночи: тайники, фото
 
         // модификатор ночи, дело дня, трофеи
@@ -378,6 +382,8 @@ namespace GhostWard
             night = 0;
             fear = 0f;
             sessionTime = 0f;
+            revivedThisGame = false;
+            nextModifierRolled = false;
             prologue = !Settings.PrologueDone && !dailyMode;
             // комнату осматриваем один раз за игру: дальше ночи идут в той же комнате
             map.Clear();
@@ -395,7 +401,7 @@ namespace GhostWard
             photo = null;
             circle = tumar = false;
             candleTime = 0f;
-            revivedThisNight = bonusTaken = overXpGiven = faintedThisNight = false;
+            bonusTaken = overXpGiven = faintedThisNight = false;
             nightXp = 0;
             stashesThisNight = 0;
             stashTimer = Random.Range(30f, 50f);
@@ -409,9 +415,10 @@ namespace GhostWard
             target = prologue ? Catalog.Get(EntityKind.Ghost) : dailyMode ? Catalog.Get(Daily.Entity) : PickTarget();
             newCase = !Know.Name(target.Kind);   // ещё не распознана — «новое дело», имя игрок узнает сам
             EntitySounds.Prewarm(target.Kind);
-            music.SetTheme(target.Kind);
+            music.ClearTheme();   // тема зазвучит, только когда игрок распознает сущность (Identify)
             lureMatched = false;
-            modifier = prologue ? Modifier.None : dailyMode ? Daily.Modifier : Modifiers.Roll(night);
+            modifier = prologue ? Modifier.None : dailyMode ? Daily.Modifier : nextModifierRolled ? nextModifier : Modifiers.Roll(night);
+            nextModifierRolled = false;
             heardThisHunt = false;
             ironNowShown = false;
             // ночь «одержимости»: со второй ночи в трети ночей; в тестовой сборке — всегда, чтобы было что проверять
@@ -428,10 +435,14 @@ namespace GhostWard
             ui.SetModifier(modifier == Modifier.None ? "" : Modifiers.Name(modifier));
             ui.ShowHud();
             ui.SetNightTitle(prologue ? Loc.T("prologue") : "");
-            ui.LogNight(prologue ? Loc.T("prologue") : GameUI.Clock(sessionTime));
+            // заголовок в записях — в начале игры; дальше он ставится в начале затишья (Dawn), не с приходом
+            if (night == 1) ui.LogNight(prologue ? Loc.T("prologue") : GameUI.Clock(sessionTime));
             ui.SetClock(sessionTime);
-            ui.SetPhase("", false);
-            ui.ClearEvidence();
+            if (night == 1)
+            {
+                ui.SetPhase("", false);
+                ui.ClearEvidence();   // дальше отметки сбрасываются в начале затишья (Dawn), чтобы не выдать приход
+            }
             mic.Begin();
 
             // осмотр — только если комната ещё не осмотрена (начало игры); карта глубины, сброшенная
@@ -511,8 +522,9 @@ namespace GhostWard
             ui.SetCameraOverlay(Settings.Vision);
             // о приходе сущности игра не объявляет: игрок понимает это сам — по событиям.
             // Объясняем только в первый раз за игру, что искать; особые условия — коротко
+            // модификатор описываем только в начале игры: дальше он объявляется в начале затишья (Dawn)
             string intro = dailyMode ? Loc.T("daily_intro") : night == 1 ? Loc.T("intro_first") : "";
-            if (modifier != Modifier.None)
+            if (modifier != Modifier.None && (dailyMode || night == 1))
                 intro = JoinLines(intro, $"<b>{Modifiers.Name(modifier)}.</b> {Modifiers.Desc(modifier)}");
             if (prologue) Step(2);
             else if (intro != "") ui.Message(intro, 7f);
@@ -523,8 +535,9 @@ namespace GhostWard
             radioHintAt = 45f;
             lookHintAt = 25f;
             lureHintAt = 60f;
-            if (Beginner) ui.Hint(Loc.T("h.Start"));
-            else if (!prologue && !Skills.All) ui.Hint(Loc.T("h.Practice"));
+            // общие подсказки — только в начале игры: на каждом визите они говорили бы «кто-то пришёл»
+            if (night == 1 && Beginner) ui.Hint(Loc.T("h.Start"));
+            else if (night == 1 && !prologue && !Skills.All) ui.Hint(Loc.T("h.Practice"));
             CreateColdSpot();
 
             // бонус звания «Чутьё»: одна улика этой ночи отмечена заранее
@@ -995,6 +1008,7 @@ namespace GhostWard
             if (right)
             {
                 named = namedRight = true;
+                music.SetTheme(target.Kind);
                 Trophies.OnRightName();
                 Know.LearnName(target.Kind);
                 Know.LearnHabits(target.Kind);
@@ -1588,7 +1602,8 @@ namespace GhostWard
             music.Play(Music.Stinger.Dawn, 0.8f);
 
             // опыт за ночь: дожил, изгнал, назвал верно, без ошибок, находки
-            int xp = 100 + 20 * night + nightXp
+            // надбавка за номер визита растёт до десятого: в бесконечной игре иначе опыт рос бы без предела
+            int xp = 100 + 20 * Mathf.Min(night, 10) + nightXp
                      + (banished ? 150 : 0)
                      + (namedRight ? 100 : 0)
                      + (banished && namedRight && !wrongItemUsed ? 50 : 0);
@@ -1628,9 +1643,17 @@ namespace GhostWard
                 if (supply != "") text = JoinLines(text, Loc.F("found", supply));
                 text = JoinLines(text, extra);
                 if (rankUp) text = JoinLines(text, Loc.F("rank_up", Progress.RankName(Progress.Rank), Progress.Perk(Progress.Rank)));
+                // условия следующего визита — сейчас, в начале затишья, а не с приходом сущности
+                nextModifier = Modifiers.Roll(night + 1);
+                nextModifierRolled = true;
+                if (nextModifier != Modifier.None)
+                    text = JoinLines(text, $"<b>{Modifiers.Name(nextModifier)}.</b> {Modifiers.Desc(nextModifier)}");
+                ui.SetModifier(nextModifier == Modifier.None ? "" : Modifiers.Name(nextModifier));
                 ui.Message(text, 6f);
-                ui.SetPhase("", false);
-                ui.SetModifier("");
+                // подпись фазы та же, что во время визита: по её смене приход был бы заметен
+                ui.SetPhase(Loc.T("phase_investigate"), false);
+                ui.LogNight(GameUI.Clock(sessionTime));
+                ui.ClearEvidence();
                 // в тестовой сборке затишье короче — проверять быстрее
                 lullLeft = TestMode.On ? Random.Range(10f, 20f) : Random.Range(30f, 90f);
                 return;
@@ -1646,7 +1669,7 @@ namespace GhostWard
             foreach (var e in entities) if (e != null) e.gameObject.SetActive(false);
             DestroyStash();
             ui.SetHidden(false);
-            ui.SetSecondChance(!revivedThisNight);
+            ui.SetSecondChance(!revivedThisGame);
             // рекорд — сколько продержался; кто забрал — по имени, только если игрок его распознал
             float best = Mathf.Max(sessionTime, PlayerPrefs.GetFloat("bestTime", 0f));
             PlayerPrefs.SetFloat("bestTime", best);
@@ -1680,8 +1703,8 @@ namespace GhostWard
         // «Второй шанс» за наградную рекламу: игрок приходит в себя, сущность отступает. Раз за ночь.
         void Revive()
         {
-            if (phase != Phase.Over || revivedThisNight) return;
-            revivedThisNight = true;
+            if (phase != Phase.Over || revivedThisGame) return;
+            revivedThisGame = true;
             phase = lostIn;
             fear = 45f;
             foreach (var e in entities)
