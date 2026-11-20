@@ -27,6 +27,10 @@ namespace GhostWard
         // Между визитами — затишье случайной длины (Quiet): ни экрана, ни сообщения «пришла».
         const float NightSeconds = 300f;
         float lullLeft;      // сколько ещё длится затишье
+        // Нарастание: с каждым визитом затишье короче, а сущность злится быстрее — до визита MaxRampVisit,
+        // дальше темп постоянный (иначе к 30-му визиту злость росла бы мгновенно)
+        const int MaxRampVisit = 20;
+        static float Ramp(int visit) => Mathf.Clamp01((visit - 1) / (float)(MaxRampVisit - 1));
         float sessionTime;   // сколько игрок продержался с начала игры (часы на экране, рекорд)
         const float FearDecay = 2.5f;
         const float EyeHeight = 1.4f;
@@ -127,10 +131,9 @@ namespace GhostWard
         // второй шанс, припасы за рекламу, тайники, пугающие события
         Phase lostIn;
         bool revivedThisGame, bonusTaken, overXpGiven;   // второй шанс — один на игру: иначе рекорд времени ничего не значит
-        // модификатор следующего визита выбирается, когда начинается затишье, и сразу виден:
-        // если бы он появлялся с приходом сущности, он бы этот приход выдавал
-        Modifier nextModifier;
-        bool nextModifierRolled;
+        float bonusWindow;   // сколько ещё видна кнопка «▶ Ещё припасы» в затишье после изгнания
+        const float BonusWindowSeconds = 12f;
+        const float MinLull = 15f;   // затишье всегда дольше окна кнопки: её исчезновение не совпадает с приходом
         int nightXp;   // опыт за находки этой ночи: тайники, фото
 
         // модификатор ночи, дело дня, трофеи
@@ -311,7 +314,14 @@ namespace GhostWard
             {
                 if (bonusTaken) return;
                 bonusTaken = true;
-                ui.ShowBonus(inv.Bonus());
+                if (phase == Phase.Quiet)
+                {
+                    bonusWindow = 0f;
+                    ui.SetHudBonus(false);
+                    ui.Message(Loc.F("bonus_got", inv.Bonus()), 4f);
+                    ui.SetProtection(inv);
+                }
+                else ui.ShowBonus(inv.Bonus());
             }, () => ui.Message(Loc.T("ad_unavailable"), 2f));
             ui.IdentifyPressed += Identify;
             ui.PostureChanged += () => Room?.PostureChanged();   // другая поза — другой масштаб комнаты
@@ -383,7 +393,11 @@ namespace GhostWard
             fear = 0f;
             sessionTime = 0f;
             revivedThisGame = false;
-            nextModifierRolled = false;
+            bonusWindow = 0f;
+            ui.SetHudBonus(false);
+            // защита, поставленная в затишье, доживает до прихода: сбрасывается в начале игры и в начале затишья
+            circle = tumar = false;
+            candleTime = 0f;
             prologue = !Settings.PrologueDone && !dailyMode;
             // комнату осматриваем один раз за игру: дальше ночи идут в той же комнате
             map.Clear();
@@ -399,8 +413,6 @@ namespace GhostWard
             gestures.Reset();
             if (photo != null) Destroy(photo);
             photo = null;
-            circle = tumar = false;
-            candleTime = 0f;
             bonusTaken = overXpGiven = faintedThisNight = false;
             nightXp = 0;
             stashesThisNight = 0;
@@ -417,8 +429,8 @@ namespace GhostWard
             EntitySounds.Prewarm(target.Kind);
             music.ClearTheme();   // тема зазвучит, только когда игрок распознает сущность (Identify)
             lureMatched = false;
-            modifier = prologue ? Modifier.None : dailyMode ? Daily.Modifier : nextModifierRolled ? nextModifier : Modifiers.Roll(night);
-            nextModifierRolled = false;
+            // со второго визита модификатор уже выбран и действует с начала затишья (Dawn)
+            modifier = prologue ? Modifier.None : dailyMode ? Daily.Modifier : night == 1 ? Modifiers.Roll(night) : modifier;
             heardThisHunt = false;
             ironNowShown = false;
             // ночь «одержимости»: со второй ночи в трети ночей; в тестовой сборке — всегда, чтобы было что проверять
@@ -565,16 +577,28 @@ namespace GhostWard
             if (phase == Phase.Scan) { music.SetScan(); UpdateScan(); UpdateLook(Time.deltaTime); return; }   // приборы видны и во время осмотра
             if (phase == Phase.Quiet)
             {
-                // затишье: никого нет, страх понемногу отпускает; потом незаметно приходит следующая
-                music.SetScan();
-                drone.volume = Mathf.MoveTowards(drone.volume, 0.2f * Settings.Ambience, Time.deltaTime * 0.3f);
+                // затишье: никого нет, страх понемногу отпускает; потом незаметно приходит следующая.
+                // Снаружи оно не отличается от визита: та же музыка и гул, приборы работают (просто ничего
+                // не находят), бывают общие пугающие события и гром, защиту можно поставить заранее.
+                float qdt = Time.deltaTime;
+                music.SetInvestigation(0f, fear / 100f);
                 staticNoise.volume = 0f;
-                UpdateLook(Time.deltaTime);
-                sessionTime += Time.deltaTime;
+                UpdateTools(qdt);
+                UpdateProtection(qdt);
+                UpdateScares(qdt);
+                UpdateAtmosphere(qdt);
+                UpdateLook(qdt);
+                ui.SetMic(mic.Available ? mic.Level : -1f, false);
+                sessionTime += qdt;
                 ui.SetClock(sessionTime);
-                fear = Mathf.Max(0f, fear - Time.deltaTime * 1.5f);
+                fear = Mathf.Max(0f, fear - qdt * 1.5f);
                 ui.SetFear(fear / 100f);
-                lullLeft -= Time.deltaTime;
+                if (bonusWindow > 0f)
+                {
+                    bonusWindow -= qdt;
+                    if (bonusWindow <= 0f) ui.SetHudBonus(false);
+                }
+                lullLeft -= qdt;
                 if (lullLeft <= 0f) StartNight();
                 return;
             }
@@ -701,7 +725,7 @@ namespace GhostWard
         void UpdateInvestigation(float dt)
         {
             if (!prologue)
-                anger += dt * (0.4f + night * 0.05f) * (tumar ? 0.6f : 1f) * (modifier == Modifier.FullMoon ? 1.5f : 1f);
+                anger += dt * (0.4f + Mathf.Min(night, MaxRampVisit) * 0.05f) * (tumar ? 0.6f : 1f) * (modifier == Modifier.FullMoon ? 1.5f : 1f);
             frostTime -= dt;
             staticTime -= dt;
             compassTime -= dt;
@@ -1045,7 +1069,8 @@ namespace GhostWard
         {
             var aim = hunter != null && hunter.Alive ? hunter.transform.position : lair;
             float angle = Vector3.Angle(cam.transform.forward, aim - cam.transform.position);
-            bool aimed = angle < 35f;
+            // в затишье логова нет: приборы показывают фон комнаты, куда ни наведи
+            bool aimed = angle < 35f && phase is (Phase.Investigate or Phase.Hunt);
 
             // ЭМП: фон 1, у логова 2–3, с уликой «ЭМП 5» в момент всплеска — 5; на охоте рядом с ней — 4
             float emfTarget = 1f + Mathf.PerlinNoise(Time.time * 0.7f, 0f) * 0.6f;
@@ -1087,7 +1112,8 @@ namespace GhostWard
 
         void UseProtection(Protect p)
         {
-            if (phase is not (Phase.Investigate or Phase.Hunt)) return;
+            // и в затишье: защита доживёт до прихода (иначе по отказу было бы понятно, что никого нет)
+            if (phase is not (Phase.Investigate or Phase.Hunt or Phase.Quiet)) return;
             bool active = p switch { Protect.Circle => circle, Protect.Candle => candleTime > 0f, Protect.Tumar => tumar, _ => false };
             if (active) { ui.Message(Loc.T("already"), 1.5f); return; }
             if (!inv.Use(p)) { Empty(Loc.F("no_more", Loc.T($"p.{p}.name"))); return; }
@@ -1122,12 +1148,15 @@ namespace GhostWard
         // Приманка: «своя» сущность откликается из логова (звук, помехи, улика), но злится сильнее.
         void UseLure(Lure l)
         {
-            if (phase != Phase.Investigate) { ui.Message(Loc.T("no_effect"), 1.5f); return; }
+            if (phase is not (Phase.Investigate or Phase.Quiet)) { ui.Message(Loc.T("no_effect"), 1.5f); return; }
             if (!inv.Use(l)) { Empty(Loc.F("no_more", Loc.T($"l.{l}.name"))); return; }
             lureUsed = true;
             ui.SetProtection(inv);
             ui.CloseBag();
             sfx.PlayOneShot(ProceduralAudio.Click(), 0.6f);
+
+            // в затишье откликнуться некому — ответ тот же, что у «не своей» приманки
+            if (phase == Phase.Quiet) { ui.Narrate(Loc.T("lure_no")); return; }
 
             if (target.Lure == l)
             {
@@ -1240,7 +1269,7 @@ namespace GhostWard
         void SharePhoto()
         {
             if (photo == null) return;
-            if (!PhotoShare.Share(photo, Loc.F("share_text", night))) ui.Message(Loc.T("share_fail"), 2f);
+            if (!PhotoShare.Share(photo, Loc.F("share_text", GameUI.Clock(sessionTime)))) ui.Message(Loc.T("share_fail"), 2f);
         }
 
         // ---------- камера и атмосфера ----------
@@ -1304,7 +1333,7 @@ namespace GhostWard
             Shader.SetGlobalFloat(GwLight, roomLight);
             float baseGrain = style switch { Vision.Normal => 0f, Vision.Dark => 0.05f, _ => 0.06f };
             ui.DarkBase = style switch { Vision.Normal => 0.15f, Vision.Dark => 0.55f, Vision.Thermal => 0.2f, _ => 0.38f }
-                          + (modifier == Modifier.NewMoon && phase is Phase.Investigate or Phase.Hunt ? 0.15f : 0f);
+                          + (modifier == Modifier.NewMoon && phase is Phase.Investigate or Phase.Hunt or Phase.Quiet ? 0.15f : 0f);
             ui.SetGrain(baseGrain + nightVision * 0.08f + glitch * 0.25f);
         }
 
@@ -1643,19 +1672,30 @@ namespace GhostWard
                 if (supply != "") text = JoinLines(text, Loc.F("found", supply));
                 text = JoinLines(text, extra);
                 if (rankUp) text = JoinLines(text, Loc.F("rank_up", Progress.RankName(Progress.Rank), Progress.Perk(Progress.Rank)));
-                // условия следующего визита — сейчас, в начале затишья, а не с приходом сущности
-                nextModifier = Modifiers.Roll(night + 1);
-                nextModifierRolled = true;
-                if (nextModifier != Modifier.None)
-                    text = JoinLines(text, $"<b>{Modifiers.Name(nextModifier)}.</b> {Modifiers.Desc(nextModifier)}");
-                ui.SetModifier(nextModifier == Modifier.None ? "" : Modifiers.Name(nextModifier));
+                // условия следующего визита — сейчас, в начале затишья, а не с приходом сущности:
+                // модификатор сразу и объявлен, и действует (гром, темнота новолуния)
+                modifier = Modifiers.Roll(night + 1);
+                thunderTimer = Random.Range(10f, 18f);
+                if (modifier != Modifier.None)
+                    text = JoinLines(text, $"<b>{Modifiers.Name(modifier)}.</b> {Modifiers.Desc(modifier)}");
+                ui.SetModifier(modifier == Modifier.None ? "" : Modifiers.Name(modifier));
+                // защита этого визита гаснет вместе с ним; новую можно поставить уже в затишье
+                circle = tumar = false;
+                candleTime = 0f;
+                ui.SetCandle(false);
+                // за изгнание — ненадолго кнопка «▶ Ещё припасы» поверх камеры (реклама за награду)
+                bonusTaken = false;
+                bonusWindow = banished ? BonusWindowSeconds : 0f;
+                ui.SetHudBonus(banished);
                 ui.Message(text, 6f);
                 // подпись фазы та же, что во время визита: по её смене приход был бы заметен
                 ui.SetPhase(Loc.T("phase_investigate"), false);
                 ui.LogNight(GameUI.Clock(sessionTime));
                 ui.ClearEvidence();
                 // в тестовой сборке затишье короче — проверять быстрее
-                lullLeft = TestMode.On ? Random.Range(10f, 20f) : Random.Range(30f, 90f);
+                // и короче с каждым визитом: 30–90 с в начале, к 20-му визиту 15–36 с
+                lullLeft = TestMode.On ? Random.Range(MinLull, 20f)
+                    : Mathf.Max(MinLull, Random.Range(30f, 90f) * Mathf.Lerp(1f, 0.4f, Ramp(night + 1)));
                 return;
             }
             ui.ShowNightProgress(xp, rankUp, newPage, extra);

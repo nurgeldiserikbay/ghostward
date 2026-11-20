@@ -75,7 +75,7 @@ namespace GhostWard
         RectTransform toolBar, bagButton, bagPanel;
         Text readout;
         RawImage candleGlow;
-        GameObject journalTools, secondChance, bonusButton, settingsGeneral, settingsSound;
+        GameObject journalTools, secondChance, bonusButton, hudBonus, settingsGeneral, settingsSound;
         readonly List<(Text text, Func<float> value)> volumeTexts = new();
         readonly List<(Image img, bool general)> settingTabs = new();
         GameObject ranks, story, readButton;
@@ -300,6 +300,12 @@ namespace GhostWard
             cross.raycastTarget = false;
             cross.gameObject.SetActive(TestMode.On);
             BuildCompass();
+
+            // «▶ Ещё припасы» поверх камеры: в бесконечной игре экрана рассвета нет — кнопка ненадолго
+            // появляется в затишье после изгнания (Game.Dawn)
+            hudBonus = Button(hud.transform, Loc.T("bonus_supply"), new Vector2(0.5f, 0.72f), () => BonusSupplyPressed?.Invoke(), true, 460);
+            hudBonus.GetComponentInChildren<Text>().fontSize = 30;
+            hudBonus.SetActive(false);
 
             recText = Label(hud.transform, "● REC", 30, new Vector2(0f, 1f), new Vector2(40, -240), new Color(0.9f, 0.1f, 0.1f));
             recText.alignment = TextAnchor.MiddleLeft;
@@ -560,6 +566,8 @@ namespace GhostWard
             SetProtection(inv);
             bagPanel.gameObject.SetActive(bag);
         }
+
+        public void SetHudBonus(bool on) { if (hudBonus != null) hudBonus.SetActive(on); }
 
         public void SetCandle(bool lit) => candleGlow.color = new Color(1f, 0.7f, 0.35f, lit ? 0.18f + UnityEngine.Random.Range(-0.02f, 0.02f) : 0f);
 
