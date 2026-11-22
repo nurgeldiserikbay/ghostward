@@ -9,10 +9,10 @@ namespace GhostWard
 {
     public class GameUI : MonoBehaviour
     {
-        static readonly Color Ink = new(0.03f, 0.025f, 0.035f, 0.85f);
-        static readonly Color Bone = new(0.86f, 0.83f, 0.76f);
-        static readonly Color Dim = new(0.86f, 0.83f, 0.76f, 0.4f);
-        static readonly Color Blood = new(0.55f, 0.06f, 0.08f);
+        static readonly Color Ink = new(0.015f, 0.05f, 0.025f, 0.82f);
+        static readonly Color Bone = new(0.72f, 0.93f, 0.72f);
+        static readonly Color Dim = new(0.72f, 0.93f, 0.72f, 0.42f);
+        static readonly Color Blood = new(0.07f, 0.34f, 0.14f);   // выбранная кнопка
         static readonly Color Frost = new(0.75f, 0.88f, 1f);
 
         public event Action StartPressed;      // «Ещё раз» после поражения
@@ -88,7 +88,14 @@ namespace GhostWard
         GameObject instruction;
         float trophyTimer, narrateTimer, hintTimer;
         string modifierName = "";
-        readonly List<(Tool tool, Image bg)> toolButtons = new();
+        static readonly Tool[] ToolOrder = { Tool.Emf, Tool.Thermo, Tool.Night, Tool.Radio };
+        readonly List<(Tool tool, GameObject item)> toolItems = new();
+        readonly UILine[] viewCorners = new UILine[4];
+        Tool currentTool = Tool.Emf;
+        Text batteryText;
+        GameObject compassRoot;
+        int batteryCells = -1;
+        float noiseLevel;
         readonly List<(Protect kind, Text label)> bagRows = new();
         readonly List<(Lure kind, Text label)> lureRows = new();
         Text nightText, clockText, messageText, supplyText, diagText, dawnText, overText, scanText, phoneText;
@@ -104,7 +111,7 @@ namespace GhostWard
         readonly List<string> nightLog = new();
         GameObject journalLog;
         Text logText;
-        RectTransform logContent, logButton;
+        RectTransform logContent;
         ScrollRect logScroll;
 
         // превью вида камеры в настройках
@@ -129,7 +136,7 @@ namespace GhostWard
         float practiceDone = -1f, practiceHold;
         readonly Gestures practiceGestures = new();
         AudioSource uiAudio;
-        static readonly Color Warm = new(1f, 0.75f, 0.45f);
+        static readonly Color Warm = new(0.5f, 1f, 0.56f);
         Inventory shownInventory;
         RectTransform fearFill, scanFill, stripMarker;
         RawImage darkness, lanternDark, lanternGlow, flash;
@@ -225,11 +232,11 @@ namespace GhostWard
             // инструкция пролога: шаг обучения, пока не выполнен
             var ins = Rect(root, "Instruction", new Vector2(0.5f, 0.72f), new Vector2(0.5f, 0.72f));
             ins.sizeDelta = new Vector2(980, 190);
-            ins.gameObject.AddComponent<Image>().color = new Color(0.02f, 0.015f, 0.02f, 0.78f);
-            Frame(ins, 980, 190, new Color(1f, 0.75f, 0.45f, 0.6f), 3f);
-            instructionStep = Label(ins, "", 24, new Vector2(1f, 1f), new Vector2(-70, -24), new Color(1f, 0.75f, 0.45f, 0.8f));
+            ins.gameObject.AddComponent<Image>().color = new Color(0.008f, 0.032f, 0.016f, 0.78f);
+            Frame(ins, 980, 190, new Color(0.5f, 1f, 0.56f, 0.6f), 3f);
+            instructionStep = Label(ins, "", 24, new Vector2(1f, 1f), new Vector2(-70, -24), new Color(0.5f, 1f, 0.56f, 0.8f));
             instructionStep.rectTransform.sizeDelta = new Vector2(120, 36);
-            instructionText = Label(ins, "", 31, new Vector2(0.5f, 0.5f), new Vector2(0, -6), new Color(1f, 0.85f, 0.6f));
+            instructionText = Label(ins, "", 31, new Vector2(0.5f, 0.5f), new Vector2(0, -6), new Color(0.68f, 1f, 0.7f));
             instructionText.rectTransform.sizeDelta = new Vector2(920, 160);
             instruction = ins.gameObject;
             instruction.SetActive(false);
@@ -239,11 +246,11 @@ namespace GhostWard
             narrateText.rectTransform.sizeDelta = new Vector2(960, 70);
             narrateText.fontStyle = FontStyle.Italic;
             Outline(narrateText);
-            hintText = Label(root, "", 27, new Vector2(0.5f, 0.32f), Vector2.zero, new Color(1f, 0.75f, 0.45f));
+            hintText = Label(root, "", 27, new Vector2(0.5f, 0.32f), Vector2.zero, new Color(0.5f, 1f, 0.56f));
             hintText.rectTransform.sizeDelta = new Vector2(940, 90);
             Outline(hintText);
 
-            trophyText = Label(root, "", 34, new Vector2(0.5f, 0.78f), Vector2.zero, new Color(1f, 0.8f, 0.4f));
+            trophyText = Label(root, "", 34, new Vector2(0.5f, 0.78f), Vector2.zero, new Color(0.5f, 1f, 0.56f));
             trophyText.rectTransform.sizeDelta = new Vector2(980, 120);
             trophyText.fontStyle = FontStyle.Bold;
             Outline(trophyText);
@@ -271,31 +278,40 @@ namespace GhostWard
             depthView.raycastTarget = false;
             depthView.gameObject.SetActive(false);
 
-            nightText = Label(hud.transform, "", 34, new Vector2(0.5f, 1f), new Vector2(0, -80), Dim);
+            // экран — видоискатель: уголки кадра, REC, таймкод и заряд. Страх и шум видны по цвету уголков.
+            BuildViewfinder();
 
-            clockText = Label(hud.transform, "00:00", 64, new Vector2(0.5f, 1f), new Vector2(0, -140), Bone);
+            nightText = Label(hud.transform, "", 34, new Vector2(0.5f, 1f), new Vector2(0, -80), Dim);
+            nightText.gameObject.SetActive(false);
+
+            clockText = Label(hud.transform, "00:00", 30, new Vector2(0f, 1f), new Vector2(190, -86), Bone);
+            clockText.alignment = TextAnchor.MiddleLeft;
+            clockText.rectTransform.pivot = new Vector2(0f, 0.5f);
+            clockText.rectTransform.sizeDelta = new Vector2(170, 44);
             Outline(clockText);
 
-            // шкала страха
+            batteryText = Label(hud.transform, "", 24, new Vector2(0f, 1f), new Vector2(350, -86), Bone);
+            batteryText.alignment = TextAnchor.MiddleLeft;
+            batteryText.rectTransform.pivot = new Vector2(0f, 0.5f);
+            batteryText.rectTransform.sizeDelta = new Vector2(130, 44);
+
+            // шкала страха скрыта: страх показывают уголки кадра и темнота по краям
             var bar = Rect(hud.transform, "Fear", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
-            bar.anchoredPosition = new Vector2(0, -205);
             bar.sizeDelta = new Vector2(520, 14);
-            bar.gameObject.AddComponent<Image>().color = new Color(1, 1, 1, 0.12f);
             fearFill = Rect(bar, "Fill", Vector2.zero, new Vector2(0f, 1f));
-            fearFill.gameObject.AddComponent<Image>().color = Blood;
-            var fearLabel = Label(bar, Loc.T("fear"), 24, new Vector2(0.5f, 0f), new Vector2(0, -26), Dim);
-            fearLabel.rectTransform.sizeDelta = new Vector2(300, 40);
+            bar.gameObject.SetActive(false);
 
             phaseText = Label(hud.transform, "", 30, new Vector2(0.5f, 1f), new Vector2(0, -275), Dim);
             phaseText.rectTransform.sizeDelta = new Vector2(600, 44);
+            phaseText.gameObject.SetActive(false);
             // тестовая сборка: на какой высоте держат телефон (от неё — пол, рост и места сущностей)
-            phoneText = Label(hud.transform, "", 28, new Vector2(0.5f, 1f), new Vector2(0, -500), new Color(1f, 0.75f, 0.45f));
+            phoneText = Label(hud.transform, "", 28, new Vector2(0.5f, 1f), new Vector2(0, -500), new Color(0.5f, 1f, 0.56f));
             phoneText.rectTransform.sizeDelta = new Vector2(660, 190);   // под компасом, не задевая сумку справа
             phoneText.rectTransform.pivot = new Vector2(0.5f, 1f);
             phoneText.alignment = TextAnchor.UpperCenter;
             phoneText.gameObject.SetActive(TestMode.On);
             // прицел: расстояние до того, на что он наведён, — в строке выше (проверка глубины рулеткой)
-            var cross = Label(hud.transform, "+", 56, new Vector2(0.5f, 0.5f), Vector2.zero, new Color(1f, 0.75f, 0.45f, 0.8f));
+            var cross = Label(hud.transform, "+", 56, new Vector2(0.5f, 0.5f), Vector2.zero, new Color(0.5f, 1f, 0.56f, 0.8f));
             cross.rectTransform.sizeDelta = new Vector2(80, 80);
             cross.raycastTarget = false;
             cross.gameObject.SetActive(TestMode.On);
@@ -307,10 +323,11 @@ namespace GhostWard
             hudBonus.GetComponentInChildren<Text>().fontSize = 30;
             hudBonus.SetActive(false);
 
-            recText = Label(hud.transform, "● REC", 30, new Vector2(0f, 1f), new Vector2(40, -240), new Color(0.9f, 0.1f, 0.1f));
+            // запись идёт всегда: иначе REC выдавал бы начало охоты
+            recText = Label(hud.transform, "● REC", 30, new Vector2(0f, 1f), new Vector2(58, -86), new Color(0.9f, 0.1f, 0.1f));
             recText.alignment = TextAnchor.MiddleLeft;
             recText.rectTransform.pivot = new Vector2(0f, 0.5f);
-            recText.gameObject.SetActive(false);
+            recText.rectTransform.sizeDelta = new Vector2(130, 44);
 
             // шум с микрофона — чтобы игрок учился быть тихим
             micRoot = Rect(hud.transform, "Mic", new Vector2(0f, 0f), new Vector2(0f, 0f)).gameObject;
@@ -343,10 +360,10 @@ namespace GhostWard
 
             BuildTools();
 
-            // дневник — книжка в левом верхнем углу
-            journalButton = Rect(hud.transform, "JournalButton", new Vector2(0f, 1f), new Vector2(0f, 1f));
+            // дневник — книжка в левом нижнем углу, под большим пальцем
+            journalButton = Rect(hud.transform, "JournalButton", new Vector2(0f, 0f), new Vector2(0f, 0f));
             journalButton.sizeDelta = new Vector2(150, 150);
-            journalButton.anchoredPosition = new Vector2(100, -130);
+            journalButton.anchoredPosition = new Vector2(120, 125);
             var bg = journalButton.gameObject.AddComponent<Image>();
             bg.color = new Color(0, 0, 0, 0.01f);
             var btn = journalButton.gameObject.AddComponent<UnityEngine.UI.Button>();
@@ -370,32 +387,44 @@ namespace GhostWard
                 dv.GetComponentInChildren<Text>().fontSize = 26;
             }
 
-            // записи ночи — три строки под дневником
-            logButton = Rect(hud.transform, "LogButton", new Vector2(0f, 1f), new Vector2(0f, 1f));
-            logButton.sizeDelta = new Vector2(130, 120);
-            logButton.anchoredPosition = new Vector2(100, -280);
-            var lbg = logButton.gameObject.AddComponent<Image>();
-            lbg.color = new Color(0, 0, 0, 0.01f);
-            var lbtn = logButton.gameObject.AddComponent<UnityEngine.UI.Button>();
-            lbtn.targetGraphic = lbg;
-            lbtn.transition = Selectable.Transition.None;
-            lbtn.onClick.AddListener(OpenLog);
-            for (int i = 0; i < 3; i++)
+            // записи — внутри дневника, отдельной кнопки на экране нет
+        }
+
+        // уголки кадра, как в видоискателе камеры
+        void BuildViewfinder()
+        {
+            var corners = new[] { new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 0f), new Vector2(1f, 0f) };
+            const float inset = 34f, arm = 76f;
+            for (int i = 0; i < 4; i++)
             {
-                var line = Rect(logButton, "Line", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<UILine>();
-                line.Thickness = 6f;
-                line.color = Dim;
+                var a = corners[i];
+                var sx = a.x < 0.5f ? 1f : -1f;
+                var sy = a.y < 0.5f ? 1f : -1f;
+                var line = Rect(hud.transform, "Corner", a, a).gameObject.AddComponent<UILine>();
+                line.Thickness = 4f;
                 line.raycastTarget = false;
-                float y = 22f - i * 22f;
-                line.SetPoints(new[] { new Vector2(-34, y), new Vector2(34, y) });
+                line.color = Dim;
+                line.rectTransform.anchoredPosition = new Vector2(sx * inset, sy * inset);
+                line.SetPoints(new[] { new Vector2(sx * arm, 0f), Vector2.zero, new Vector2(0f, sy * arm) });
+                viewCorners[i] = line;
             }
         }
 
-        void OpenLog()
+        // в обучении нужен компас-указатель, в обычной игре его нет
+        public void SetGuided(bool on) { if (compassRoot != null) compassRoot.SetActive(on); }
+
+        // заряд камеры: четыре деления
+        public void SetBattery(float percent)
         {
-            SetJournal(true);
-            ShowJournalPage(journalLog);
+            int cells = Mathf.Clamp(Mathf.CeilToInt(percent / 25f), 0, 4);
+            if (cells == batteryCells) return;
+            batteryCells = cells;
+            batteryText.text = new string('■', cells) + new string('□', 4 - cells);
+            batteryText.color = cells <= 1 ? new Color(0.9f, 0.15f, 0.1f) : Bone;
         }
+
+        // запись в журнал без строки на экране
+        public void Note(string text) => Log(text, false);
 
         void BuildTools()
         {
@@ -405,41 +434,45 @@ namespace GhostWard
             candleGlow.color = new Color(1f, 0.7f, 0.35f, 0f);
             candleGlow.raycastTarget = false;
 
+            // один прибор в руке: касание переключает на следующий
             toolBar = Rect(hud.transform, "Tools", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f));
-            toolBar.anchoredPosition = new Vector2(0, 110);
-            toolBar.sizeDelta = new Vector2(1000, 170);
-            var tools = new[] { Tool.Emf, Tool.Thermo, Tool.Night, Tool.Radio };
-            for (int i = 0; i < tools.Length; i++)
+            toolBar.anchoredPosition = new Vector2(0, 125);
+            toolBar.sizeDelta = new Vector2(420, 130);
+            var toolBg = toolBar.gameObject.AddComponent<Image>();
+            toolBg.color = Ink;
+            var toolBtn = toolBar.gameObject.AddComponent<UnityEngine.UI.Button>();
+            toolBtn.targetGraphic = toolBg;
+            toolBtn.transition = Selectable.Transition.None;
+            toolBtn.onClick.AddListener(() =>
             {
-                var t = tools[i];
-                var b = Rect(toolBar, t.ToString(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
-                b.sizeDelta = new Vector2(205, 160);
-                b.anchoredPosition = new Vector2((i - 1.5f) * 220f, 0f);
-                var bg = b.gameObject.AddComponent<Image>();
-                bg.color = Ink;
-                var btn = b.gameObject.AddComponent<UnityEngine.UI.Button>();
-                btn.targetGraphic = bg;
-                btn.transition = Selectable.Transition.None;
-                btn.onClick.AddListener(() => ToolSelected?.Invoke(t));
-                Frame(b, 205, 160, Dim, 3f);
-                var icon = Rect(b, "Icon", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
-                icon.anchoredPosition = new Vector2(0, 18);
-                icon.localScale = Vector3.one * 0.75f;
+                int i = Array.IndexOf(ToolOrder, currentTool);
+                ToolSelected?.Invoke(ToolOrder[(i + 1) % ToolOrder.Length]);
+            });
+            Frame(toolBar, 420, 130, Dim, 2f);
+            foreach (var t in ToolOrder)
+            {
+                var item = Rect(toolBar, t.ToString(), Vector2.zero, Vector2.one);
+                var icon = Rect(item, "Icon", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f));
+                icon.anchoredPosition = new Vector2(75, 0);
+                icon.localScale = Vector3.one * 0.6f;
                 Icons.ToolIcon(icon, t, Bone);
-                var name = Label(b, Loc.T($"t.{t}.name"), 26, new Vector2(0.5f, 0f), new Vector2(0, 26), Bone);
-                name.rectTransform.sizeDelta = new Vector2(220, 40);
-                toolButtons.Add((t, bg));
+                var name = Label(item, Loc.T($"t.{t}.name"), 28, new Vector2(0f, 0.5f), new Vector2(145, 0), Bone);
+                name.alignment = TextAnchor.MiddleLeft;
+                name.rectTransform.pivot = new Vector2(0f, 0.5f);
+                name.rectTransform.sizeDelta = new Vector2(265, 110);
+                name.raycastTarget = false;
+                toolItems.Add((t, item.gameObject));
             }
 
-            readout = Label(hud.transform, "", 46, new Vector2(0.5f, 0f), new Vector2(0, 250), Bone);
-            readout.rectTransform.sizeDelta = new Vector2(900, 70);
+            readout = Label(hud.transform, "", 34, new Vector2(0.5f, 0f), new Vector2(0, 225), Bone);
+            readout.rectTransform.sizeDelta = new Vector2(900, 56);
             readout.fontStyle = FontStyle.Bold;
             Outline(readout);
 
-            // сумка с защитой — справа
-            bagButton = Rect(hud.transform, "Bag", new Vector2(1f, 1f), new Vector2(1f, 1f));
+            // сумка с защитой — в правом нижнем углу
+            bagButton = Rect(hud.transform, "Bag", new Vector2(1f, 0f), new Vector2(1f, 0f));
             bagButton.sizeDelta = new Vector2(150, 150);
-            bagButton.anchoredPosition = new Vector2(-100, -430);
+            bagButton.anchoredPosition = new Vector2(-120, 125);
             var bbg = bagButton.gameObject.AddComponent<Image>();
             bbg.color = new Color(0, 0, 0, 0.01f);
             var bbtn = bagButton.gameObject.AddComponent<UnityEngine.UI.Button>();
@@ -451,7 +484,7 @@ namespace GhostWard
             bagPanel = Rect(hud.transform, "BagPanel", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
             bagPanel.sizeDelta = new Vector2(820, 1300);
             bagPanel.anchoredPosition = new Vector2(0, 60);
-            bagPanel.gameObject.AddComponent<Image>().color = new Color(0.02f, 0.015f, 0.02f, 0.93f);
+            bagPanel.gameObject.AddComponent<Image>().color = new Color(0.008f, 0.032f, 0.016f, 0.93f);
             Frame(bagPanel, 820, 1300, Dim, 3f);
             // крестик: панель перекрывает кнопку сумки, закрывать надо отсюда
             var close = Rect(bagPanel, "Close", new Vector2(1f, 1f), new Vector2(1f, 1f));
@@ -533,7 +566,8 @@ namespace GhostWard
 
         public void SetTool(Tool tool)
         {
-            foreach (var (t, bg) in toolButtons) bg.color = t == tool ? Blood : Ink;
+            currentTool = tool;
+            foreach (var (t, item) in toolItems) item.SetActive(t == tool);
         }
 
         public void SetToolReadout(string text, Color color)
@@ -561,7 +595,7 @@ namespace GhostWard
             SetClock(754f);
             SetPhase(Loc.T("phase_investigate"), false);
             SetTool(Tool.Emf);
-            SetToolReadout("EMF  ■■■□□", new Color(1f, 0.8f, 0.4f));
+            SetToolReadout("EMF  ■■■□□", new Color(0.5f, 1f, 0.56f));
             SetFear(0.35f);
             SetProtection(inv);
             bagPanel.gameObject.SetActive(bag);
@@ -575,7 +609,9 @@ namespace GhostWard
         void BuildCompass()
         {
             var rt = Rect(hud.transform, "Compass", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
-            rt.anchoredPosition = new Vector2(0, -345);
+            rt.anchoredPosition = new Vector2(0, -200);
+            compassRoot = rt.gameObject;
+            compassRoot.SetActive(false);
             for (int yaw = 0; yaw < 360; yaw += 15)
             {
                 var tick = Rect(rt, "Tick", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
@@ -670,7 +706,7 @@ namespace GhostWard
         void BuildMenu()
         {
             menu = Panel(root, "Menu");
-            menu.GetComponent<Image>().color = new Color(0.008f, 0.006f, 0.01f, 1f);
+            menu.GetComponent<Image>().color = new Color(0.004f, 0.018f, 0.009f, 1f);
 
             // на фоне — едва заметная фигура албасты
             var bg = Rect(menu.transform, "Figure", new Vector2(0.5f, 0.55f), new Vector2(0.5f, 0.55f)).gameObject.AddComponent<RawImage>();
@@ -707,7 +743,7 @@ namespace GhostWard
             bar.sizeDelta = new Vector2(520, 10);
             bar.gameObject.AddComponent<Image>().color = new Color(1, 1, 1, 0.12f);
             rankFill = Rect(bar, "Fill", Vector2.zero, new Vector2(0f, 1f));
-            rankFill.gameObject.AddComponent<Image>().color = new Color(1f, 0.75f, 0.45f);
+            rankFill.gameObject.AddComponent<Image>().color = new Color(0.5f, 1f, 0.56f);
             rankXp = Label(rank, "", 24, new Vector2(0.5f, 0f), new Vector2(0, 14), Dim);
             rankXp.rectTransform.sizeDelta = new Vector2(640, 36);
 
@@ -786,7 +822,7 @@ namespace GhostWard
         void BuildLanguage()
         {
             language = Panel(root, "Language");
-            language.GetComponent<Image>().color = new Color(0.008f, 0.006f, 0.01f, 1f);
+            language.GetComponent<Image>().color = new Color(0.004f, 0.018f, 0.009f, 1f);
             var title = Label(language.transform, "Language · Язык · Тіл · Idioma", 40, new Vector2(0.5f, 0.78f), Vector2.zero, Bone);
             title.rectTransform.sizeDelta = new Vector2(1000, 80);
             for (int i = 0; i < Loc.LangNames.Length; i++)
@@ -801,7 +837,7 @@ namespace GhostWard
         {
             BuildVisionPreview();
             settings = Panel(root, "Settings");
-            settings.GetComponent<Image>().color = new Color(0.01f, 0.008f, 0.012f, 0.98f);
+            settings.GetComponent<Image>().color = new Color(0.005f, 0.022f, 0.011f, 0.98f);
             var title = Label(settings.transform, Loc.T("settings"), 64, new Vector2(0.5f, 0.95f), Vector2.zero, Bone);
             title.rectTransform.sizeDelta = new Vector2(900, 100);
             title.fontStyle = FontStyle.Bold;
@@ -1071,7 +1107,7 @@ namespace GhostWard
         void BuildTutorial()
         {
             tutorial = Panel(root, "Tutorial");
-            tutorial.GetComponent<Image>().color = new Color(0.01f, 0.008f, 0.012f, 0.98f);
+            tutorial.GetComponent<Image>().color = new Color(0.005f, 0.022f, 0.011f, 0.98f);
             tutTitle = Label(tutorial.transform, "", 58, new Vector2(0.5f, 0.84f), Vector2.zero, Bone);
             tutTitle.rectTransform.sizeDelta = new Vector2(1000, 90);
             tutTitle.fontStyle = FontStyle.Bold;
@@ -1124,7 +1160,7 @@ namespace GhostWard
             tutNext.text = tutPage < 4 ? Loc.T("next") : tutFromPlay ? Loc.T("play") : Loc.T("close");
 
             Clear(tutIcon);
-            var amber = new Color(1f, 0.75f, 0.45f);
+            var amber = new Color(0.5f, 1f, 0.56f);
             switch (tutPage)
             {
                 case 0: Icon(tutIcon, Vector2.zero, 2.2f, r => Icons.Book(r, Bone)); break;
@@ -1182,15 +1218,7 @@ namespace GhostWard
                     camBottom.text = now.ToString("tt h:mm", System.Globalization.CultureInfo.InvariantCulture) + "\n" +
                                      now.ToString("MMM. dd yyyy", System.Globalization.CultureInfo.InvariantCulture).ToUpper();
                     break;
-                case Vision.NightGreen:
-                    camTop.text = "NV ●";
-                    camBottom.text = "";
-                    break;
-                case Vision.NightShot:
-                    camTop.text = "● REC   IR";
-                    camBottom.text = "0 LUX   " + now.ToString("HH:mm:ss");
-                    break;
-                default:
+                default:   // ночные виды: REC и таймкод уже есть в видоискателе
                     camTop.text = camBottom.text = "";
                     break;
             }
@@ -1199,7 +1227,7 @@ namespace GhostWard
         void BuildDawn()
         {
             dawn = Panel(root, "Dawn");
-            var t = Label(dawn.transform, Loc.T("dawn"), 96, new Vector2(0.5f, 0.92f), Vector2.zero, new Color(1f, 0.85f, 0.6f));
+            var t = Label(dawn.transform, Loc.T("dawn"), 96, new Vector2(0.5f, 0.92f), Vector2.zero, new Color(0.68f, 1f, 0.7f));
             t.rectTransform.sizeDelta = new Vector2(1000, 130);
             t.fontStyle = FontStyle.Bold;
             dawnPhoto = Rect(dawn.transform, "Photo", new Vector2(0.5f, 0.72f), new Vector2(0.5f, 0.72f)).gameObject.AddComponent<RawImage>();
@@ -1209,7 +1237,7 @@ namespace GhostWard
             dawnText.rectTransform.sizeDelta = new Vector2(940, 200);
             dawnSupply = Label(dawn.transform, "", 25, new Vector2(0.5f, 0.405f), Vector2.zero, Dim);
             dawnSupply.rectTransform.sizeDelta = new Vector2(940, 130);
-            dawnXp = Label(dawn.transform, "", 30, new Vector2(0.5f, 0.31f), Vector2.zero, new Color(1f, 0.75f, 0.45f));
+            dawnXp = Label(dawn.transform, "", 30, new Vector2(0.5f, 0.31f), Vector2.zero, new Color(0.5f, 1f, 0.56f));
             dawnXp.rectTransform.sizeDelta = new Vector2(940, 170);
             dawnXp.fontStyle = FontStyle.Bold;
             readButton = Button(dawn.transform, Loc.T("read"), new Vector2(0.5f, 0.215f), () => OpenStory(dawn, Progress.StoryUnlocked), false, 400);
@@ -1227,7 +1255,7 @@ namespace GhostWard
             var t = Label(over.transform, Loc.T("taken"), 96, new Vector2(0.5f, 0.64f), Vector2.zero, new Color(0.8f, 0.15f, 0.15f));
             t.rectTransform.sizeDelta = new Vector2(1000, 140);
             t.fontStyle = FontStyle.Bold;
-            overXp = Label(over.transform, "", 30, new Vector2(0.5f, 0.565f), Vector2.zero, new Color(1f, 0.75f, 0.45f));
+            overXp = Label(over.transform, "", 30, new Vector2(0.5f, 0.565f), Vector2.zero, new Color(0.5f, 1f, 0.56f));
             overXp.rectTransform.sizeDelta = new Vector2(940, 90);
             overText = Label(over.transform, "", 40, new Vector2(0.5f, 0.48f), Vector2.zero, Bone);
             overText.rectTransform.sizeDelta = new Vector2(1000, 200);
@@ -1240,7 +1268,7 @@ namespace GhostWard
         void BuildJournal()
         {
             journal = Panel(root, "Journal");
-            journal.GetComponent<Image>().color = new Color(0.02f, 0.015f, 0.02f, 0.97f);
+            journal.GetComponent<Image>().color = new Color(0.008f, 0.032f, 0.016f, 0.97f);
             BuildJournalList();
             BuildJournalEntry();
             BuildJournalItems();
@@ -1426,7 +1454,7 @@ namespace GhostWard
                 var check = Rect(row, "Check", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f)).gameObject.AddComponent<UILine>();
                 check.rectTransform.anchoredPosition = new Vector2(-450, 0);
                 check.Thickness = 7f;
-                check.color = new Color(1f, 0.75f, 0.45f);
+                check.color = new Color(0.5f, 1f, 0.56f);
                 check.raycastTarget = false;
                 check.SetPoints(new[] { new Vector2(-14, 0), new Vector2(-4, -12), new Vector2(16, 14) });
                 check.gameObject.SetActive(false);
@@ -1442,7 +1470,7 @@ namespace GhostWard
                 clueRows.Add((box, check));
             }
 
-            suspectsText = Label(journalClues.transform, "", 28, new Vector2(0.5f, 1f), new Vector2(0, -1300), new Color(1f, 0.75f, 0.45f));
+            suspectsText = Label(journalClues.transform, "", 28, new Vector2(0.5f, 1f), new Vector2(0, -1300), new Color(0.5f, 1f, 0.56f));
             suspectsText.rectTransform.sizeDelta = new Vector2(940, 120);
             // три отмеченные улики → «Определить»: сошлось — узнаёшь, кто это; нет — она злится
             identifyButton = Button(journalClues.transform, Loc.T("identify"), new Vector2(0.5f, 0.235f), () =>
@@ -1581,7 +1609,7 @@ namespace GhostWard
             if (string.IsNullOrEmpty(text)) return;
             string line = text.Replace("\n\n", " ").Replace("\n", " ");
             string time = hud.activeSelf ? clockText.text + "  " : "";
-            string entry = hint ? $"{time}<color=#ffc073>{line}</color>" : time + line;
+            string entry = hint ? $"{time}<color=#7dff8a>{line}</color>" : time + line;
             if (nightLog.Count > 0 && nightLog[^1] == entry) return;
             nightLog.Add(entry);
             if (nightLog.Count > 80) nightLog.RemoveAt(0);
@@ -1637,7 +1665,7 @@ namespace GhostWard
             if (trophies != null) Kill(trophies);
             ranks.SetActive(false);
             trophies = Panel(root, "Trophies");
-            trophies.GetComponent<Image>().color = new Color(0.01f, 0.008f, 0.012f, 0.99f);
+            trophies.GetComponent<Image>().color = new Color(0.005f, 0.022f, 0.011f, 0.99f);
             var title = Label(trophies.transform, Loc.T("trophies"), 64, new Vector2(0.5f, 0.95f), Vector2.zero, Bone);
             title.rectTransform.sizeDelta = new Vector2(900, 100);
             title.fontStyle = FontStyle.Bold;
@@ -1650,7 +1678,7 @@ namespace GhostWard
                 var mark = Rect(trophies.transform, "Mark", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f)).gameObject.AddComponent<UILine>();
                 mark.rectTransform.anchoredPosition = new Vector2(-450, y - 10);
                 mark.Filled = true;
-                mark.color = got ? new Color(1f, 0.75f, 0.4f) : new Color(1f, 1f, 1f, 0.12f);
+                mark.color = got ? new Color(0.5f, 1f, 0.56f) : new Color(1f, 1f, 1f, 0.12f);
                 mark.raycastTarget = false;
                 mark.SetPoints(new[] { new Vector2(0, 22), new Vector2(22, 0), new Vector2(0, -22), new Vector2(-22, 0) });
                 var name = Label(trophies.transform, Trophies.Name(t), 34, new Vector2(0.5f, 1f), new Vector2(40, y + 12), got ? Bone : Dim);
@@ -1670,7 +1698,7 @@ namespace GhostWard
         void BuildRanks()
         {
             ranks = Panel(root, "Ranks");
-            ranks.GetComponent<Image>().color = new Color(0.01f, 0.008f, 0.012f, 0.98f);
+            ranks.GetComponent<Image>().color = new Color(0.005f, 0.022f, 0.011f, 0.98f);
             var title = Label(ranks.transform, Loc.T("ranks"), 64, new Vector2(0.5f, 0.95f), Vector2.zero, Bone);
             title.rectTransform.sizeDelta = new Vector2(900, 100);
             title.fontStyle = FontStyle.Bold;
@@ -1683,7 +1711,7 @@ namespace GhostWard
                 name.rectTransform.sizeDelta = new Vector2(820, 56);
                 name.alignment = TextAnchor.MiddleLeft;
                 name.fontStyle = FontStyle.Bold;
-                var xp = Label(ranks.transform, Progress.RankXp[i] + " XP", 28, new Vector2(0.5f, 1f), new Vector2(380, y), reached ? new Color(1f, 0.75f, 0.45f) : Dim);
+                var xp = Label(ranks.transform, Progress.RankXp[i] + " XP", 28, new Vector2(0.5f, 1f), new Vector2(380, y), reached ? new Color(0.5f, 1f, 0.56f) : Dim);
                 xp.rectTransform.sizeDelta = new Vector2(200, 56);
                 xp.alignment = TextAnchor.MiddleRight;
                 var perk = Label(ranks.transform, Progress.Perk(i), 28, new Vector2(0.5f, 1f), new Vector2(0, y - 60), reached ? new Color(Bone.r, Bone.g, Bone.b, 0.8f) : Dim);
@@ -1698,14 +1726,14 @@ namespace GhostWard
         void BuildStory()
         {
             story = Panel(root, "Story");
-            story.GetComponent<Image>().color = new Color(0.04f, 0.035f, 0.03f, 0.99f);
+            story.GetComponent<Image>().color = new Color(0.012f, 0.04f, 0.022f, 0.99f);
             var title = Label(story.transform, Loc.T("story"), 64, new Vector2(0.5f, 0.93f), Vector2.zero, Bone);
             title.rectTransform.sizeDelta = new Vector2(900, 100);
             title.fontStyle = FontStyle.Bold;
             storyPageLabel = Label(story.transform, "", 28, new Vector2(0.5f, 0.87f), Vector2.zero, Dim);
             storyPageLabel.rectTransform.sizeDelta = new Vector2(600, 50);
             Frame(Rect(story.transform, "Paper", new Vector2(0.5f, 0.55f), new Vector2(0.5f, 0.55f)), 920, 1000, Dim, 3f);
-            storyBody = Label(story.transform, "", 40, new Vector2(0.5f, 0.55f), Vector2.zero, new Color(0.9f, 0.86f, 0.78f));
+            storyBody = Label(story.transform, "", 40, new Vector2(0.5f, 0.55f), Vector2.zero, new Color(0.76f, 0.94f, 0.76f));
             storyBody.rectTransform.sizeDelta = new Vector2(840, 920);
             storyBody.fontStyle = FontStyle.Italic;
             Button(story.transform, Loc.T("prev"), new Vector2(0.5f, 0.15f), () => StoryStep(-1), false, 200, -300);
@@ -1786,13 +1814,13 @@ namespace GhostWard
                 var gesture = Rect(journalItems.transform, "Gesture", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
                 gesture.anchoredPosition = new Vector2(-280, y);
                 gesture.localScale = Vector3.one * 0.85f;
-                Icons.GestureIcon(gesture, def.Gesture, new Color(1f, 0.75f, 0.45f));
+                Icons.GestureIcon(gesture, def.Gesture, new Color(0.5f, 1f, 0.56f));
 
                 var name = Label(journalItems.transform, def.Name.ToUpper(), 36, new Vector2(0.5f, 1f), new Vector2(110, y + 60), Bone);
                 name.rectTransform.sizeDelta = new Vector2(600, 50);
                 name.alignment = TextAnchor.MiddleLeft;
                 name.fontStyle = FontStyle.Bold;
-                var body = Label(journalItems.transform, $"<color=#ffc073>{def.Usage}</color>\n{def.Lore}", 28,
+                var body = Label(journalItems.transform, $"<color=#7dff8a>{def.Usage}</color>\n{def.Lore}", 28,
                     new Vector2(0.5f, 1f), new Vector2(50, y - 20), Dim);
                 body.rectTransform.sizeDelta = new Vector2(480, 110);
                 body.alignment = TextAnchor.UpperLeft;
@@ -2035,7 +2063,7 @@ namespace GhostWard
             entryOrigin.text = def.Origin;
             entryText.text =
                 $"{def.Lore}\n\n" +
-                $"<b>{Loc.T("clues_label")}</b> <color=#ffc073>{string.Join(" · ", clues)}</color>   " +
+                $"<b>{Loc.T("clues_label")}</b> <color=#7dff8a>{string.Join(" · ", clues)}</color>   " +
                 $"<b>{Loc.T("lure_label")}</b> {(Know.Lure(kind) ? Loc.T($"l.{def.Lure}.name") : "?")}\n\n" +
                 (Know.Habits(kind)
                     ? $"<b>{Loc.T("hides")}</b> {def.LairText}\n<b>{Loc.T("on_hunt")}</b> {def.Signs}\n\n"
@@ -2046,7 +2074,7 @@ namespace GhostWard
             if (defense)
             {
                 Icons.Item(entryItemIcon, item.Kind, Bone);
-                Icons.GestureIcon(entryGestureIcon, item.Gesture, new Color(1f, 0.75f, 0.45f));
+                Icons.GestureIcon(entryGestureIcon, item.Gesture, new Color(0.5f, 1f, 0.56f));
                 entryItem.text = $"{item.Name} — {item.Usage.ToLower()}";
                 entryCount.text = shownInventory != null ? Loc.F("carry", shownInventory.Label(item.Kind)) : "";
             }
@@ -2235,7 +2263,6 @@ namespace GhostWard
             hud.activeSelf && (RectTransformUtility.RectangleContainsScreenPoint(journalButton, screen, null)
                                || RectTransformUtility.RectangleContainsScreenPoint(toolBar, screen, null)
                                || RectTransformUtility.RectangleContainsScreenPoint(bagButton, screen, null)
-                               || RectTransformUtility.RectangleContainsScreenPoint(logButton, screen, null)
                                || bagPanel.gameObject.activeSelf && RectTransformUtility.RectangleContainsScreenPoint(bagPanel, screen, null));
 
         public event System.Action PostureChanged;
@@ -2272,7 +2299,6 @@ namespace GhostWard
         {
             phaseText.text = string.IsNullOrEmpty(text) || string.IsNullOrEmpty(modifierName) ? text : $"{text}  ·  {modifierName}";
             phaseText.color = hunt ? new Color(0.85f, 0.15f, 0.15f) : Dim;
-            recText.gameObject.SetActive(hunt);
             huntEdges = hunt;
         }
 
@@ -2310,13 +2336,8 @@ namespace GhostWard
         // уровень шума 0..1; отрицательный — микрофона нет
         public void SetMic(float level, bool visible)
         {
-            micRoot.SetActive(visible && level >= 0f);
-            if (!micRoot.activeSelf) return;
-            for (int i = 0; i < micBars.Length; i++)
-            {
-                bool lit = level * micBars.Length > i + 0.2f;
-                micBars[i].color = !lit ? new Color(1, 1, 1, 0.12f) : level > 0.35f ? new Color(0.9f, 0.15f, 0.1f) : Bone;
-            }
+            // отдельной шкалы нет: на охоте громкий шум окрашивает уголки кадра
+            noiseLevel = visible && level > 0.35f ? Mathf.Clamp01(level) : 0f;
         }
 
         public void SetHidden(bool hidden) => hiddenText.gameObject.SetActive(hidden && hud.activeSelf);
@@ -2503,6 +2524,13 @@ namespace GhostWard
             recBlink += dt;
             if (hud.activeSelf && overlayStyle is Vision.Cctv or Vision.Vhs or Vision.NightShot) SetCameraOverlay(overlayStyle);
             if (recText.gameObject.activeSelf) SetAlpha(recText, recBlink % 1f < 0.6f ? 1f : 0.2f);
+            if (hud.activeSelf)
+            {
+                // уголки кадра: спокойно — бледно-зелёные, страх и шум — краснеют
+                float alarm = Mathf.Max(Mathf.InverseLerp(0.35f, 0.95f, fear), noiseLevel);
+                var corner = Color.Lerp(new Color(Bone.r, Bone.g, Bone.b, 0.45f), new Color(0.9f, 0.12f, 0.08f, 0.95f), alarm);
+                foreach (var c in viewCorners) if (c.color != corner) c.color = corner;
+            }
 
             bool inNight = hud.activeSelf;
             float dark = inNight ? DarkBase + fear * 0.35f : 0f;
@@ -2605,7 +2633,7 @@ namespace GhostWard
         GameObject Panel(Transform parent, string name)
         {
             var rt = Rect(parent, name, Vector2.zero, Vector2.one);
-            rt.gameObject.AddComponent<Image>().color = new Color(0.01f, 0.008f, 0.012f, 0.9f);
+            rt.gameObject.AddComponent<Image>().color = new Color(0.005f, 0.022f, 0.011f, 0.9f);
             return rt.gameObject;
         }
 

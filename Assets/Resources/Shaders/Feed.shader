@@ -167,8 +167,9 @@ Shader "GhostWard/Feed"
                     float nv = pow(saturate(soft * 1.9), 0.8) * gain + bloom + grain * 0.2;
                     nv += step(0.9985, hash21(floor(px * 0.5) + floor(t * 20.0))) * 0.8;     // искры усилителя
                     nv *= 0.93 + 0.07 * step(0.5, frac(px.x * 0.33)) * step(0.5, frac(px.y * 0.33));   // сетка люминофора
-                    float3 green = float3(0.32, 1.0, 0.62) * nv + float3(0.0, 0.05, 0.03);
-                    return green * saturate(1.25 - dot(v, v) * 2.6);
+                    // тёмно-зелёный люминофор: чёрные тени, плотная виньетка
+                    float3 green = float3(0.14, 0.78, 0.26) * nv + float3(0.0, 0.025, 0.008);
+                    return green * saturate(1.18 - dot(v, v) * 3.1);
                 }
 
                 if (style == 3)

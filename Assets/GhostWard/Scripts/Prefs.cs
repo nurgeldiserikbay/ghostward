@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace GhostWard
 {
-    // Вид камеры. Normal и Dark бесплатны, остальные открываются покупкой или за рекламу.
+    // Вид камеры. Normal, Dark и NightGreen (основной стиль игры) бесплатны, остальные — покупкой или за рекламу.
     // Thermal — только у прибора, не в настройках; NightShot — ночная ИК-съёмка любительской камерой
     public enum Vision { Normal, Dark, NightGreen, Cctv, Vhs, Thermal, NightShot }
 
@@ -12,8 +12,18 @@ namespace GhostWard
     {
         public static Vision Vision
         {
-            get => (Vision)PlayerPrefs.GetInt("vision", (int)Vision.Dark);
-            set { PlayerPrefs.SetInt("vision", (int)value); PlayerPrefs.Save(); }
+            get
+            {
+                // новый стиль игры — зелёная ночная съёмка; один раз переводим на него и старые установки
+                if (PlayerPrefs.GetInt("look_v2", 0) == 0)
+                {
+                    PlayerPrefs.SetInt("look_v2", 1);
+                    PlayerPrefs.SetInt("vision", (int)Vision.NightGreen);
+                    PlayerPrefs.Save();
+                }
+                return (Vision)PlayerPrefs.GetInt("vision", (int)Vision.NightGreen);
+            }
+            set { PlayerPrefs.SetInt("look_v2", 1); PlayerPrefs.SetInt("vision", (int)value); PlayerPrefs.Save(); }
         }
 
         // 0..1 шагами по 0.1
@@ -117,7 +127,7 @@ namespace GhostWard
         // в тестовой сборке всё открыто (TestMode.On)
         public static bool TestUnlockAll => TestMode.On;
 
-        public static bool IsFree(Vision v) => v is Vision.Normal or Vision.Dark;
+        public static bool IsFree(Vision v) => v is Vision.Normal or Vision.Dark or Vision.NightGreen;
 
         public static bool Has(Vision v) => TestUnlockAll || IsFree(v) || PlayerPrefs.GetInt("unlock_" + v, 0) == 1;
 

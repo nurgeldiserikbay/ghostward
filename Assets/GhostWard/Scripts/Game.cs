@@ -113,13 +113,12 @@ namespace GhostWard
         EntityDef target;
         Vector3 lair;
         Entity hunter;
-        float anger, clueTimer, fakeTimer, frostTime, staticTime, compassTime, silhouetteArmed, silhouetteCooldown;
+        float anger, clueTimer, frostTime, staticTime, compassTime, silhouetteArmed, silhouetteCooldown;
         float markTime;   // сколько ещё компас показывает метку логова после улики
         static readonly int GwStyle = Shader.PropertyToID("_GW_Style"), GwAlt = Shader.PropertyToID("_GW_Alt"),
                             GwMode = Shader.PropertyToID("_GW_Mode"), GwLight = Shader.PropertyToID("_GW_Light");
         float roomLight = 0.3f;    // средняя яркость комнаты по осмотру
         bool faintedThisNight;     // первый «полный страх» за ночь — обморок, а не смерть
-        float wanderTimer;         // когда сущность в следующий раз покажется во время расследования
         float radioCooldown, radioAnswerIn = -1f, banishedTime = -1f;
         bool named, namedRight, wrongItemUsed;
 
@@ -160,7 +159,8 @@ namespace GhostWard
         float proTimer, proIdle;
         const int ProSteps = 8;
         GameObject stash;
-        float stashTimer, stashGaze, stashLife, stashSound, eventTimer;
+        float stashTimer, stashGaze, stashLife, stashSound;
+        readonly FearDirector director = new();
         int stashesThisNight;
         bool stashHintShown;
 
@@ -417,9 +417,7 @@ namespace GhostWard
             nightXp = 0;
             stashesThisNight = 0;
             stashTimer = Random.Range(30f, 50f);
-            eventTimer = Random.Range(15f, 25f);
-            signatureTimer = Random.Range(25f, 40f);
-            wanderTimer = Random.Range(14f, 22f);
+            if (night == 1) director.NewGame(); else director.NewVisit();   // ритм страха не сбрасывается с приходом
             DestroyStash();
             ui.SetTool(tool);
             ui.SetProtection(inv);
@@ -516,7 +514,6 @@ namespace GhostWard
             huntPending = -1f;
             banishedTime = -1f;
             clueTimer = Random.Range(3f, 5f);
-            fakeTimer = Random.Range(8f, 14f);
             frostTime = staticTime = compassTime = silhouetteArmed = 0f;
             radioCooldown = 0f;
             radioAnswerIn = -1f;
@@ -532,6 +529,7 @@ namespace GhostWard
             phase = Phase.Investigate;
             ui.SetPhase(Loc.T("phase_investigate"), false);
             ui.SetCameraOverlay(Settings.Vision);
+            ui.SetGuided(prologue);   // компас-указатель — только в обучении
             // о приходе сущности игра не объявляет: игрок понимает это сам — по событиям.
             // Объясняем только в первый раз за игру, что искать; особые условия — коротко
             // модификатор описываем только в начале игры: дальше он объявляется в начале затишья (Dawn)
@@ -736,17 +734,8 @@ namespace GhostWard
             clueTimer -= dt;
             if (clueTimer <= 0f)
             {
-                clueTimer = Random.Range(5f, 9f);
+                clueTimer = prologue ? Random.Range(5f, 9f) : Random.Range(8f, 14f);   // между уликами должна быть тишина
                 EmitClue();
-            }
-
-            // скрипы — ложная тревога, не улика
-            if (modifier != Modifier.Silence) fakeTimer -= dt;
-            if (fakeTimer <= 0f)
-            {
-                fakeTimer = Random.Range(10f, 18f);
-                var dir = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f) * Vector3.forward;
-                PlayAt(ProceduralAudio.Creak(), cam.transform.position + dir * 3f, 0.45f);
             }
 
             float angle = AngleToLair();
@@ -800,8 +789,6 @@ namespace GhostWard
 
             UpdateColdSpot(dt);
             UpdatePrints(dt);
-            UpdateSignature(dt);
-            UpdateWander(dt);
             UpdatePossession(dt);
             UpdateThermalLife();
             anger = Mathf.Min(anger, 100f);   // злость — чаще и сильнее пугает, но сама на охоту не выводит
@@ -1277,7 +1264,7 @@ namespace GhostWard
         // Камера: тёмная, иногда переключается в ночной режим; рядом с сущностью и у логова — помехи.
         void UpdateLook(float dt)
         {
-            if (phase is Phase.Investigate or Phase.Hunt)
+            if (phase is Phase.Investigate or Phase.Hunt or Phase.Quiet)   // в затишье камера ведёт себя так же
             {
                 // сами по себе эпизоды ночного видения — только когда прибор камеру не занимает (ЭМП, радио);
                 // иначе они перекрывали тепловизор и не давали выключить ночную камеру
@@ -1308,16 +1295,16 @@ namespace GhostWard
             }
 
             // ночная камера держит ночное видение, пока выбрана; тепловизор — без примесей
-            if (tool == Tool.Night && phase is Phase.Scan or Phase.Investigate or Phase.Hunt) nightVisionTarget = 1f;
+            if (tool == Tool.Night && phase is Phase.Scan or Phase.Investigate or Phase.Hunt or Phase.Quiet) nightVisionTarget = 1f;
             else if (tool == Tool.Thermo) nightVisionTarget = 0f;
 
             // переключение режимов не плавное, а через короткий «сбой»
             nightVision = Mathf.MoveTowards(nightVision, nightVisionTarget, dt * 6f);
             staticNoise.volume = Mathf.Max(glitch * 0.35f * Settings.Ambience, Mathf.MoveTowards(staticNoise.volume, 0f, dt * 0.5f));
             // эпизоды ночного режима: зелёное ночное видение, а если оно уже выбрано — ИК-камера
-            bool thermal = tool == Tool.Thermo && phase is Phase.Scan or Phase.Investigate or Phase.Hunt;
+            bool thermal = tool == Tool.Thermo && phase is Phase.Scan or Phase.Investigate or Phase.Hunt or Phase.Quiet;
             var style = thermal ? Vision.Thermal : Settings.Vision;
-            var episode = Settings.Vision == Vision.NightGreen ? Vision.Cctv : Vision.NightGreen;
+            var episode = Settings.Vision == Vision.NightGreen ? Vision.NightShot : Vision.NightGreen;   // светлее, но в той же зелёной гамме
             // в ночь одержимости нейросеть ищет людей и в обычном виде камеры
             bool watchPeople = possessedNight && phase == Phase.Investigate;
             if (gyroRig != null)
@@ -1335,6 +1322,7 @@ namespace GhostWard
             ui.DarkBase = style switch { Vision.Normal => 0.15f, Vision.Dark => 0.55f, Vision.Thermal => 0.2f, _ => 0.38f }
                           + (modifier == Modifier.NewMoon && phase is Phase.Investigate or Phase.Hunt or Phase.Quiet ? 0.15f : 0f);
             ui.SetGrain(baseGrain + nightVision * 0.08f + glitch * 0.25f);
+            if (inv != null) ui.SetBattery(inv.Battery);
         }
 
         // высота телефона и глубина: сколько кадров глубины сошлось и расстояние до того, что в прицеле
@@ -1861,16 +1849,42 @@ namespace GhostWard
                     PlayAt(ProceduralAudio.Drone(), cam.transform.position + dir * 6f, 0.6f);
                 }
             }
-            if (modifier == Modifier.Silence || prologue) return;
+            if (prologue) return;
 
-            eventTimer -= dt;
-            if (eventTimer > 0f) return;
-            eventTimer = Random.Range(16f, 32f) / (1f + fear / 100f);
+            // волны страха ведёт режиссёр: тишина → нарастание → развязка → передышка
+            float tension = Mathf.Max(fear, phase == Phase.Investigate ? anger : 0f) / 100f;
+            var beat = director.Tick(dt, tension, Ramp(night), phase == Phase.Investigate);
+            // «Мёртвая тишина»: ни звука, но фигура в кадре остаётся
+            if (modifier == Modifier.Silence && beat != Beat.Presence) return;
+            switch (beat)
+            {
+                case Beat.Murmur: PlayMurmur(); break;
+                case Beat.FalseAlarm: PlayFalseAlarm(); break;
+                case Beat.Strike: SignatureScare(); break;
+                case Beat.Presence:
+                    if (target.Invisible) { if (modifier != Modifier.Silence) SignatureScare(); }
+                    else if (Random.value < 0.5f) StartCoroutine(StareScare());
+                    else StartCoroutine(PassScare());
+                    break;
+            }
+        }
 
+        // на грани слышимости: непонятно, было ли что-то
+        void PlayMurmur()
+        {
+            var camPos = cam.transform.position;
+            var dir = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f) * Vector3.forward;
+            if (Random.value < 0.65f) PlayAt(ProceduralAudio.Creak(), camPos + dir * 3.5f, 0.3f);
+            else PlayAt(ProceduralAudio.Footsteps(), camPos + dir * 5f, 0.25f);
+        }
+
+        // громко и близко, но никого нет
+        void PlayFalseAlarm()
+        {
             var camPos = cam.transform.position;
             var back = -cam.transform.forward;
             back.y = 0f;
-            back.Normalize();
+            back = back.sqrMagnitude < 1e-3f ? Vector3.back : back.normalized;
             var side = Vector3.Cross(Vector3.up, back);
             switch (Random.Range(0, 5))
             {
@@ -1898,10 +1912,8 @@ namespace GhostWard
         }
 
         // ---------- фирменный испуг сущности ----------
-        // Раз в 35–60 с расследования сущность пугает по-своему: тихо, без нападения.
+        // Настоящий удар от режиссёра страха, не больше двух за визит: сущность пугает по-своему, без нападения.
         enum ScareStyle { Glimpse, Behind, Overhead, Throw, Reflection, Blackout, Approach, Voice, Handprint }
-
-        float signatureTimer;
 
         static ScareStyle StyleOf(EntityKind k) => k switch
         {
@@ -1917,15 +1929,6 @@ namespace GhostWard
                 or EntityKind.CorpoSeco or EntityKind.Ghoul => ScareStyle.Approach,
             _ => ScareStyle.Voice
         };
-
-        void UpdateSignature(float dt)
-        {
-            if (prologue || modifier == Modifier.Silence || phase != Phase.Investigate) return;
-            signatureTimer -= dt;
-            if (signatureTimer > 0f) return;
-            signatureTimer = Random.Range(35f, 60f);
-            SignatureScare();
-        }
 
         void SignatureScare()
         {
@@ -1992,7 +1995,7 @@ namespace GhostWard
                     AddFear(2f);
                     break;
             }
-            ui.Narrate(Loc.F("s." + k, Direction(lair)));
+            ui.Note(Loc.F("s." + k, Direction(lair)));   // на экране без подписи, остаётся в записях
         }
 
         // ---------- одержимость ----------
@@ -2031,16 +2034,6 @@ namespace GhostWard
         // Как в хоррорах: проходит на краю зрения, мерцает и пропадает; или стоит вдалеке и смотрит —
         // отвёл взгляд, вернул — её нет… и она уже ближе. Не нападает: это страх, а не бой.
         Apparition wanderer;
-
-        void UpdateWander(float dt)
-        {
-            if (prologue || target.Invisible || phase != Phase.Investigate) return;
-            wanderTimer -= dt;
-            if (wanderTimer > 0f) return;
-            wanderTimer = Random.Range(28f, 50f) / (1f + anger / 150f);
-            if (Random.value < 0.35f) StartCoroutine(StareScare());
-            else StartCoroutine(PassScare());
-        }
 
         // точка на краю зрения: angle — от направления взгляда, dist — от игрока
         Vector3 EdgeOfView(float angle, float dist)

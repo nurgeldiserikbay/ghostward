@@ -14,7 +14,7 @@ float3 GW_LookOne(int style, float3 c)
     float l = dot(c, float3(0.299, 0.587, 0.114));
     if (style == 0) return c;
     if (style == 1) return lerp(l.xxx, c, 0.35) * float3(0.78, 0.88, 1.0) * 0.85;             // тёмная
-    if (style == 2) return float3(0.32, 1.0, 0.62) * pow(saturate(l * 1.8), 0.8) + 0.02;     // ночное видение
+    if (style == 2) return float3(0.14, 0.78, 0.26) * pow(saturate(l * 1.8), 0.8) + float3(0.0, 0.025, 0.008); // ночное видение
     if (style == 6) return float3(0.86, 1.0, 0.9) * saturate(pow(l * 2.3, 0.75));            // ИК-съёмка
     if (style == 3) return (saturate(l * 1.4)).xxx * float3(0.9, 0.95, 0.95);                 // наблюдение
     if (style == 5) return lerp(float3(0.02, 0.0, 0.08), float3(0.12, 0.06, 0.55), saturate(l * 0.7)); // тепловизор: холодная
