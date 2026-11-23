@@ -13,6 +13,8 @@ namespace GhostWard
         static AudioClip Get(string key, float seconds, Func<float, System.Random, float> sample, int fade = 0)
         {
             if (Cache.TryGetValue(key, out var c)) return c;
+            var recorded = SoundBank.Get(key);
+            if (recorded != null) return Cache[key] = recorded;
             int len = (int)(Rate * seconds);
             var data = new float[len];
             var rng = new System.Random(key.GetHashCode());

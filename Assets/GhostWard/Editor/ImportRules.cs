@@ -10,6 +10,18 @@ namespace GhostWard.EditorTools
     {
         void OnPreprocessAudio()
         {
+            if (assetPath.Replace('\\', '/').Contains("/Resources/Sfx/"))
+            {
+                // короткие эффекты: моно и в памяти, SoundBank читает данные, обрезает и выравнивает громкость
+                var sfx = (AudioImporter)assetImporter;
+                sfx.forceToMono = true;
+                var ss = sfx.defaultSampleSettings;
+                ss.loadType = AudioClipLoadType.DecompressOnLoad;
+                ss.compressionFormat = AudioCompressionFormat.Vorbis;
+                ss.quality = 0.6f;
+                sfx.defaultSampleSettings = ss;
+                return;
+            }
             if (!assetPath.Replace('\\', '/').Contains("/Resources/Music/")) return;
             var importer = (AudioImporter)assetImporter;
             importer.forceToMono = true;

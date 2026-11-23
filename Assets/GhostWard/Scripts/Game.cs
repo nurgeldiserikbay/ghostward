@@ -2268,6 +2268,7 @@ namespace GhostWard
             AddFear(e.Def.Invisible ? 15f : 22f);
             ui.Jumpscare(e.Def, e.Seed, e.Def.Invisible ? 0.5f : 1f);
             sfx.PlayOneShot(EntitySounds.Attack(e.Def.Kind), 0.8f);
+            if (SoundBank.Has("screech")) sfx.PlayOneShot(ProceduralAudio.Screech(), 0.55f);   // записанный крик поверх голоса сущности
 #if UNITY_ANDROID || UNITY_IOS
             if (Settings.Vibration) Handheld.Vibrate();
 #endif
