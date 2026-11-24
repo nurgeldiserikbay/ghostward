@@ -1538,9 +1538,14 @@ namespace GhostWard
         // иначе это проём или дальняя стена — 3–4.5 м. maxDist > 0 ограничивает дальность.
         public Vector3 PickPosition(EntityDef def, float minAngle, float maxDist) => PickPosition(def, minAngle, maxDist, 180f);
 
-        // maxAngle — место не дальше этого угла от взгляда
-        public Vector3 PickPosition(EntityDef def, float minAngle, float maxDist, float maxAngle)
+        // последнее место пугающего появления (PickPosition с staging): выглядывание, голова над мебелью или обычное
+        RoomMap.Spot stagedSpot;
+
+        // maxAngle — место не дальше этого угла от взгляда; staging — для пугающего появления
+        // (можно выглянуть из-за края шкафа или показать только голову над диваном)
+        public Vector3 PickPosition(EntityDef def, float minAngle, float maxDist, float maxAngle, bool staging = false)
         {
+            stagedSpot = default;
             var camPos = cam.transform.position;
             var fwd = cam.transform.forward;
             fwd.y = 0f;
@@ -1555,9 +1560,10 @@ namespace GhostWard
             float viewYawDeg = Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg;
             RoomMap.Spot spot = default;
             bool spotted = arRig == null && room != null
-                           && room.TryPickSpot(viewYawDeg, minAngle, maxDist, def.Lair, DarknessAt, out spot, maxAngle);
+                           && room.TryPickSpot(viewYawDeg, minAngle, maxDist, def.Lair, DarknessAt, out spot, maxAngle, staging);
             if (spotted)
             {
+                if (staging) stagedSpot = spot;
                 yaw = spot.Yaw;
                 dist = spot.Dist;
                 pitch = def.Lair == Lair.Ceiling ? 30f : 0f;
@@ -1595,7 +1601,33 @@ namespace GhostWard
             pos.y = StanceY(def, def.Stance == Stance.Float
                 ? camPos.y + Mathf.Clamp(Mathf.Tan(pitch * Mathf.Deg2Rad) * dist, -0.4f, 0.8f)
                 : camPos.y);
+            if (stagedSpot.Kind == RoomMap.SpotKind.OverFurniture)
+            {
+                // над краем мебели видна только голова: где проходит луч взгляда через верх мебели на расстоянии фигуры
+                var f = Entity.FigureOf(def);
+                float eye = camPos.y - Floor;
+                float hidden = eye - (eye - stagedSpot.CoverTop) * (dist / Mathf.Max(stagedSpot.CoverDist, 0.5f));
+                float topY = Floor + Mathf.Max(hidden, 0.3f) + 0.4f;   // 40 см над краем — голова и плечи
+                pos.y = Mathf.Min(pos.y, topY - (f.Size.y - f.Feet));
+            }
             return pos;
+        }
+
+        // куда уйти из пугающего места, когда на неё посмотрели: за край шкафа или вниз за мебель
+        Vector3 HideDirection(Vector3 pos)
+        {
+            switch (stagedSpot.Kind)
+            {
+                case RoomMap.SpotKind.Peek:
+                    var to = pos - cam.transform.position;
+                    to.y = 0f;
+                    float yaw = Mathf.Atan2(to.x, to.z) * Mathf.Rad2Deg;
+                    return Quaternion.Euler(0f, yaw - stagedSpot.Side * 90f, 0f) * Vector3.forward;   // к закрытой стороне
+                case RoomMap.SpotKind.OverFurniture:
+                    return Vector3.down;
+                default:
+                    return Vector3.zero;
+            }
         }
 
         // Сущность ушла: изгнали или пробыла своё. В обычной игре — короткая строка поверх камеры и затишье,
@@ -1863,7 +1895,7 @@ namespace GhostWard
                 case Beat.Strike: SignatureScare(); break;
                 case Beat.Presence:
                     if (target.Invisible) { if (modifier != Modifier.Silence) SignatureScare(); }
-                    else if (Random.value < 0.5f) StartCoroutine(StareScare());
+                    else if (Random.value < 0.65f) StartCoroutine(StareScare());   // чаще «стоит и смотрит»: из-за края или над мебелью
                     else StartCoroutine(PassScare());
                     break;
             }
@@ -2079,17 +2111,27 @@ namespace GhostWard
         // чуть впереди по ходу поворота: входит в кадр вместе с поворотом. Стоит, пока на неё не посмотрят, и пропадает.
         IEnumerator StareScare()
         {
-            var pos = PickPosition(target, 0f, -1f, HalfFovX * 0.7f);
+            var pos = PickPosition(target, 0f, -1f, HalfFovX * 0.7f, staging: true);
             var dir = (pos - cam.transform.position).normalized;
+            var hide = HideDirection(pos);
             wanderer = Apparition.Show(target, pos, cam.transform, 12f, default, false, 0.6f);
-            float wait = 12f;
+            // выглядывает или голова над мебелью: заметили — через пару секунд медленно прячется за край
+            float wait = 12f, seen = 0f, hideAt = Random.Range(1.4f, 2.6f);
+            bool hiding = false;
             while (wait > 0f && phase == Phase.Investigate && Vector3.Angle(cam.transform.forward, dir) < 40f)
             {
                 wait -= Time.deltaTime;
+                if (IsInView(pos)) seen += Time.deltaTime;
+                if (!hiding && hide != Vector3.zero && seen > hideAt)
+                {
+                    hiding = true;
+                    if (wanderer != null) wanderer.SetDrift(hide * 0.35f);
+                    wait = Mathf.Min(wait, 1.4f);
+                }
                 yield return null;
             }
             if (wanderer != null) wanderer.Kill();
-            if (wait <= 0f || phase != Phase.Investigate) yield break;
+            if (phase != Phase.Investigate || wait <= 0f && !hiding) yield break;
 
             // отвернулся — её больше нет на том месте. Ждём, когда игрок снова начнёт поворачиваться
             yield return new WaitForSeconds(Random.Range(0.8f, 2f));

@@ -354,19 +354,24 @@ namespace GhostWard
         //  • угол — дальше соседних стен: стоит в углу;
         //  • за мебелью — стол, диван, кровать ближе стены: стоит за ними, низ закрыт;
         //  • открытое место — просто перед стеной, на видимом полу.
-        public enum SpotKind { Open, Doorway, Corner, Furniture }
+        // Для пугающих появлений (staging) ещё два места:
+        //  • выглядывание — за вертикальным краем шкафа, косяка или стены: видна треть фигуры, остальное за краем;
+        //  • над мебелью — за широким диваном или столом: фигура опущена так, что над краем видна только голова.
+        public enum SpotKind { Open, Doorway, Corner, Furniture, Peek, OverFurniture }
 
         public struct Spot
         {
             public float Yaw, Dist;
             public SpotKind Kind;
+            public int Side;                 // выглядывание: в какую сторону от края открыто (+1 — к большему азимуту)
+            public float CoverTop, CoverDist; // над мебелью: высота верха мебели над полом и расстояние до неё, м
         }
 
         public string LastSpot { get; private set; } = "";
         public Vector3 Origin => origin;   // откуда снята карта (игрок мог отойти — тогда она снимается заново)
 
         const int SpotCols = 180;   // анализ мест — по 2° азимута
-        readonly float[] wallCol = new float[SpotCols], lowCol = new float[SpotCols], floorCol = new float[SpotCols];
+        readonly float[] wallCol = new float[SpotCols], lowCol = new float[SpotCols], floorCol = new float[SpotCols], lowTopCol = new float[SpotCols];
         bool spotsDirty = true;
         const float MaxPlace = 6.5f;
 
@@ -394,10 +399,55 @@ namespace GhostWard
                 wallCol[c] = !any ? -1f : wall == float.MaxValue ? 12f : wall;
                 lowCol[c] = low == float.MaxValue ? -1f : low;
                 floorCol[c] = floor;
+
+                // верх низкой мебели: самая высокая её точка на том же расстоянии (спинка дивана, край стола)
+                float top = -1f;
+                if (low != float.MaxValue)
+                    for (float p = -60f; p <= 40f; p += 2f)
+                    {
+                        float r = Range(yaw, p);
+                        if (r < 0f) continue;
+                        float horiz = r * Mathf.Cos(p * Mathf.Deg2Rad);
+                        float above = PhoneHeight + Mathf.Sin(p * Mathf.Deg2Rad) * r;
+                        if (above >= 0.25f && above < 1.1f && horiz < low + 0.35f) top = Mathf.Max(top, above);
+                    }
+                lowTopCol[c] = top;
             }
         }
 
         float Wall(int c) => wallCol[((c % SpotCols) + SpotCols) % SpotCols];
+        float Low(int c) => lowCol[((c % SpotCols) + SpotCols) % SpotCols];
+        float LowTop(int c) => lowTopCol[((c % SpotCols) + SpotCols) % SpotCols];
+
+        // Вертикальный край: эта колонка близко на высоте туловища (шкаф, косяк, угол стены),
+        // а с одной стороны сразу далеко. Возвращает сторону, где открыто (+1/-1), или 0.
+        int EdgeSide(int c)
+        {
+            float near = Wall(c);
+            if (near < 1.5f || near > 4.5f) return 0;
+            for (int side = -1; side <= 1; side += 2)
+            {
+                float back = Wall(c - side);                                   // сам предмет продолжается за краем
+                float far = Mathf.Min(Wall(c + side), Wall(c + 2 * side));    // за краем — глубже на метр и больше
+                if (back < 0f || far < 0f) continue;
+                if (Mathf.Abs(back - near) < 0.35f && far - near > 1f) return side;
+            }
+            return 0;
+        }
+
+        // Широкая низкая мебель перед этой колонкой: закроет фигуру по всей ширине, а не только по центру
+        bool WideCover(int c, out float dist, out float top)
+        {
+            dist = Low(c);
+            top = LowTop(c);
+            if (dist < 0.9f || dist > 3.2f || top < 0.4f || top > 1.05f) return false;
+            for (int k = -4; k <= 4; k++)
+            {
+                float d = Low(c + k), t = LowTop(c + k);
+                if (d < 0f || Mathf.Abs(d - dist) > 0.4f || t < top - 0.25f) return false;
+            }
+            return Wall(c) > dist + 1.1f;   // за мебелью есть место встать
+        }
 
         // мин. стена в диапазоне колонок; -1 — там не смотрели
         float MinWall(int from, int to)
@@ -414,8 +464,9 @@ namespace GhostWard
 
         // Место для сущности по её повадке. darkness(yaw) — темнота сектора 0..1 (-1 — не знаем).
         // maxAngle — не дальше этого угла от взгляда (место прямо в кадре)
+        // staging — место для пугающего появления: добавляются выглядывание из-за края и голова над мебелью
         public bool TryPickSpot(float viewYaw, float minAngle, float maxDist, Lair lair, System.Func<float, float> darkness, out Spot spot,
-                                float maxAngle = 180f)
+                                float maxAngle = 180f, bool staging = false)
         {
             spot = default;
             if (!Has) return false;
@@ -424,22 +475,33 @@ namespace GhostWard
             var spots = new System.Collections.Generic.List<Spot>();
             var weights = new System.Collections.Generic.List<float>();
             float total = 0f;
-            void Add(int c, float dist, SpotKind kind, float w)
+            // limitCol — колонка, по стене которой ограничена дальность (для выглядывания — открытая сторона)
+            void AddSpot(Spot s, int c, int limitCol, float w)
             {
+                float dist = s.Dist;
                 if (maxDist > 0f) dist = Mathf.Min(dist, maxDist);
                 // дальше 6.5 м фигура мелкая, а глубина по одному кадру ненадёжна (окна, зеркала видятся «далью»)
                 dist = Mathf.Min(dist, MaxPlace);
-                float limit = Wall(c) - 0.35f;
+                float limit = Wall(limitCol) - 0.35f;
                 dist = Mathf.Min(dist, limit);
                 if (dist < 1.1f || w <= 0f) return;
+                // выглядывание: центр фигуры на 8 см за краем — видна примерно треть ширины
+                if (s.Kind == SpotKind.Peek)
+                {
+                    if (dist < Wall(c) + 0.3f) return;   // за краем должно хватать глубины, иначе фигура окажется в шкафу
+                    s.Yaw -= s.Side * Mathf.Atan(0.08f / dist) * Mathf.Rad2Deg;
+                }
                 float d = darkness(ColYaw(c));
                 if (d < 0f) d = 0.5f;
                 if (lair == Lair.Bright) d = 1f - d;
                 w *= 0.15f + d * d;
-                spots.Add(new Spot { Yaw = ColYaw(c) + Random.Range(-0.8f, 0.8f), Dist = dist, Kind = kind });
+                s.Dist = dist;
+                spots.Add(s);
                 weights.Add(w);
                 total += w;
             }
+            void Add(int c, float dist, SpotKind kind, float w) =>
+                AddSpot(new Spot { Yaw = ColYaw(c) + Random.Range(-0.8f, 0.8f), Dist = dist, Kind = kind }, c, c, w);
 
             for (int c = 0; c < SpotCols; c++)
             {
@@ -491,6 +553,23 @@ namespace GhostWard
                         Add(c, Random.Range(2f, Mathf.Min(wall - 0.4f, MaxPlace)), SpotKind.Open, 1f);
                         break;
                 }
+
+                // пугающие места: выглядывает из-за края или видна только голова над мебелью.
+                // Ползающим и потолочным не подходят — у них своя стойка
+                if (staging && lair is not (Lair.Floor or Lair.Ceiling))
+                {
+                    float near = lair == Lair.Far ? 2.5f : 6f, over = lair == Lair.Far ? 1.5f : 5f;
+                    int side = EdgeSide(c);
+                    if (side != 0)
+                        AddSpot(new Spot { Yaw = ColYaw(c) + side * 1f, Dist = wall + Random.Range(0.5f, 0.9f), Kind = SpotKind.Peek, Side = side },
+                                c, c + side, near);
+                    if (WideCover(c, out float coverDist, out float coverTop))
+                        AddSpot(new Spot
+                        {
+                            Yaw = ColYaw(c) + Random.Range(-0.5f, 0.5f), Dist = coverDist + Random.Range(0.4f, 0.6f),
+                            Kind = SpotKind.OverFurniture, CoverTop = coverTop, CoverDist = coverDist
+                        }, c, c, over);
+                }
             }
             if (total <= 0f) return false;
 
@@ -502,7 +581,8 @@ namespace GhostWard
                 spot = spots[i];
                 LastSpot = spot.Kind switch
                 {
-                    SpotKind.Doorway => "проём", SpotKind.Corner => "угол", SpotKind.Furniture => "за мебелью", _ => "открыто"
+                    SpotKind.Doorway => "проём", SpotKind.Corner => "угол", SpotKind.Furniture => "за мебелью",
+                    SpotKind.Peek => "выглядывает из-за края", SpotKind.OverFurniture => "голова над мебелью", _ => "открыто"
                 } + $" {spot.Dist:0.0} м";
                 return true;
             }

@@ -70,6 +70,8 @@ namespace GhostWard
         bool flicker;
 
         public bool Alive => this != null && life > 0f;
+        // поменять дрейф на ходу: например, уйти за край шкафа, когда на неё посмотрели
+        public void SetDrift(Vector3 velocity) { if (this != null) drift = velocity; }
         public void Kill() { if (this != null) Destroy(gameObject); }
 
         // помехи камеры: видение мерцает несколько долей секунды
