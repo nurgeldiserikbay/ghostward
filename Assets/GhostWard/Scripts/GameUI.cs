@@ -716,6 +716,9 @@ namespace GhostWard
             menuMat.SetFloat("_Fade", 0.22f);
             bg.material = menuMat;
 
+            // Cinematic ward sigil above the title; generated locally, works offline.
+            WardLogo.AddTo(menu.transform);
+
             var title = Label(menu.transform, Loc.Brand.ToUpper(), 110, new Vector2(0.5f, 0.8f), Vector2.zero, Bone);
             title.rectTransform.sizeDelta = new Vector2(1060, 140);
             title.fontStyle = FontStyle.Bold;
