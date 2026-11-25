@@ -38,6 +38,7 @@ namespace GhostWard.EditorTools
 
             SetupUrp();
             SetupPlayer();
+            SetupIcon();
             SetupXr();
             SetupScene();
             SetupAds();
@@ -95,6 +96,46 @@ namespace GhostWard.EditorTools
             PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel26;
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
             PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { GraphicsDeviceType.OpenGLES3 });
+        }
+
+        // Иконка приложения. Файла нет — рисуется из эмблемы (WardLogo.RenderIcon).
+        // Чтобы поставить свою (например, из GPT): заменить PNG 1024×1024 по этому пути.
+        public const string IconPath = "Assets/GhostWard/Branding/AppIcon.png";
+
+        static void SetupIcon()
+        {
+            if (!File.Exists(IconPath))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(IconPath));
+                var gen = WardLogo.RenderIcon(1024);
+                File.WriteAllBytes(IconPath, gen.EncodeToPNG());
+                Object.DestroyImmediate(gen);
+                AssetDatabase.ImportAsset(IconPath, ImportAssetOptions.ForceUpdate);
+            }
+            if (AssetImporter.GetAtPath(IconPath) is TextureImporter imp &&
+                (imp.textureType != TextureImporterType.Sprite || imp.mipmapEnabled ||
+                 imp.textureCompression != TextureImporterCompression.Uncompressed || imp.npotScale != TextureImporterNPOTScale.None))
+            {
+                imp.textureType = TextureImporterType.Sprite;
+                imp.spriteImportMode = SpriteImportMode.Single;
+                imp.mipmapEnabled = false;
+                imp.npotScale = TextureImporterNPOTScale.None;
+                imp.textureCompression = TextureImporterCompression.Uncompressed;
+                imp.SaveAndReimport();
+            }
+            var icon = AssetDatabase.LoadAssetAtPath<Texture2D>(IconPath);
+            if (icon == null) { Debug.LogWarning("[GhostWard] Иконка не найдена: " + IconPath); return; }
+            PlayerSettings.SetIcons(NamedBuildTarget.Unknown, new[] { icon }, IconKind.Any);
+
+            // заставка при запуске: тёмно-зелёный фон и эмблема вместо пустого экрана
+            PlayerSettings.SplashScreen.backgroundColor = new Color(0.010f, 0.045f, 0.022f);
+            PlayerSettings.SplashScreen.unityLogoStyle = PlayerSettings.SplashScreen.UnityLogoStyle.LightOnDark;
+            var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(IconPath);
+            if (sprite != null)
+            {
+                PlayerSettings.SplashScreen.logos = new[] { PlayerSettings.SplashScreenLogo.Create(2f, sprite) };
+                PlayerSettings.SplashScreen.drawMode = PlayerSettings.SplashScreen.DrawMode.AllSequential;
+            }
         }
 
         // true — если настройку пришлось поменять и нужен перезапуск
