@@ -295,7 +295,7 @@ namespace GhostWard
             {
                 EntityKind.Ghost => 0.28f,
                 EntityKind.Shade => 0.55f,
-                EntityKind.Albasty => 1.0f,
+                EntityKind.Albasty => 0.7f,
                 EntityKind.Double => 1.4f,
                 EntityKind.Kikimora => 0.45f,
                 EntityKind.Upyr => 2.2f,
@@ -518,10 +518,11 @@ namespace GhostWard
                     {
                         Approach(speed);
                         nextEvent -= dt;
-                        if (nextEvent <= 0f && FlatDistance() > 1.6f)
+                        // прыжок за спину — редко и только издалека, иначе её не поймать взглядом
+                        if (nextEvent <= 0f && FlatDistance() > 3f)
                         {
                             Relocate(140f, FlatDistance() * 0.8f, keepState: true);
-                            nextEvent = Random.Range(6f, 10f);
+                            nextEvent = Random.Range(14f, 20f);
                             var jump = EntitySounds.Special(Def.Kind);   // кицунэ кричит, оказавшись за спиной
                             if (jump != null) voice.PlayOneShot(jump, 1f);
                         }

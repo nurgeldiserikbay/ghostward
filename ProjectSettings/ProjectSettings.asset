@@ -16,7 +16,7 @@ PlayerSettings:
   productName: Ghost Ward
   defaultCursor: {fileID: 0}
   cursorHotspot: {x: 0, y: 0}
-  m_SplashScreenBackgroundColor: {r: 0.01, g: 0.045, b: 0.022, a: 1}
+  m_SplashScreenBackgroundColor: {r: 0.03, g: 0.04, b: 0.045, a: 1}
   m_ShowUnitySplashScreen: 1
   m_ShowUnitySplashLogo: 1
   m_SplashScreenOverlayOpacity: 1
@@ -311,32 +311,44 @@ PlayerSettings:
   m_BuildTargetPlatformIcons:
   - m_BuildTarget: Android
     m_Icons:
-    - m_Textures: []
+    - m_Textures:
+      - {fileID: 2800000, guid: 33b2373d2e926bf43afeb705aa09aac6, type: 3}
+      - {fileID: 2800000, guid: 2cbef8b152ef0a94d9f540433ab491f3, type: 3}
       m_Width: 432
       m_Height: 432
       m_Kind: 2
       m_SubKind: 
-    - m_Textures: []
+    - m_Textures:
+      - {fileID: 2800000, guid: 33b2373d2e926bf43afeb705aa09aac6, type: 3}
+      - {fileID: 2800000, guid: 2cbef8b152ef0a94d9f540433ab491f3, type: 3}
       m_Width: 324
       m_Height: 324
       m_Kind: 2
       m_SubKind: 
-    - m_Textures: []
+    - m_Textures:
+      - {fileID: 2800000, guid: 33b2373d2e926bf43afeb705aa09aac6, type: 3}
+      - {fileID: 2800000, guid: 2cbef8b152ef0a94d9f540433ab491f3, type: 3}
       m_Width: 216
       m_Height: 216
       m_Kind: 2
       m_SubKind: 
-    - m_Textures: []
+    - m_Textures:
+      - {fileID: 2800000, guid: 33b2373d2e926bf43afeb705aa09aac6, type: 3}
+      - {fileID: 2800000, guid: 2cbef8b152ef0a94d9f540433ab491f3, type: 3}
       m_Width: 162
       m_Height: 162
       m_Kind: 2
       m_SubKind: 
-    - m_Textures: []
+    - m_Textures:
+      - {fileID: 2800000, guid: 33b2373d2e926bf43afeb705aa09aac6, type: 3}
+      - {fileID: 2800000, guid: 2cbef8b152ef0a94d9f540433ab491f3, type: 3}
       m_Width: 108
       m_Height: 108
       m_Kind: 2
       m_SubKind: 
-    - m_Textures: []
+    - m_Textures:
+      - {fileID: 2800000, guid: 33b2373d2e926bf43afeb705aa09aac6, type: 3}
+      - {fileID: 2800000, guid: 2cbef8b152ef0a94d9f540433ab491f3, type: 3}
       m_Width: 81
       m_Height: 81
       m_Kind: 2

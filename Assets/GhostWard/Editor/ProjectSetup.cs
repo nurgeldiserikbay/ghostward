@@ -101,6 +101,26 @@ namespace GhostWard.EditorTools
         // Иконка приложения. Файла нет — рисуется из эмблемы (WardLogo.RenderIcon).
         // Чтобы поставить свою (например, из GPT): заменить PNG 1024×1024 по этому пути.
         public const string IconPath = "Assets/GhostWard/Branding/AppIcon.png";
+        // слои адаптивной иконки Android (docs/branding/GhostWard_Icon_fg.svg / _bg.svg)
+        const string IconFgPath = "Assets/GhostWard/Branding/AppIconFg.png";
+        const string IconBgPath = "Assets/GhostWard/Branding/AppIconBg.png";
+
+        // иконке нужна картинка без сжатия и мипмапов; спрайт — чтобы её же показать на заставке
+        static Texture2D LoadIconTexture(string path)
+        {
+            if (!(AssetImporter.GetAtPath(path) is TextureImporter imp)) return null;
+            if (imp.textureType != TextureImporterType.Sprite || imp.mipmapEnabled ||
+                imp.textureCompression != TextureImporterCompression.Uncompressed || imp.npotScale != TextureImporterNPOTScale.None)
+            {
+                imp.textureType = TextureImporterType.Sprite;
+                imp.spriteImportMode = SpriteImportMode.Single;
+                imp.mipmapEnabled = false;
+                imp.npotScale = TextureImporterNPOTScale.None;
+                imp.textureCompression = TextureImporterCompression.Uncompressed;
+                imp.SaveAndReimport();
+            }
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
 
         static void SetupIcon()
         {
@@ -112,23 +132,27 @@ namespace GhostWard.EditorTools
                 Object.DestroyImmediate(gen);
                 AssetDatabase.ImportAsset(IconPath, ImportAssetOptions.ForceUpdate);
             }
-            if (AssetImporter.GetAtPath(IconPath) is TextureImporter imp &&
-                (imp.textureType != TextureImporterType.Sprite || imp.mipmapEnabled ||
-                 imp.textureCompression != TextureImporterCompression.Uncompressed || imp.npotScale != TextureImporterNPOTScale.None))
-            {
-                imp.textureType = TextureImporterType.Sprite;
-                imp.spriteImportMode = SpriteImportMode.Single;
-                imp.mipmapEnabled = false;
-                imp.npotScale = TextureImporterNPOTScale.None;
-                imp.textureCompression = TextureImporterCompression.Uncompressed;
-                imp.SaveAndReimport();
-            }
-            var icon = AssetDatabase.LoadAssetAtPath<Texture2D>(IconPath);
+            var icon = LoadIconTexture(IconPath);
             if (icon == null) { Debug.LogWarning("[GhostWard] Иконка не найдена: " + IconPath); return; }
             PlayerSettings.SetIcons(NamedBuildTarget.Unknown, new[] { icon }, IconKind.Any);
 
-            // заставка при запуске: тёмно-зелёный фон и эмблема вместо пустого экрана
-            PlayerSettings.SplashScreen.backgroundColor = new Color(0.010f, 0.045f, 0.022f);
+            // Android берёт иконки из своих слотов, а не из общей — заполняем их явно.
+            // Адаптивная (Android 8+): фон + эмблема в безопасной зоне; без своих слоёв — вся иконка на фоне.
+            var fg = LoadIconTexture(IconFgPath) ?? icon;
+            var bg = LoadIconTexture(IconBgPath) ?? icon;
+            foreach (var kind in PlayerSettings.GetSupportedIconKinds(NamedBuildTarget.Android))
+            {
+                var slots = PlayerSettings.GetPlatformIcons(NamedBuildTarget.Android, kind);
+                foreach (var slot in slots)
+                {
+                    if (slot.maxLayerCount >= 2) slot.SetTextures(bg, fg);
+                    else slot.SetTexture(icon);
+                }
+                PlayerSettings.SetPlatformIcons(NamedBuildTarget.Android, kind, slots);
+            }
+
+            // заставка при запуске: тёмный фон как у иконки и эмблема
+            PlayerSettings.SplashScreen.backgroundColor = new Color(0.03f, 0.04f, 0.045f);
             PlayerSettings.SplashScreen.unityLogoStyle = PlayerSettings.SplashScreen.UnityLogoStyle.LightOnDark;
             var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(IconPath);
             if (sprite != null)

@@ -163,9 +163,9 @@ Shader "GhostWard/Feed"
                     bloom += luma(tex2D(_MainTex, uv - float2(0, o.y)).rgb);
                     bloom = saturate(bloom * 0.25 - 0.65) * 2.5;
                     float soft = (lum * 2.0 + luma(tex2D(_MainTex, uv + o * 0.4).rgb) + luma(tex2D(_MainTex, uv - o * 0.4).rgb)) * 0.25;
-                    float gain = 0.94 + 0.06 * sin(t * 1.3) + 0.03 * sin(t * 40.0);          // автоусиление «дышит»
-                    float nv = pow(saturate(soft * 1.9), 0.8) * gain + bloom + grain * 0.2;
-                    nv += step(0.9985, hash21(floor(px * 0.5) + floor(t * 20.0))) * 0.8;     // искры усилителя
+                    float gain = 0.97 + 0.03 * sin(t * 1.3);                                   // автоусиление чуть «дышит»
+                    float nv = pow(saturate(soft * 1.6), 1.05) * gain * 0.82 + bloom * 0.6 + grain * 0.07;   // темнее, тени уходят в черноту, зерно тише
+                    nv += step(0.9997, hash21(floor(px * 0.5) + floor(t * 20.0))) * 0.4;     // редкие искры усилителя
                     nv *= 0.93 + 0.07 * step(0.5, frac(px.x * 0.33)) * step(0.5, frac(px.y * 0.33));   // сетка люминофора
                     // тёмно-зелёный люминофор: чёрные тени, плотная виньетка
                     float3 green = float3(0.14, 0.78, 0.26) * nv + float3(0.0, 0.025, 0.008);
@@ -253,15 +253,15 @@ Shader "GhostWard/Feed"
 
                 // помехи: строки экрана рвутся и смещаются
                 float row = floor(sp.y * 60.0);
-                float tear = step(1.0 - _Glitch * 0.6, hash21(float2(row, floor(t * 24.0))));
-                float2 uv = i.uv + float2(tear * (hash21(float2(row, t)) - 0.5) * 0.08 * _Glitch, 0.0);
+                float tear = step(1.0 - _Glitch * 0.3, hash21(float2(row, floor(t * 24.0))));   // помехи реже и мягче — хоррор, а не экшн
+                float2 uv = i.uv + float2(tear * (hash21(float2(row, t)) - 0.5) * 0.045 * _Glitch, 0.0);
                 float grain = hash21(floor(px * 0.5) + frac(t * 7.0) * 113.0) - 0.5;
 
                 float3 col = look((int)round(_Style), uv, sp, px, t, grain);
                 if (_Mode > 0.001) col = lerp(col, look((int)round(_Alt), uv, sp, px, t, grain), _Mode);
                 if (_Possess > 0.001) col = possess(col, uv, t);
 
-                col = lerp(col, (grain + 0.5).xxx, _Glitch * 0.35 * step(0.6, hash21(float2(row, floor(t * 30.0)))));
+                col = lerp(col, (grain + 0.5).xxx, _Glitch * 0.15 * step(0.6, hash21(float2(row, floor(t * 30.0)))));
                 return fixed4(col, 1.0) * i.color;
             }
             ENDCG

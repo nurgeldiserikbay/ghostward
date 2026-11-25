@@ -100,7 +100,10 @@ namespace GhostWard
         readonly List<(Lure kind, Text label)> lureRows = new();
         Text nightText, clockText, messageText, supplyText, diagText, dawnText, overText, scanText, phoneText;
         Text entryName, entryOrigin, entryText, entryItem, entryCount;
-        RectTransform entryItemIcon, entryGestureIcon;
+        RectTransform entryItemIcon, entryGestureIcon, entryContent;
+        RawImage entryPic;
+        Material entryMat;
+        ScrollRect entryScroll;
         RawImage grain, jumpscare;
         Material jumpMat;
         float jumpTimer;
@@ -716,18 +719,24 @@ namespace GhostWard
             menuMat.SetFloat("_Fade", 0.22f);
             bg.material = menuMat;
 
-            // Cinematic ward sigil above the title; generated locally, works offline.
-            WardLogo.AddTo(menu.transform);
-
-            var title = Label(menu.transform, Loc.Brand.ToUpper(), 110, new Vector2(0.5f, 0.8f), Vector2.zero, Bone);
-            title.rectTransform.sizeDelta = new Vector2(1060, 140);
-            title.fontStyle = FontStyle.Bold;
-            Outline(title);
-            var sub = Label(menu.transform, Loc.T("title_sub").ToUpper(), 54, new Vector2(0.5f, 0.74f), Vector2.zero, new Color(0.8f, 0.15f, 0.15f));
-            sub.rectTransform.sizeDelta = new Vector2(1000, 80);
-            sub.fontStyle = FontStyle.Bold;
-            var tag = Label(menu.transform, Loc.T("tagline"), 32, new Vector2(0.5f, 0.66f), Vector2.zero, Dim);
-            tag.rectTransform.sizeDelta = new Vector2(880, 120);
+            // логотип (docs/branding/GhostWard_Logo.svg → Resources/Branding/Logo.png): эмблема и надпись GHOST WARD
+            var logoTex = Resources.Load<Texture2D>("Branding/Logo");
+            if (logoTex != null)
+            {
+                var logo = Rect(menu.transform, "Logo", new Vector2(0.5f, 0.73f), new Vector2(0.5f, 0.73f)).gameObject.AddComponent<RawImage>();
+                logo.texture = logoTex;
+                logo.rectTransform.sizeDelta = new Vector2(940f, 940f * logoTex.height / logoTex.width);
+                logo.raycastTarget = false;
+            }
+            else
+            {
+                WardLogo.AddTo(menu.transform);
+                var title = Label(menu.transform, Loc.Brand.ToUpper(), 110, new Vector2(0.5f, 0.8f), Vector2.zero, Bone);
+                title.rectTransform.sizeDelta = new Vector2(1060, 140);
+                title.fontStyle = FontStyle.Bold;
+                Outline(title);
+            }
+            // подзаголовок и слоган под логотипом убраны — на главном только логотип и кнопки
 
             // звание и опыт — касание открывает список званий
             var rank = Rect(menu.transform, "Rank", new Vector2(0.5f, 0.575f), new Vector2(0.5f, 0.575f));
@@ -749,16 +758,15 @@ namespace GhostWard
             rankFill.gameObject.AddComponent<Image>().color = new Color(0.5f, 1f, 0.56f);
             rankXp = Label(rank, "", 24, new Vector2(0.5f, 0f), new Vector2(0, 14), Dim);
             rankXp.rectTransform.sizeDelta = new Vector2(640, 36);
+            // звание и опыт на главном экране не показываем (меньше «аркады»); тексты обновляются как прежде
+            rank.gameObject.SetActive(false);
 
             Button(menu.transform, Loc.T("play"), new Vector2(0.5f, 0.49f), () => PlayPressed?.Invoke(), true);
-            Button(menu.transform, Loc.T("daily"), new Vector2(0.5f, 0.415f), () => DailyPressed?.Invoke(), false, 310, -165);
-            Button(menu.transform, Loc.T("story"), new Vector2(0.5f, 0.415f), () => OpenStory(menu, Progress.StoryUnlocked), false, 310, 165);
-            Button(menu.transform, Loc.T("journal"), new Vector2(0.5f, 0.34f), () => SetJournal(true), false, 310, -165);
-            Button(menu.transform, Loc.T("howto"), new Vector2(0.5f, 0.34f), () => OpenTutorial(false), false, 310, 165);
+            // «Дело дня» убрано с главного экрана; «Сюжет» — на всю ширину
+            Button(menu.transform, Loc.T("story"), new Vector2(0.5f, 0.415f), () => OpenStory(menu, Progress.StoryUnlocked), false);
+            Button(menu.transform, Loc.T("journal"), new Vector2(0.5f, 0.34f), () => SetJournal(true), false);
             Button(menu.transform, Loc.T("settings"), new Vector2(0.5f, 0.265f), () => ShowOnly(settings), false);
-            BuildMenuItems();
-            var tip = Label(menu.transform, Loc.T("tip"), 26, new Vector2(0.5f, 0.045f), Vector2.zero, Dim);
-            tip.rectTransform.sizeDelta = new Vector2(900, 50);
+            // предметы и подсказка внизу убраны с главного экрана: предметы и тренировка жестов — в журнале
         }
 
         // Чем прогонять: шесть предметов с жестами прямо в меню; касание — тренировка жеста.
@@ -938,7 +946,8 @@ namespace GhostWard
                 settingButtons.Add((b.GetComponent<Image>(), () => Settings.Vibration == on));
             }
 
-            Button(settings.transform, Loc.T("back"), new Vector2(0.5f, 0.08f), () => ShowOnly(menu), false);
+            Button(settings.transform, Loc.T("howto"), new Vector2(0.5f, 0.08f), () => OpenTutorial(false), false, 310, -165);
+            Button(settings.transform, Loc.T("back"), new Vector2(0.5f, 0.08f), () => ShowOnly(menu), false, 310, 165);
             SettingsTab(true);
         }
 
@@ -1380,28 +1389,44 @@ namespace GhostWard
         void BuildJournalEntry()
         {
             journalEntry = Rect(journal.transform, "Entry", Vector2.zero, Vector2.one).gameObject;
-            // без картинки сущности: узнают её по уликам, а не по облику
             entryName = Label(journalEntry.transform, "", 64, new Vector2(0.5f, 1f), new Vector2(0, -230), Bone);
             entryName.rectTransform.sizeDelta = new Vector2(940, 100);
             entryName.fontStyle = FontStyle.Bold;
             entryOrigin = Label(journalEntry.transform, "", 28, new Vector2(0.5f, 1f), new Vector2(0, -300), Dim);
             entryOrigin.rectTransform.sizeDelta = new Vector2(940, 60);
 
-            // чем защищаться: иконка предмета, жест, остаток
-            entryItemIcon = Rect(journalEntry.transform, "ItemIcon", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
-            entryItemIcon.anchoredPosition = new Vector2(-150, -420);
-            entryGestureIcon = Rect(journalEntry.transform, "GestureIcon", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
-            entryGestureIcon.anchoredPosition = new Vector2(150, -420);
-            entryItem = Label(journalEntry.transform, "", 30, new Vector2(0.5f, 1f), new Vector2(0, -540), Bone);
-            entryItem.rectTransform.sizeDelta = new Vector2(940, 60);
-            entryCount = Label(journalEntry.transform, "", 26, new Vector2(0.5f, 1f), new Vector2(0, -590), Dim);
-            entryCount.rectTransform.sizeDelta = new Vector2(940, 40);
+            // страница прокручивается: картинка, описание, в конце — улики и защита
+            var view = Rect(journalEntry.transform, "View", new Vector2(0f, 0.175f), new Vector2(1f, 1f));
+            view.offsetMax = new Vector2(0, -340);
+            view.gameObject.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.01f);
+            view.gameObject.AddComponent<Mask>().showMaskGraphic = false;
+            entryContent = Rect(view, "Content", new Vector2(0f, 1f), new Vector2(1f, 1f));
+            entryContent.pivot = new Vector2(0.5f, 1f);
+            entryScroll = view.gameObject.AddComponent<ScrollRect>();
+            entryScroll.content = entryContent;
+            entryScroll.horizontal = false;
+            entryScroll.movementType = ScrollRect.MovementType.Elastic;
+            entryScroll.scrollSensitivity = 40f;
 
-            entryText = Label(journalEntry.transform, "", 29, new Vector2(0.5f, 1f), new Vector2(0, -640), Bone);
+            // облик сущности (только у распознанных)
+            entryPic = Rect(entryContent, "Picture", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f)).gameObject.AddComponent<RawImage>();
+            entryPic.rectTransform.pivot = new Vector2(0.5f, 1f);
+            entryPic.raycastTarget = false;
+
+            entryText = Label(entryContent, "", 29, new Vector2(0.5f, 1f), Vector2.zero, Bone);
             entryText.rectTransform.pivot = new Vector2(0.5f, 1f);
-            entryText.rectTransform.sizeDelta = new Vector2(940, 860);
+            entryText.rectTransform.sizeDelta = new Vector2(940, 100);
             entryText.alignment = TextAnchor.UpperLeft;
             entryText.supportRichText = true;
+            entryText.raycastTarget = false;
+
+            // чем защищаться: иконка предмета, жест, остаток — под текстом о защите
+            entryItemIcon = Rect(entryContent, "ItemIcon", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+            entryGestureIcon = Rect(entryContent, "GestureIcon", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f));
+            entryItem = Label(entryContent, "", 30, new Vector2(0.5f, 1f), Vector2.zero, Bone);
+            entryItem.rectTransform.sizeDelta = new Vector2(940, 60);
+            entryCount = Label(entryContent, "", 26, new Vector2(0.5f, 1f), Vector2.zero, Dim);
+            entryCount.rectTransform.sizeDelta = new Vector2(940, 40);
 
             nameButton = Button(journalEntry.transform, Loc.T("this_is_it"), new Vector2(0.5f, 0.135f), () =>
             {
@@ -1502,9 +1527,8 @@ namespace GhostWard
             }
             Button(journalClues.transform, Loc.T("items"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalItems), false, 300, 0);
             Button(journalClues.transform, Loc.T("tools"), new Vector2(0.5f, 0.135f), () => ShowJournalPage(journalTools), false, 300, 320);
-            Button(journalClues.transform, Loc.T("howto"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalHowTo), false, 300, -320);
-            Button(journalClues.transform, Loc.T("night_log"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalLog), false, 300, 0);
-            Button(journalClues.transform, Loc.T("close"), new Vector2(0.5f, 0.06f), () => SetJournal(false), false, 300, 320);
+            Button(journalClues.transform, Loc.T("night_log"), new Vector2(0.5f, 0.06f), () => ShowJournalPage(journalLog), false, 300, -160);
+            Button(journalClues.transform, Loc.T("close"), new Vector2(0.5f, 0.06f), () => SetJournal(false), false, 300, 160);
             UpdateIdentify();
         }
 
@@ -2055,6 +2079,8 @@ namespace GhostWard
                 entryText.text = $"<i>{Loc.T("unknown_entity")}</i>" +
                     (Know.Unlocked(kind) ? "" : "\n\n" + Loc.F("unlock_xp", Know.XpFor(kind))) + TestInfo(def);
                 entryItem.text = entryCount.text = "";
+                SetEntryPicture(def, false);
+                LayoutEntry(false);
                 ShowJournalPage(journalEntry);
                 return;
             }
@@ -2064,14 +2090,15 @@ namespace GhostWard
             string Locked(string key) => $"<color=#8a8378><i>{Loc.T(key)}</i></color>";
             entryName.text = def.Name.ToUpper();
             entryOrigin.text = def.Origin;
+            // сначала — кто она и как себя ведёт; в конце — улики, приманка и защита
             entryText.text =
                 $"{def.Lore}\n\n" +
-                $"<b>{Loc.T("clues_label")}</b> <color=#7dff8a>{string.Join(" · ", clues)}</color>   " +
-                $"<b>{Loc.T("lure_label")}</b> {(Know.Lure(kind) ? Loc.T($"l.{def.Lure}.name") : "?")}\n\n" +
                 (Know.Habits(kind)
                     ? $"<b>{Loc.T("hides")}</b> {def.LairText}\n<b>{Loc.T("on_hunt")}</b> {def.Signs}\n\n"
                     : Locked("locked_habits") + "\n\n") +
                 $"<b>{Loc.T("sec_tale")}</b> <i>{Loc.T($"e.{kind}.tale")}</i>\n\n" +
+                $"<b>{Loc.T("clues_label")}</b> <color=#7dff8a>{string.Join(" · ", clues)}</color>\n" +
+                $"<b>{Loc.T("lure_label")}</b> {(Know.Lure(kind) ? Loc.T($"l.{def.Lure}.name") : "?")}\n\n" +
                 (defense ? $"<b>{Loc.T("defense")}</b> {def.Defense}" : Locked("locked_defense")) + TestInfo(def);
 
             if (defense)
@@ -2082,7 +2109,53 @@ namespace GhostWard
                 entryCount.text = shownInventory != null ? Loc.F("carry", shownInventory.Label(item.Kind)) : "";
             }
             else entryItem.text = entryCount.text = "";
+            SetEntryPicture(def, true);
+            LayoutEntry(defense);
             ShowJournalPage(journalEntry);
+        }
+
+        // облик сущности в журнале: тот же материал, что у фигуры в игре, но плотный и без дрожания
+        void SetEntryPicture(EntityDef def, bool show)
+        {
+            if (entryMat != null) { Destroy(entryMat); entryMat = null; }
+            entryPic.material = null;
+            entryPic.gameObject.SetActive(show);
+            if (!show) return;
+            entryMat = Entity.CreateMaterial(def, 1.7f);
+            entryMat.SetFloat("_Fade", 0.95f);
+            if (Entity.ArchOf(def.Kind) == EntityKind.Kikimora) entryMat.SetFloat("_Flip", 1f);
+            entryPic.material = entryMat;
+            var size = Entity.FigureOf(def).Size;
+            const float maxH = 520f, maxW = 700f;
+            float h = maxH, w = maxH * size.x / Mathf.Max(size.y, 0.01f);
+            if (w > maxW) { w = maxW; h = maxW * size.y / Mathf.Max(size.x, 0.01f); }
+            entryPic.rectTransform.sizeDelta = new Vector2(w, h);
+        }
+
+        // раскладка прокручиваемой страницы сверху вниз; высота текста — по его содержимому
+        void LayoutEntry(bool defenseIcons)
+        {
+            float y = -10f;
+            if (entryPic.gameObject.activeSelf)
+            {
+                entryPic.rectTransform.anchoredPosition = new Vector2(0f, y);
+                y -= entryPic.rectTransform.sizeDelta.y + 30f;
+            }
+            float textH = Mathf.Max(60f, entryText.preferredHeight + 10f);
+            entryText.rectTransform.sizeDelta = new Vector2(940f, textH);
+            entryText.rectTransform.anchoredPosition = new Vector2(0f, y);
+            y -= textH + 20f;
+            if (defenseIcons)
+            {
+                entryItemIcon.anchoredPosition = new Vector2(-150f, y - 100f);
+                entryGestureIcon.anchoredPosition = new Vector2(150f, y - 100f);
+                entryItem.rectTransform.anchoredPosition = new Vector2(0f, y - 220f);
+                entryCount.rectTransform.anchoredPosition = new Vector2(0f, y - 270f);
+                y -= 310f;
+            }
+            entryContent.sizeDelta = new Vector2(0f, -y + 20f);
+            entryContent.anchoredPosition = Vector2.zero;
+            entryScroll.velocity = Vector2.zero;
         }
 
         // тестовая сборка: всё о сущности сразу, даже если игрок её ещё не встречал

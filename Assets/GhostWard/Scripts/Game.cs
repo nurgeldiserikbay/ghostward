@@ -488,13 +488,13 @@ namespace GhostWard
                 PlayerPrefs.DeleteKey("test_next");
                 return Catalog.Entities[test];
             }
-            var fresh = Know.NextNewCase();
-            if (fresh.HasValue) return Catalog.Get(fresh.Value);
-            int pool = Know.UnlockedCount;
+            // любая сущность, случайно, без очереди открытия: может прийти незнакомая, может повториться.
+            // Тот же, что был прошлой ночью, — реже (вес 0.4), но не исключён.
+            int pool = Catalog.Entities.Length;
             float total = 0f;
             var weights = new float[pool];
             for (int i = 0; i < pool; i++)
-                total += weights[i] = 1f + (3 - Know.CluesKnown(Catalog.Entities[i].Kind)) * 0.5f;
+                total += weights[i] = target.Kind == Catalog.Entities[i].Kind && night > 1 ? 0.4f : 1f;
             float r = Random.value * total;
             for (int i = 0; i < pool; i++)
             {
@@ -1276,17 +1276,17 @@ namespace GhostWard
                     nightVisionTarget = on ? 1f : 0f;
                     nextVisionSwitch = on ? Random.Range(10f, 16f) : Random.Range(18f, 32f);
                     sfx.PlayOneShot(ProceduralAudio.Click(), 0.8f);
-                    glitch = Mathf.Max(glitch, 0.7f);
+                    glitch = Mathf.Max(glitch, 0.35f);
                 }
 
                 float near = 0f;
                 foreach (var e in entities)
                     if (e.Alive && e.Current != Entity.State.Lurking)
                         near = Mathf.Max(near, Mathf.Clamp01(1f - (e.FlatDistance() - 0.8f) / 2.2f));
-                glitch = Mathf.Max(Mathf.MoveTowards(glitch, 0f, dt * 2f), near * 0.6f);
+                glitch = Mathf.Max(Mathf.MoveTowards(glitch, 0f, dt * 2f), near * 0.35f);
                 // идёт — помехи не гаснут до конца
                 walkNoise = Mathf.MoveTowards(walkNoise, 0f, dt * 0.7f);
-                glitch = Mathf.Max(glitch, walkNoise * 0.45f);
+                glitch = Mathf.Max(glitch, walkNoise * 0.2f);
             }
             else
             {
@@ -1707,7 +1707,9 @@ namespace GhostWard
                 bonusTaken = false;
                 bonusWindow = banished ? BonusWindowSeconds : 0f;
                 ui.SetHudBonus(banished);
-                ui.Message(text, 6f);
+                // итог визита на экран не выводим — после изгнания просто тишина (запись остаётся в журнале);
+                // только после пролога — короткое объяснение, что дальше
+                if (Settings.PrologueDone && extra.Contains(Loc.T("pro_dawn"))) ui.Message(Loc.T("pro_dawn"), 6f);
                 // подпись фазы та же, что во время визита: по её смене приход был бы заметен
                 ui.SetPhase(Loc.T("phase_investigate"), false);
                 ui.LogNight(GameUI.Clock(sessionTime));
@@ -2267,6 +2269,8 @@ namespace GhostWard
 
         // железо бьёт вплотную; в режиме гироскопа к сущности не подойти — дотягиваемся дальше
         float IronRange => arRig != null ? 1.8f : 2.6f;
+        // для тех, кто замирает под взглядом (албасты): подпускать вплотную нечестно — она прыгает за спину
+        float FrozenIronRange => arRig != null ? 3.2f : 4.5f;
         bool ironNowShown;
 
         // ночной режим или тепловизор: видно то, что не видно глазу (чёрный пёс)
@@ -2310,7 +2314,6 @@ namespace GhostWard
             AddFear(e.Def.Invisible ? 15f : 22f);
             ui.Jumpscare(e.Def, e.Seed, e.Def.Invisible ? 0.5f : 1f);
             sfx.PlayOneShot(EntitySounds.Attack(e.Def.Kind), 0.8f);
-            if (SoundBank.Has("screech")) sfx.PlayOneShot(ProceduralAudio.Screech(), 0.55f);   // записанный крик поверх голоса сущности
 #if UNITY_ANDROID || UNITY_IOS
             if (Settings.Vibration) Handheld.Vibrate();
 #endif
@@ -2411,6 +2414,9 @@ namespace GhostWard
             if (item == ItemKind.Iron)
             {
                 if (inv.Iron <= 0) { Empty(Loc.F("no_more", def.Name)); return; }
+                // албасты и её родня замирают под взглядом и сами не подходят — железо достаёт их дальше
+                var frozen = Target(angle, FrozenIronRange);
+                if (frozen != null && Entity.ArchOf(frozen.Def.Kind) == EntityKind.Albasty) range = FrozenIronRange;
                 if (Target(angle, range) == null)
                 {
                     var far = Target(30f, 6f);

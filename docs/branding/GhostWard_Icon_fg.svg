@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs>
+ <linearGradient id="steel" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e2e1db"/><stop offset=".27" stop-color="#849394"/><stop offset=".55" stop-color="#363f41"/><stop offset=".8" stop-color="#b4b7b0"/><stop offset="1" stop-color="#4f5c5e"/></linearGradient>
+ <linearGradient id="blood" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#bf4640"/><stop offset=".48" stop-color="#64201f"/><stop offset="1" stop-color="#250c0e"/></linearGradient>
+ <filter id="glow"><feGaussianBlur stdDeviation="9"/></filter>
+ <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".55" numOctaves="3" seed="18" result="n"/><feColorMatrix in="n" type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope=".11"/></feComponentTransfer></filter>
+</defs>
+<!-- Android adaptive icon foreground: emblem inside the 66% safe zone, transparent. -->
+<g transform="translate(512 512) scale(1.75)">
+ <circle r="160" fill="none" stroke="#631819" stroke-width="10" opacity=".35" filter="url(#glow)"/>
+ <g fill="none" stroke="url(#steel)" stroke-linecap="square">
+  <path d="M-132 -79 A154 154 0 0 1 -27 -152" stroke-width="13"/>
+  <path d="M17 -153 A154 154 0 0 1 148 -44" stroke-width="11"/>
+  <path d="M154 -18 A154 154 0 0 1 94 121" stroke-width="13"/>
+  <path d="M75 134 A154 154 0 0 1 -110 108" stroke-width="12"/>
+  <path d="M-128 86 A154 154 0 0 1 -146 -48" stroke-width="10"/>
+  <path d="M-115 -97 A145 145 0 0 1 -52 -135" stroke-width="2" opacity=".65"/>
+  <path d="M117 90 A143 143 0 0 1 127 -65" stroke-width="2" opacity=".45"/>
+ </g>
+ <path d="M-104 -79 L-62 85 L-12 -20 L40 85 L102 -79" fill="none" stroke="#050809" stroke-width="31" stroke-linecap="square" stroke-linejoin="miter"/>
+ <path d="M-104 -79 L-62 85 L-12 -20 L40 85 L102 -79" fill="none" stroke="url(#steel)" stroke-width="19" stroke-linecap="square" stroke-linejoin="miter"/>
+ <path d="M-106 -85 L-62 88 L-12 -17 L40 88 L104 -85" fill="none" stroke="#ccd0cc" stroke-width="2" opacity=".64"/>
+ <path d="M-4 -108 L11 -46 L-8 -55 Z" fill="url(#blood)"/>
+ <path d="M-4 -101 L1 -63" stroke="#e4554d" stroke-width="3" opacity=".7"/>
+ <g stroke="#090d0e" stroke-width="2" opacity=".75"><path d="M-148 39 l23 -7 M115 -114 l-20 25 M-69 136 l16 -13 M37 -149 l-12 19 M-22 48 l31 -12"/></g>
+</g>
+</svg>

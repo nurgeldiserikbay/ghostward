@@ -48,6 +48,18 @@ namespace GhostWard.EditorTools
                 d.alphaSource = TextureImporterAlphaSource.None;
                 return;
             }
+            // логотип для меню: чёткий, без мипмапов, с прозрачностью
+            if (assetPath.Replace('\\', '/').Contains("/Resources/Branding/"))
+            {
+                var b = (TextureImporter)assetImporter;
+                b.textureType = TextureImporterType.Default;
+                b.mipmapEnabled = false;
+                b.wrapMode = TextureWrapMode.Clamp;
+                b.maxTextureSize = 2048;
+                b.alphaIsTransparency = true;
+                b.textureCompression = TextureImporterCompression.CompressedHQ;
+                return;
+            }
             if (!assetPath.Replace('\\', '/').Contains("/Resources/Entities/")) return;
             var importer = (TextureImporter)assetImporter;
             importer.textureType = TextureImporterType.Default;
