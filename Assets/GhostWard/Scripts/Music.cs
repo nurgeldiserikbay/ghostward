@@ -42,7 +42,7 @@ namespace GhostWard
         }
 
         // уровни 0..1: страх, близость сущности, злость
-        public void SetMenu() { menuTarget = 0.3f; padTarget = 0f; tensionTarget = 0f; pulseTarget = 0f; themeTarget = 0f; }
+        public void SetMenu() { menuTarget = 0.5f; padTarget = 0f; tensionTarget = 0f; pulseTarget = 0f; themeTarget = 0f; }
         public void SetSilence() { menuTarget = 0f; padTarget = 0.15f; tensionTarget = 0f; pulseTarget = 0f; themeTarget = 0f; }
         public void SetScan() { menuTarget = 0f; padTarget = 0.35f; tensionTarget = 0f; pulseTarget = 0f; themeTarget = 0f; }
 
@@ -382,21 +382,29 @@ namespace GhostWard
             // частоты подогнаны под длину петли — цикл замыкается без щелчка
             float Loopf(float f) => Mathf.Round(f * len) / len;
             float a = Loopf(55f), b = Loopf(58.27f), c = Loopf(82.4f);
-            // редкие ноты шкатулки: (время, полутон от A3)
-            float[] at = { 4f, 11f, 12.6f, 27f, 35.5f };
-            int[] notes = { 15, 14, 8, 19, 13 };
-            float wind = 0f, wind2 = 0f;
+            // Динамик телефона почти не играет ниже ~250 Гц, поэтому у гула есть верхний слой (220–250 Гц),
+            // а у ветра — шипящая полоса; низ остаётся для наушников.
+            float ha = Loopf(220f), hb = Loopf(221.2f), hc = Loopf(247.2f);
+            // редкие ноты шкатулки: (время, полутон от A3); последняя затихает до конца петли
+            float[] at = { 2.5f, 4f, 11f, 12.6f, 20.5f, 27f, 31f, 35.5f, 40f };
+            int[] notes = { 20, 15, 14, 8, 22, 19, 17, 13, 10 };
+            float wind = 0f, wind2 = 0f, hiss = 0f, hissLow = 0f;
             var d = Render(len, (t, r) =>
             {
                 float swell = 0.65f + 0.35f * Sin(1f / len, t);
                 float drone = (Sin(a, t) + 0.8f * Sin(b, t) + 0.25f * Sin(c, t)) * 0.22f * swell;
+                // верхний слой: два тона в 1.2 Гц друг от друга медленно «плывут», под ними септима
+                float upper = (Sin(ha, t) + 0.8f * Sin(hb, t) + 0.35f * Sin(hc, t)) * 0.11f * (1.3f - swell * 0.5f);
 
                 // ветер: шум через два фильтра, громкость медленно ходит
                 float n = (float)r.NextDouble() * 2f - 1f;
                 wind += (n - wind) * 0.02f;
                 wind2 += (wind - wind2) * 0.05f;
                 float gust = 0.5f + 0.5f * Sin(2f / len, t + 7f);
-                float air = wind2 * 1.6f * gust;
+                // шипение ветра: полоса примерно 150–1000 Гц, слышна и в динамике
+                hiss += (n - hiss) * 0.25f;
+                hissLow += (n - hissLow) * 0.04f;
+                float air = wind2 * 1.6f * gust + (hiss - hissLow) * 0.22f * gust * gust;
 
                 // шкатулка: высоко, тихо, расстроено, долго тает
                 float box = 0f;
@@ -418,7 +426,7 @@ namespace GhostWard
                     float genv = Mathf.Sin(Mathf.PI * gt / 5f);
                     groan = Mathf.Sin(2f * Mathf.PI * (98f * gt - 2.9f * gt * gt)) * genv * 0.18f * (1f + 0.3f * Sin(gf * 0.5f, gt));
                 }
-                return drone + air + box * 0.12f + groan;
+                return drone + upper + air + box * 0.22f + groan;
             }, 13);
             d = Reverb(d, 0.55f, 0.88f, true);
             Normalize(d, 0.5f);
