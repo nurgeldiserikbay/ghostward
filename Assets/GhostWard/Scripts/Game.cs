@@ -202,6 +202,9 @@ namespace GhostWard
             Screen.sleepTimeout = SleepTimeout.NeverSleep;
             Screen.orientation = ScreenOrientation.Portrait;
 
+            // «Уши» сцены, пока нет камеры (меню, язык, разрешения): без AudioListener Unity не играет ни звука.
+            // Когда появляется камера AR или гироскопа, слушает она (у сущностей объёмный звук), а этот выключается.
+            menuEars = gameObject.AddComponent<AudioListener>();
             sfx = gameObject.AddComponent<AudioSource>();
             music = Music.Create(gameObject);
             drone = gameObject.AddComponent<AudioSource>();
@@ -556,8 +559,11 @@ namespace GhostWard
             // (улики игра больше не подсказывает — даже за звание)
         }
 
+        AudioListener menuEars;
+
         void Update()
         {
+            if (menuEars != null) menuEars.enabled = cam == null;
             sfx.volume = Settings.Sfx;
             if (TestMode.On && ui.DepthViewOn && cam != null)
             {

@@ -17,7 +17,8 @@ namespace GhostWard
 #if GHOSTWARD_RELEASE
         public static readonly bool On = false;
 #else
-        public static readonly bool On = true;
+        // Пока выключено и в тестовых APK (2026-11-26). Снова включить диагностику и тестовые кнопки — true.
+        public static readonly bool On = false;
 #endif
     }
 }
