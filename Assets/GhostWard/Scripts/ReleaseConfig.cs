@@ -9,6 +9,16 @@ namespace GhostWard
         public const string RewardedId = "ca-app-pub-9702825788968948/9051245420";
         public const string InterstitialId = "ca-app-pub-9702825788968948/3744233376";
 
+        // Блоки, которые реально запрашивает игра: в тестовой сборке (APK) — тестовые блоки Google, они помечены
+        // «Test Ad» и не грозят блокировкой аккаунта; в сборке для Google Play (GHOSTWARD_RELEASE) — свои.
+#if GHOSTWARD_RELEASE
+        public const string ActiveRewardedId = RewardedId;
+        public const string ActiveInterstitialId = InterstitialId;
+#else
+        public const string ActiveRewardedId = "ca-app-pub-3940256099942544/5224354917";
+        public const string ActiveInterstitialId = "ca-app-pub-3940256099942544/1033173712";
+#endif
+
         // Опубликованная политика конфиденциальности (Google Docs → Файл → Поделиться → Опубликовать в интернете).
         // Та же ссылка указывается в Play Console и в AdMob.
         public const string PrivacyPolicyUrl = "https://docs.google.com/document/d/e/2PACX-1vQA_3QsTLu4_N_SarT-LKJo2j7SOflbBFYWf8gWR-DKmo4TIgpZUr9vLrAJEOoPMGNbnWV3Hrbuos4C/pub";

@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace GhostWard
 {
-    // Реклама AdMob. ID приложения и блоков — в ReleaseConfig (пока тестовые Google).
+    // Реклама AdMob. ID приложения и блоков — в ReleaseConfig (в тестовой сборке — тестовые блоки Google).
     // Хоррор не участвует в программе Families: детских флагов нет, рейтинг объявлений — до 12+ (T).
     // Согласие (GDPR и законы штатов США) — через Google UMP: сначала запрос согласия,
     // и только если CanRequestAds — запуск AdMob. Форма настраивается в AdMob → Конфиденциальность и сообщения.
@@ -14,8 +14,8 @@ namespace GhostWard
     //  • Межстраничная — после каждого третьего «Ещё раз», не чаще раза в 2 минуты.
     public static class Ads
     {
-        const string RewardedId = ReleaseConfig.RewardedId;
-        const string InterstitialId = ReleaseConfig.InterstitialId;
+        const string RewardedId = ReleaseConfig.ActiveRewardedId;
+        const string InterstitialId = ReleaseConfig.ActiveInterstitialId;
         const int RetriesPerInterstitial = 3;
         const float InterstitialCooldown = 120f;
 
