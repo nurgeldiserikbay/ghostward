@@ -4,10 +4,10 @@ namespace GhostWard
     // откажется собираться, пока здесь тестовые ID Google или пустая ссылка на политику.
     public static class ReleaseConfig
     {
-        // ID приложения AdMob (с «~») и рекламных блоков (с «/»). Сейчас — тестовые ID Google.
-        public const string AdMobAppId = "ca-app-pub-3940256099942544~3347511713";
-        public const string RewardedId = "ca-app-pub-3940256099942544/5224354917";
-        public const string InterstitialId = "ca-app-pub-3940256099942544/1033173712";
+        // ID приложения AdMob (с «~») и рекламных блоков (с «/»). Боевые ID аккаунта.
+        public const string AdMobAppId = "ca-app-pub-9702825788968948~5910076762";
+        public const string RewardedId = "ca-app-pub-9702825788968948/9051245420";
+        public const string InterstitialId = "ca-app-pub-9702825788968948/3744233376";
 
         // Опубликованная политика конфиденциальности (Google Docs → Файл → Поделиться → Опубликовать в интернете).
         // Та же ссылка указывается в Play Console и в AdMob.
