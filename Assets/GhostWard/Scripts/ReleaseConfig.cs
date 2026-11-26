@@ -11,7 +11,7 @@ namespace GhostWard
 
         // Опубликованная политика конфиденциальности (Google Docs → Файл → Поделиться → Опубликовать в интернете).
         // Та же ссылка указывается в Play Console и в AdMob.
-        public const string PrivacyPolicyUrl = "";
+        public const string PrivacyPolicyUrl = "https://docs.google.com/document/d/e/2PACX-1vQA_3QsTLu4_N_SarT-LKJo2j7SOflbBFYWf8gWR-DKmo4TIgpZUr9vLrAJEOoPMGNbnWV3Hrbuos4C/pub";
 
         const string GoogleTestPublisher = "ca-app-pub-3940256099942544";
 
