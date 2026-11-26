@@ -1,19 +1,21 @@
 using System;
 using System.Collections.Concurrent;
 using GoogleMobileAds.Api;
+using GoogleMobileAds.Ump.Api;
 using UnityEngine;
 
 namespace GhostWard
 {
-    // Реклама AdMob. Пока стоят тестовые блоки Google — заменить на свои перед релизом
-    // (и ID приложения в ProjectSetup.AdMobAndroidAppId).
+    // Реклама AdMob. ID приложения и блоков — в ReleaseConfig (пока тестовые Google).
     // Хоррор не участвует в программе Families: детских флагов нет, рейтинг объявлений — до 12+ (T).
+    // Согласие (GDPR и законы штатов США) — через Google UMP: сначала запрос согласия,
+    // и только если CanRequestAds — запуск AdMob. Форма настраивается в AdMob → Конфиденциальность и сообщения.
     //  • Наградная — за припасы на рассвете, «второй шанс» и закрытые виды камеры.
     //  • Межстраничная — после каждого третьего «Ещё раз», не чаще раза в 2 минуты.
     public static class Ads
     {
-        const string RewardedId = "ca-app-pub-3940256099942544/5224354917";
-        const string InterstitialId = "ca-app-pub-3940256099942544/1033173712";
+        const string RewardedId = ReleaseConfig.RewardedId;
+        const string InterstitialId = ReleaseConfig.InterstitialId;
         const int RetriesPerInterstitial = 3;
         const float InterstitialCooldown = 120f;
 
@@ -24,11 +26,49 @@ namespace GhostWard
         static float lastInterstitial = -999f;
         static readonly ConcurrentQueue<Action> mainThread = new();
 
+        static bool sdkStarted;
+
+        // Вызывать после системных запросов разрешений, чтобы окно согласия не наложилось на них.
         public static void Init()
         {
             if (initialized) return;
             initialized = true;
             new GameObject("Ads Dispatcher").AddComponent<Dispatcher>();
+            // согласие, полученное в прошлый запуск, действует сразу
+            if (ConsentInformation.CanRequestAds()) StartSdk();
+            ConsentInformation.Update(new ConsentRequestParameters { TagForUnderAgeOfConsent = false }, updateError => Post(() =>
+            {
+                if (updateError != null) { Debug.LogWarning("[GhostWard] Согласие: " + updateError.Message); StartIfAllowed(); return; }
+                ConsentForm.LoadAndShowConsentFormIfRequired(showError => Post(() =>
+                {
+                    if (showError != null) Debug.LogWarning("[GhostWard] Форма согласия: " + showError.Message);
+                    StartIfAllowed();
+                }));
+            }));
+        }
+
+        // Кнопка «Настройки рекламы» нужна только там, где этого требует закон (Европа и т. п.)
+        public static bool PrivacyOptionsRequired =>
+            initialized && ConsentInformation.PrivacyOptionsRequirementStatus == PrivacyOptionsRequirementStatus.Required;
+
+        public static void ShowPrivacyOptions()
+        {
+            ConsentForm.ShowPrivacyOptionsForm(error => Post(() =>
+            {
+                if (error != null) Debug.LogWarning("[GhostWard] Настройки рекламы: " + error.Message);
+                StartIfAllowed();
+            }));
+        }
+
+        static void StartIfAllowed()
+        {
+            if (ConsentInformation.CanRequestAds()) StartSdk();
+        }
+
+        static void StartSdk()
+        {
+            if (sdkStarted) return;
+            sdkStarted = true;
             MobileAds.SetRequestConfiguration(new RequestConfiguration
             {
                 MaxAdContentRating = MaxAdContentRating.T,

@@ -13,6 +13,11 @@ namespace GhostWard
     //  • «одержимость» (маска на людях) — каждую ночь, кроме пролога.
     public static class TestMode
     {
+        // Сборка для Google Play (GhostWard → Собрать AAB) ставит символ GHOSTWARD_RELEASE — тогда выключено само.
+#if GHOSTWARD_RELEASE
+        public static readonly bool On = false;
+#else
         public static readonly bool On = true;
+#endif
     }
 }

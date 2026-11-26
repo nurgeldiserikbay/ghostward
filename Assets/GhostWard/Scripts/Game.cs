@@ -228,13 +228,14 @@ namespace GhostWard
 
             Settings.Apply();
             // бестиарий заполняется только теми, кого игрок распознал сам (Identify); заранее не знаем никого
-            Ads.Init();
             Trophies.Unlocked += t => ui.TrophyToast(Loc.F("trophy_got", Trophies.Name(t), Trophies.Reward));
             CreateUI();
             if (Loc.Chosen) ui.ShowMenu();
             else ui.ShowLanguage();
             phase = Phase.Menu;
             yield return AskPermissions();
+            // окно согласия на рекламу — после системных запросов камеры и микрофона, не поверх них
+            Ads.Init();
         }
 
         // Камера и микрофон — сразу при запуске, одним запросом, а не посреди ночи.
@@ -251,6 +252,7 @@ namespace GhostWard
             var cb = new UnityEngine.Android.PermissionCallbacks();
             cb.PermissionGranted += _ => answered++;
             cb.PermissionDenied += _ => answered++;
+            cb.PermissionDeniedAndDontAskAgain += _ => answered++;
             UnityEngine.Android.Permission.RequestUserPermissions(need.ToArray(), cb);
             float wait = 60f;
             while (answered < need.Count && wait > 0f) { wait -= Time.unscaledDeltaTime; yield return null; }

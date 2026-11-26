@@ -216,8 +216,8 @@ namespace GhostWard.EditorTools
             EditorUtility.SetDirty(arcore);
         }
 
-        // ID приложения AdMob. Пока тестовый от Google — заменить на свой перед релизом.
-        public const string AdMobAndroidAppId = "ca-app-pub-3940256099942544~3347511713";
+        // ID приложения AdMob — в ReleaseConfig (там же блоки и ссылка на политику).
+        public const string AdMobAndroidAppId = ReleaseConfig.AdMobAppId;
 
         // Класс настроек плагина закрытый (internal), поэтому — через отражение.
         static void SetupAds()
@@ -270,6 +270,64 @@ namespace GhostWard.EditorTools
             Debug.Log($"[GhostWard] Сборка: {report.summary.result}, {(ok ? new FileInfo("Builds/GhostWard.apk").Length / (1024 * 1024) : 0)} МБ");
             if (Application.isBatchMode) EditorApplication.Exit(ok ? 0 : 1);
             else if (ok) EditorUtility.RevealInFinder("Builds/GhostWard.apk");
+        }
+
+        const string ReleaseDefine = "GHOSTWARD_RELEASE";
+        const string AabPath = "Builds/GhostWard-release.aab";
+
+        // Сборка для Google Play: подписанный AAB, без тестового режима, с настоящей рекламой.
+        // Ключ загрузки (upload keystore) и пароли задаются только локально в Player Settings → Publishing Settings,
+        // в репозиторий не попадают. Каждый новый AAB — с бóльшим versionCode (Player Settings → Bundle Version Code).
+        // Unity.exe -batchmode -quit -projectPath . -buildTarget Android -executeMethod GhostWard.EditorTools.Build.AndroidRelease
+        [MenuItem("GhostWard/Собрать AAB для Google Play")]
+        public static void AndroidRelease()
+        {
+            var problems = new System.Collections.Generic.List<string>();
+            if (ReleaseConfig.UsesTestAds) problems.Add("в ReleaseConfig тестовые ID AdMob — поставить свои");
+            if (!ReleaseConfig.HasPolicyUrl) problems.Add("в ReleaseConfig.PrivacyPolicyUrl нет https-ссылки на опубликованную политику");
+            if (!PlayerSettings.Android.useCustomKeystore ||
+                string.IsNullOrWhiteSpace(PlayerSettings.Android.keystoreName) ||
+                string.IsNullOrWhiteSpace(PlayerSettings.Android.keyaliasName) ||
+                string.IsNullOrWhiteSpace(PlayerSettings.Android.keystorePass) ||
+                string.IsNullOrWhiteSpace(PlayerSettings.Android.keyaliasPass))
+                problems.Add("не задан свой ключ загрузки (Player Settings → Publishing Settings → Custom Keystore, алиас и пароли)");
+            if (problems.Count > 0)
+            {
+                string msg = "[GhostWard] AAB не собран:\n • " + string.Join("\n • ", problems);
+                Debug.LogError(msg);
+                if (Application.isBatchMode) EditorApplication.Exit(1);
+                else EditorUtility.DisplayDialog("GhostWard", msg, "OK");
+                return;
+            }
+
+            ProjectSetup.Run();
+            if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android)
+                EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android);
+
+            bool oldBundle = EditorUserBuildSettings.buildAppBundle;
+            BuildReport report;
+            try
+            {
+                EditorUserBuildSettings.buildAppBundle = true;
+                report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+                {
+                    scenes = new[] { ProjectSetup.ScenePath },
+                    locationPathName = AabPath,
+                    target = BuildTarget.Android,
+                    extraScriptingDefines = new[] { ReleaseDefine }, // TestMode.On = false
+                    options = BuildOptions.None
+                });
+            }
+            finally
+            {
+                EditorUserBuildSettings.buildAppBundle = oldBundle;
+            }
+
+            bool ok = report.summary.result == BuildResult.Succeeded;
+            Debug.Log($"[GhostWard] AAB: {report.summary.result}, versionCode {PlayerSettings.Android.bundleVersionCode}, " +
+                      $"{(ok ? new FileInfo(AabPath).Length / (1024 * 1024) : 0)} МБ → {AabPath}");
+            if (Application.isBatchMode) EditorApplication.Exit(ok ? 0 : 1);
+            else if (ok) EditorUtility.RevealInFinder(AabPath);
         }
     }
 }

@@ -64,6 +64,7 @@ namespace GhostWard
             ["vibration"] = new[] { "Vibration", "Вибрация", "Діріл", "Vibración", "Vibração" },
             ["on"] = new[] { "On", "Вкл", "Қосулы", "Sí", "Ligada" },
             ["off"] = new[] { "Off", "Выкл", "Өшірулі", "No", "Desligada" },
+            ["privacy"] = new[] { "Privacy", "Конфиденциальность", "Құпиялылық", "Privacidad", "Privacidade" },
 
             // ---------- экран ночи ----------
             ["night_n"] = new[] { "NIGHT {0}", "НОЧЬ {0}", "{0}-ТҮН", "NOCHE {0}", "NOITE {0}" },

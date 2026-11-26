@@ -9,7 +9,7 @@ namespace GhostWard
     public static class Loc
     {
         // Название вынесено сюда: сменить бренд — одна строка. Вторая часть названия переводится (ключ title_sub).
-        public const string Brand = "Supernatural";
+        public const string Brand = "Ghost Ward";
 
         public static readonly string[] LangNames = { "English", "Русский", "Қазақша", "Español", "Português" };
 

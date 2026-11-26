@@ -946,8 +946,15 @@ namespace GhostWard
                 settingButtons.Add((b.GetComponent<Image>(), () => Settings.Vibration == on));
             }
 
-            Button(settings.transform, Loc.T("howto"), new Vector2(0.5f, 0.08f), () => OpenTutorial(false), false, 310, -165);
-            Button(settings.transform, Loc.T("back"), new Vector2(0.5f, 0.08f), () => ShowOnly(menu), false, 310, 165);
+            Button(settings.transform, Loc.T("howto"), new Vector2(0.5f, 0.08f), () => OpenTutorial(false), false, 300, -320);
+            // политика конфиденциальности; где закон требует — сначала форма согласия на рекламу (в ней тоже есть ссылка на политику)
+            var privacy = Button(settings.transform, Loc.T("privacy"), new Vector2(0.5f, 0.08f), () =>
+            {
+                if (Ads.PrivacyOptionsRequired) Ads.ShowPrivacyOptions();
+                else if (ReleaseConfig.HasPolicyUrl) Application.OpenURL(ReleaseConfig.PrivacyPolicyUrl);
+            }, false, 300, 0);
+            privacy.GetComponentInChildren<Text>().fontSize = 28;
+            Button(settings.transform, Loc.T("back"), new Vector2(0.5f, 0.08f), () => ShowOnly(menu), false, 300, 320);
             SettingsTab(true);
         }
 
