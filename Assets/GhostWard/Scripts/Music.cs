@@ -42,7 +42,7 @@ namespace GhostWard
         }
 
         // уровни 0..1: страх, близость сущности, злость
-        public void SetMenu() { menuTarget = 0.55f; padTarget = 0f; tensionTarget = 0f; pulseTarget = 0f; themeTarget = 0f; }
+        public void SetMenu() { menuTarget = 0.3f; padTarget = 0f; tensionTarget = 0f; pulseTarget = 0f; themeTarget = 0f; }
         public void SetSilence() { menuTarget = 0f; padTarget = 0.15f; tensionTarget = 0f; pulseTarget = 0f; themeTarget = 0f; }
         public void SetScan() { menuTarget = 0f; padTarget = 0.35f; tensionTarget = 0f; pulseTarget = 0f; themeTarget = 0f; }
 
@@ -374,32 +374,54 @@ namespace GhostWard
             return d;
         }
 
-        // Тема меню: колыбельная на расстроенной музыкальной шкатулке, плёнка чуть «плывёт».
+        // Тема меню: тихий тёмный гул. Два низких тона в полтона «бьются» друг о друга, сквозь них — ветер;
+        // изредка далёкая расстроенная шкатулка и низкий стон. Без мелодии — тревога, а не песня.
         static AudioClip MenuTheme()
         {
-            // ля минор, медленно: (полутон от A3, начало в долях, длительность)
-            int[] notes = { 12, 15, 19, 17, 15, 14, 12, 7, 10, 12, 14, 10, 12, 15, 12, 11 };
-            float beat = 0.75f;
-            float len = notes.Length * beat * 2f;
+            const float len = 48f;
+            // частоты подогнаны под длину петли — цикл замыкается без щелчка
+            float Loopf(float f) => Mathf.Round(f * len) / len;
+            float a = Loopf(55f), b = Loopf(58.27f), c = Loopf(82.4f);
+            // редкие ноты шкатулки: (время, полутон от A3)
+            float[] at = { 4f, 11f, 12.6f, 27f, 35.5f };
+            int[] notes = { 15, 14, 8, 19, 13 };
+            float wind = 0f, wind2 = 0f;
             var d = Render(len, (t, r) =>
             {
-                float wow = 1f + 0.012f * Sin(0.31f, t) + 0.004f * Sin(5.3f, t);
-                float s = 0f;
-                for (int i = 0; i < notes.Length; i++)
+                float swell = 0.65f + 0.35f * Sin(1f / len, t);
+                float drone = (Sin(a, t) + 0.8f * Sin(b, t) + 0.25f * Sin(c, t)) * 0.22f * swell;
+
+                // ветер: шум через два фильтра, громкость медленно ходит
+                float n = (float)r.NextDouble() * 2f - 1f;
+                wind += (n - wind) * 0.02f;
+                wind2 += (wind - wind2) * 0.05f;
+                float gust = 0.5f + 0.5f * Sin(2f / len, t + 7f);
+                float air = wind2 * 1.6f * gust;
+
+                // шкатулка: высоко, тихо, расстроено, долго тает
+                float box = 0f;
+                for (int i = 0; i < at.Length; i++)
                 {
-                    float start = i * beat * 2f + (i % 2 == 1 ? beat * 0.5f : 0f);
-                    float dtn = t - start;
-                    if (dtn < 0f || dtn > 3f) continue;
-                    float f = Note(notes[i]) * wow;
-                    float env = Mathf.Exp(-dtn * 2.2f) * Mathf.Min(1f, dtn * 200f);
-                    s += (Sin(f, dtn) + 0.4f * Sin(f * 2.01f, dtn) + 0.25f * Sin(f * 4.18f, dtn) * Mathf.Exp(-dtn * 6f)) * env;
+                    float dt = t - at[i];
+                    if (dt < 0f || dt > 6f) continue;
+                    float f = Note(notes[i]);
+                    float env = Mathf.Exp(-dt * 1.1f) * Mathf.Min(1f, dt * 150f);
+                    box += (Sin(f, dt) + 0.5f * Sin(f * 1.013f, dt) + 0.2f * Sin(f * 3.97f, dt) * Mathf.Exp(-dt * 4f)) * env;
                 }
-                float bass = Sin(55f * wow, t) * 0.25f * (0.6f + 0.4f * Sin(1f / len, t));
-                float hiss = ((float)r.NextDouble() * 2f - 1f) * 0.01f;
-                return s * 0.35f + bass * 0.3f + hiss;
-            }, 11);
-            d = Reverb(d, 0.45f, 0.84f, true);
-            Normalize(d, 0.6f);
+
+                // низкий стон: тон медленно сползает вниз
+                float groan = 0f;
+                float gt = t - 19f;
+                if (gt > 0f && gt < 5f)
+                {
+                    float gf = Mathf.Lerp(98f, 69f, gt / 5f);
+                    float genv = Mathf.Sin(Mathf.PI * gt / 5f);
+                    groan = Mathf.Sin(2f * Mathf.PI * (98f * gt - 2.9f * gt * gt)) * genv * 0.18f * (1f + 0.3f * Sin(gf * 0.5f, gt));
+                }
+                return drone + air + box * 0.12f + groan;
+            }, 13);
+            d = Reverb(d, 0.55f, 0.88f, true);
+            Normalize(d, 0.5f);
             return Make("menuTheme", d);
         }
 
