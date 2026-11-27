@@ -10,8 +10,9 @@ namespace GhostWard
         public const string InterstitialId = "ca-app-pub-9702825788968948/3744233376";
 
         // Блоки, которые реально запрашивает игра: в тестовой сборке (APK) — тестовые блоки Google, они помечены
-        // «Test Ad» и не грозят блокировкой аккаунта; в сборке для Google Play (GHOSTWARD_RELEASE) — свои.
-#if GHOSTWARD_RELEASE
+        // «Test Ad» и не грозят блокировкой аккаунта. Свои — только в продакшн-AAB (GHOSTWARD_RELEASE без
+        // GHOSTWARD_TEST_ADS); AAB для закрытого теста в Play тоже на тестовых блоках.
+#if GHOSTWARD_RELEASE && !GHOSTWARD_TEST_ADS
         public const string ActiveRewardedId = RewardedId;
         public const string ActiveInterstitialId = InterstitialId;
 #else

@@ -272,62 +272,118 @@ namespace GhostWard.EditorTools
             else if (ok) EditorUtility.RevealInFinder("Builds/GhostWard.apk");
         }
 
-        const string ReleaseDefine = "GHOSTWARD_RELEASE";
-        const string AabPath = "Builds/GhostWard-release.aab";
+        const string ReleaseDefine = "GHOSTWARD_RELEASE";     // TestMode.On = false
+        const string TestAdsDefine = "GHOSTWARD_TEST_ADS";    // тестовые блоки Google вместо своих
+        const int TargetApi = 36;
 
-        // Сборка для Google Play: подписанный AAB, без тестового режима, с настоящей рекламой.
-        // Ключ загрузки (upload keystore) и пароли задаются только локально в Player Settings → Publishing Settings,
-        // в репозиторий не попадают. Каждый новый AAB — с бóльшим versionCode (Player Settings → Bundle Version Code).
+        // Для закрытого / внутреннего тестирования в Play: всё как в релизе, но реклама — тестовые блоки Google
+        // (тестеры не кликают по настоящей рекламе — аккаунт AdMob не заблокируют).
+        // Unity.exe -batchmode -quit -projectPath . -buildTarget Android -executeMethod GhostWard.EditorTools.Build.AndroidTesting
+        [MenuItem("GhostWard/Собрать AAB — тестирование (тестовая реклама)")]
+        public static void AndroidTesting() => BuildAab(testAds: true);
+
+        // Для продакшна — только после закрытого теста; versionCode должен быть больше, чем у тестового AAB.
         // Unity.exe -batchmode -quit -projectPath . -buildTarget Android -executeMethod GhostWard.EditorTools.Build.AndroidRelease
-        [MenuItem("GhostWard/Собрать AAB для Google Play")]
-        public static void AndroidRelease()
+        [MenuItem("GhostWard/Собрать AAB — продакшн (настоящая реклама)")]
+        public static void AndroidRelease() => BuildAab(testAds: false);
+
+        // Ключ загрузки — общий ключ TheLightCome вне репозитория: файл release.properties (keystore, storePassword,
+        // alias, keyPassword) из GHOSTWARD_RELEASE_PROPERTIES или ..\..\Passwords\thelightcome\release.properties.
+        // Пароли попадают в Player Settings только на время сборки и сразу стираются (ProjectSettings в git).
+        static void BuildAab(bool testAds)
         {
+            string aabPath = testAds ? "Builds/GhostWard-testing.aab" : "Builds/GhostWard-release.aab";
+            string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
             var problems = new System.Collections.Generic.List<string>();
             if (ReleaseConfig.UsesTestAds) problems.Add("в ReleaseConfig тестовые ID AdMob — поставить свои");
             if (!ReleaseConfig.HasPolicyUrl) problems.Add("в ReleaseConfig.PrivacyPolicyUrl нет https-ссылки на опубликованную политику");
+
+            bool loadedSigning = false;
+            try { loadedSigning = LoadSigning(projectRoot); }
+            catch (System.Exception e) { problems.Add(e.Message); }
             if (!PlayerSettings.Android.useCustomKeystore ||
                 string.IsNullOrWhiteSpace(PlayerSettings.Android.keystoreName) ||
                 string.IsNullOrWhiteSpace(PlayerSettings.Android.keyaliasName) ||
                 string.IsNullOrWhiteSpace(PlayerSettings.Android.keystorePass) ||
                 string.IsNullOrWhiteSpace(PlayerSettings.Android.keyaliasPass))
-                problems.Add("не задан свой ключ загрузки (Player Settings → Publishing Settings → Custom Keystore, алиас и пароли)");
-            if (problems.Count > 0)
-            {
-                string msg = "[GhostWard] AAB не собран:\n • " + string.Join("\n • ", problems);
-                Debug.LogError(msg);
-                if (Application.isBatchMode) EditorApplication.Exit(1);
-                else EditorUtility.DisplayDialog("GhostWard", msg, "OK");
-                return;
-            }
+                problems.Add("нет ключа загрузки: release.properties вне репозитория или Player Settings → Publishing Settings");
 
-            ProjectSetup.Run();
-            if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android)
-                EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android);
-
+            bool ok = false;
             bool oldBundle = EditorUserBuildSettings.buildAppBundle;
-            BuildReport report;
+            var oldSymbols = EditorUserBuildSettings.androidCreateSymbols;
             try
             {
+                if (problems.Count > 0)
+                {
+                    string msg = "[GhostWard] AAB не собран:\n • " + string.Join("\n • ", problems);
+                    Debug.LogError(msg);
+                    if (!Application.isBatchMode) EditorUtility.DisplayDialog("GhostWard", msg, "OK");
+                    return;
+                }
+
+                ProjectSetup.Run();
+                if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android)
+                    EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android);
+                PlayerSettings.Android.targetSdkVersion = (AndroidSdkVersions)TargetApi;
+
                 EditorUserBuildSettings.buildAppBundle = true;
-                report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+                // symbols.zip рядом с AAB — загрузить в Play (App bundle explorer), чтобы сбои читались
+                EditorUserBuildSettings.androidCreateSymbols = AndroidCreateSymbols.Public;
+                var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
                 {
                     scenes = new[] { ProjectSetup.ScenePath },
-                    locationPathName = AabPath,
+                    locationPathName = aabPath,
                     target = BuildTarget.Android,
-                    extraScriptingDefines = new[] { ReleaseDefine }, // TestMode.On = false
+                    extraScriptingDefines = testAds ? new[] { ReleaseDefine, TestAdsDefine } : new[] { ReleaseDefine },
                     options = BuildOptions.None
                 });
+                ok = report.summary.result == BuildResult.Succeeded;
+                Debug.Log($"[GhostWard] AAB ({(testAds ? "тестовая реклама" : "НАСТОЯЩАЯ реклама")}): {report.summary.result}, " +
+                          $"versionCode {PlayerSettings.Android.bundleVersionCode}, target API {TargetApi}, " +
+                          $"{(ok ? new FileInfo(aabPath).Length / (1024 * 1024) : 0)} МБ → {aabPath}");
+                if (ok && !Application.isBatchMode) EditorUtility.RevealInFinder(aabPath);
             }
             finally
             {
                 EditorUserBuildSettings.buildAppBundle = oldBundle;
+                EditorUserBuildSettings.androidCreateSymbols = oldSymbols;
+                if (loadedSigning)
+                {
+                    PlayerSettings.Android.keystorePass = "";
+                    PlayerSettings.Android.keyaliasPass = "";
+                    PlayerSettings.Android.useCustomKeystore = false;
+                    PlayerSettings.Android.keystoreName = "";
+                    PlayerSettings.Android.keyaliasName = "";
+                    AssetDatabase.SaveAssets();
+                }
+                if (Application.isBatchMode) EditorApplication.Exit(ok ? 0 : 1);
             }
+        }
 
-            bool ok = report.summary.result == BuildResult.Succeeded;
-            Debug.Log($"[GhostWard] AAB: {report.summary.result}, versionCode {PlayerSettings.Android.bundleVersionCode}, " +
-                      $"{(ok ? new FileInfo(AabPath).Length / (1024 * 1024) : 0)} МБ → {AabPath}");
-            if (Application.isBatchMode) EditorApplication.Exit(ok ? 0 : 1);
-            else if (ok) EditorUtility.RevealInFinder(AabPath);
+        static bool LoadSigning(string projectRoot)
+        {
+            string path = System.Environment.GetEnvironmentVariable("GHOSTWARD_RELEASE_PROPERTIES");
+            if (string.IsNullOrWhiteSpace(path))
+                path = Path.GetFullPath(Path.Combine(projectRoot, "..", "..", "Passwords", "thelightcome", "release.properties"));
+            if (!File.Exists(path)) return false;
+            var s = new System.Collections.Generic.Dictionary<string, string>();
+            foreach (string line in File.ReadAllLines(path))
+            {
+                string t = line.Trim();
+                if (t.Length == 0 || t.StartsWith("#")) continue;
+                int eq = t.IndexOf('=');
+                if (eq > 0) s[t.Substring(0, eq).Trim()] = t.Substring(eq + 1).Trim();
+            }
+            foreach (string key in new[] { "keystore", "storePassword", "alias", "keyPassword" })
+                if (!s.ContainsKey(key) || s[key].Length == 0) throw new System.Exception($"в {path} нет «{key}»");
+            if (!File.Exists(s["keystore"])) throw new System.Exception("файл ключа не найден: " + s["keystore"]);
+            PlayerSettings.Android.useCustomKeystore = true;
+            PlayerSettings.Android.keystoreName = s["keystore"];
+            PlayerSettings.Android.keystorePass = s["storePassword"];
+            PlayerSettings.Android.keyaliasName = s["alias"];
+            PlayerSettings.Android.keyaliasPass = s["keyPassword"];
+            Debug.Log("[GhostWard] подпись — ключ загрузки из " + path);
+            return true;
         }
     }
 }
