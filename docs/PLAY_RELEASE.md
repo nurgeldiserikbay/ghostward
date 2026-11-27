@@ -1,5 +1,7 @@
 # Выпуск в Google Play — чеклист
 
+> Пошаговая инструкция для Play Console, тексты карточки и ответы — в [PLAY_CONSOLE_STEPS.md](PLAY_CONSOLE_STEPS.md). Сборка AAB: меню **GhostWard → Собрать AAB — тестирование / продакшн**, ключ загрузки TheLightCome подхватывается сам.
+
 ## Готово в коде
 
 - `ReleaseConfig.cs` — одно место для ID AdMob и ссылки на политику.
