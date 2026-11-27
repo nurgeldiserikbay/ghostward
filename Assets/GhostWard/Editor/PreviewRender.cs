@@ -442,15 +442,46 @@ namespace GhostWard.EditorTools
             Loc.Set(Lang.En);
         }
 
-        static void Shoot(string name, System.Action<GameUI> open, string prefix = "journal")
+        // Скриншоты интерфейса для Google Play (1080x1920, английский) — Builds/store-art/raw/N-name.png;
+        // подписи по имени добавляет tools/StoreArtCompose.ps1. Кадр с сущностью в комнате — только с телефона.
+        // Unity.exe -batchmode -quit -projectPath . -executeMethod GhostWard.EditorTools.PreviewRender.StoreShots
+        [MenuItem("GhostWard/Скриншоты интерфейса для Google Play")]
+        public static void StoreShots()
+        {
+            const string dir = "Builds/store-art/raw";
+            Directory.CreateDirectory(dir);
+            foreach (var old in Directory.GetFiles(dir, "*-ui-*.png")) File.Delete(old);
+
+            Know.EnsureStarters();
+            foreach (var k in new[] { EntityKind.Ghost, EntityKind.Shade, EntityKind.Albasty, EntityKind.Mara, EntityKind.Zheztyrnak })
+                Catalog.MarkSeen(k);
+            Know.LearnName(EntityKind.Albasty);
+            Loc.Set(Lang.En);
+
+            Shoot("menu", ui => ui.ShowMenu(), path: $"{dir}/1-ui-menu.png");
+            Shoot("clues", ui => { NoLoading(ui); ui.DebugJournal("identify"); }, path: $"{dir}/2-ui-clues.png");
+            Shoot("entry", ui => { NoLoading(ui); ui.DebugJournal("entry", EntityKind.Albasty); }, path: $"{dir}/3-ui-entry.png");
+            Shoot("items", ui => { NoLoading(ui); ui.DebugJournal("items"); }, path: $"{dir}/4-ui-items.png");
+            Debug.Log("[GhostWard] Скриншоты для Google Play: " + Path.GetFullPath(dir));
+        }
+
+        // панель «Темнеет…» видна сразу после создания UI; в игре дневник поверх неё не открывается
+        static void NoLoading(GameUI ui)
+        {
+            foreach (var t in ui.GetComponentsInChildren<Transform>(true))
+                if (t.name == "Loading") t.gameObject.SetActive(false);
+        }
+
+        static void Shoot(string name, System.Action<GameUI> open, string prefix = "journal", string path = null)
         {
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             var cam = new GameObject("Cam").AddComponent<Camera>();
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.2f, 0.2f, 0.22f);
-            var rt = new RenderTexture(540, 1170, 24, RenderTextureFormat.ARGB32);
+            int w = path != null ? 1080 : 540, h = path != null ? 1920 : 1170;
+            var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32);
             cam.targetTexture = rt;
-            cam.aspect = 540f / 1170f;
+            cam.aspect = (float)w / h;
 
             var ui = GameUI.Create();
             var canvas = ui.GetComponent<Canvas>();
@@ -468,7 +499,7 @@ namespace GhostWard.EditorTools
             tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
             tex.Apply();
             RenderTexture.active = null;
-            File.WriteAllBytes($"Logs/{prefix}_{name}.png", tex.EncodeToPNG());
+            File.WriteAllBytes(path ?? $"Logs/{prefix}_{name}.png", tex.EncodeToPNG());
         }
     }
 }
