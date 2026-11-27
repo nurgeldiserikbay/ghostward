@@ -58,10 +58,11 @@ namespace GhostWard
 
         public static float PostureHeight => Posture switch { 1 => 1.0f, 2 => 0.7f, _ => 1.4f };
 
-        // 0 — авто (AR, только если сервисы AR уже установлены), 1 — выключен
+        // 0 — авто (AR, только если сервисы AR уже установлены), 1 — выключен.
+        // По умолчанию выключен: в AR пока нет карты комнаты (перекрытие мебелью, стены), режим гироскопа проработан лучше.
         public static int ArMode
         {
-            get => PlayerPrefs.GetInt("arMode", 0);
+            get => PlayerPrefs.GetInt("arMode", 1);
             set { PlayerPrefs.SetInt("arMode", value); PlayerPrefs.Save(); }
         }
 
