@@ -27,7 +27,7 @@ namespace GhostWard
         public void NewGame()
         {
             stage = Stage.Silence;
-            timer = Random.Range(20f, 35f);
+            timer = Random.Range(45f, 70f);   // начало ночи — почти тишина
             NewVisit();
         }
 
@@ -38,8 +38,10 @@ namespace GhostWard
         }
 
         // tension 0..1 — страх и злость; ramp 0..1 — нарастание по визитам;
-        // canManifest — сущность сейчас расследуют, ей можно показаться
-        public Beat Tick(float dt, float tension, float ramp, bool canManifest)
+        // canManifest — сущность сейчас расследуют, ей можно показаться;
+        // unrest 0..1 — насколько игрок её потревожил: спокойная только шуршит, раздражённая показывается,
+        // на взводе — пугает по-настоящему
+        public Beat Tick(float dt, float tension, float ramp, bool canManifest, float unrest)
         {
             float pace = Mathf.Lerp(1f, 0.6f, ramp) / (1f + Mathf.Clamp01(tension) * 0.5f);
             timer -= dt;
@@ -59,7 +61,7 @@ namespace GhostWard
                     {
                         stage = Stage.Recover;
                         timer = Random.Range(18f, 30f) * pace;
-                        return Payoff(canManifest);
+                        return Payoff(canManifest, unrest);
                     }
                     murmurIn -= dt;
                     if (murmurIn > 0f) return Beat.None;
@@ -69,14 +71,22 @@ namespace GhostWard
                 default:
                     if (timer > 0f) return Beat.None;
                     stage = Stage.Silence;
-                    timer = Random.Range(35f, 65f) * pace;
+                    timer = Random.Range(40f, 75f) * pace;
                     return Beat.None;
             }
         }
 
-        Beat Payoff(bool canManifest)
+        Beat Payoff(bool canManifest, float unrest)
         {
             if (!canManifest) return Beat.FalseAlarm;
+            // спит: шорохи и редкая фигура вдалеке
+            if (unrest < 0.2f)
+            {
+                float r = Random.value;
+                return r < 0.45f ? Beat.Murmur : r < 0.7f ? Beat.Presence : Beat.FalseAlarm;
+            }
+            // заметила игрока: показывается, но без фирменных ударов
+            if (unrest < 0.5f) return Random.value < 0.6f ? Beat.Presence : Beat.FalseAlarm;
             payoffsSinceStrike++;
             if (strikes < MaxStrikes && payoffsSinceStrike >= 2 && Random.value < 0.7f)
             {

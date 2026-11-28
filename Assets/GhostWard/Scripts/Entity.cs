@@ -32,6 +32,10 @@ namespace GhostWard
         public float ExposureNeeded => (Def.Kind == EntityKind.Upyr ? 2.6f : 1.6f) * (Weakened ? 0.5f : 1f);
         public bool Weakened { get; set; }          // игрок верно назвал её имя
         public float SpeedMul { get; set; } = 1f;   // затаился — медленнее, зашумел — быстрее
+        // Разъярена (ошиблись с именем): не замирает под взглядом. Иначе вблизи, пока на неё смотрят, она стоит
+        // и смотрит в ответ — двигается, только когда отвели глаза. Так её можно разглядеть и прогнать.
+        public bool Enraged { get; set; }
+        const float HoldDistance = 2.4f;
         public float Seed { get; private set; }
 
         static readonly int FadeId = Shader.PropertyToID("_Fade");
@@ -291,7 +295,7 @@ namespace GhostWard
             e.game = game;
             e.baseScale = go.transform.localScale;
             e.Seed = Random.value * 10f;
-            e.speed = aggression * def.Kind switch
+            float raw = def.Kind switch
             {
                 EntityKind.Ghost => 0.28f,
                 EntityKind.Shade => 0.55f,
@@ -330,6 +334,7 @@ namespace GhostWard
                 EntityKind.ZhalmauyzKempir => 0.55f,
                 _ => 0f
             };
+            e.speed = aggression * CalmSpeed(raw);
 
             e.mat = CreateMaterial(def, e.Seed);
             e.mat.SetFloat(FadeId, 0f);
@@ -375,6 +380,10 @@ namespace GhostWard
             return e;
         }
 
+        // Скорость из таблицы (0.22…2.6 м/с) сжимается в спокойный диапазон 0.26…0.6 м/с: характер сущности —
+        // в повадках (рывки, прыжки за спину, потолок), а не в беге. Быстрее человека не ходит никто.
+        static float CalmSpeed(float raw) => raw <= 0f ? 0f : 0.22f + 0.38f * Mathf.Clamp01(raw / 2.6f);
+
         // ---------- состояния ----------
 
         void Lurk(float seconds)
@@ -417,7 +426,8 @@ namespace GhostWard
                 case State.Manifest: TickManifest(dt); break;
                 case State.Attacking: TickAttacking(); break;
                 case State.Retreating:
-                    if (stateTime > 0.3f) Relocate(100f, -1f);
+                    // после нападения надолго затихает: удар — событие, а не цикл каждые пять секунд
+                    if (stateTime > 0.3f) Relocate(100f, -1f, lurk: Random.Range(12f, 20f));
                     break;
                 case State.Banished:
                     mat.SetFloat(DissolveId, Mathf.Clamp01(stateTime / 0.9f));
@@ -451,7 +461,7 @@ namespace GhostWard
             nextEvent -= Time.deltaTime;
             if (nextEvent <= 0f)
             {
-                nextEvent = Random.Range(1.5f, 2.5f);
+                nextEvent = Random.Range(3.5f, 6f);   // редкий звук из темноты, а не сирена
                 var call = EntitySounds.Call(Def.Kind);
                 if (call != null) voice.PlayOneShot(call, 0.85f);
             }
@@ -460,8 +470,8 @@ namespace GhostWard
             SetState(State.Manifest);
             nextEvent = Arch switch
             {
-                EntityKind.Poltergeist => Random.Range(3f, 5f),
-                EntityKind.Mara => 14f,                 // столько она сидит, прежде чем напасть
+                EntityKind.Poltergeist => Random.Range(5f, 8f),
+                EntityKind.Mara => 22f,                 // столько она сидит, прежде чем напасть
                 _ => Random.Range(5f, 8f)
             };
             throwsLeft = 3;
@@ -495,8 +505,9 @@ namespace GhostWard
                         transform.position += Vector3.Cross(Vector3.up, toCam.normalized) * (Mathf.Sin(Time.time * 0.45f + Seed) * 0.5f * dt * SpeedMul);
                     // и иногда «моргает» — пропадает на миг
                     if (blink > 0f) { blink -= dt; fade = Mathf.MoveTowards(fade, 0f, dt * 10f); }
-                    else if (Random.value < dt * 0.3f) blink = Random.Range(0.15f, 0.5f);
-                    nextEvent -= dt;
+                    else if (Random.value < dt * 0.12f) blink = Random.Range(0.1f, 0.25f);
+                    // переставляется ближе только пока на неё не смотрят: под взглядом она стоит
+                    if (!watched || Enraged) nextEvent -= dt;
                     if (nextEvent < 0.8f) fade = Mathf.Clamp01(nextEvent / 0.8f);
                     if (nextEvent <= 0f)
                     {
@@ -522,7 +533,7 @@ namespace GhostWard
                         if (nextEvent <= 0f && FlatDistance() > 3f)
                         {
                             Relocate(140f, FlatDistance() * 0.8f, keepState: true);
-                            nextEvent = Random.Range(14f, 20f);
+                            nextEvent = Random.Range(25f, 35f);
                             var jump = EntitySounds.Special(Def.Kind);   // кицунэ кричит, оказавшись за спиной
                             if (jump != null) voice.PlayOneShot(jump, 1f);
                         }
@@ -537,14 +548,14 @@ namespace GhostWard
                     {
                         voice.PlayOneShot(EntitySounds.Special(Def.Kind) ?? ProceduralAudio.Crash(), 1f);
                         game.OnThrow(this);
-                        nextEvent = Random.Range(4f, 6.5f);
+                        nextEvent = Random.Range(7f, 11f);
                     }
                     else
                     {
                         game.OnAttack(this);
                         Relocate(60f, -1f, keepState: true);
                         throwsLeft = 3;
-                        nextEvent = Random.Range(4f, 6f);
+                        nextEvent = Random.Range(12f, 18f);
                     }
                     break;
 
@@ -594,7 +605,7 @@ namespace GhostWard
                             if (snap != null) voice.PlayOneShot(snap, 0.9f);
                         }
                     }
-                    if (dashing) Approach(speed);
+                    if (dashing) Approach(speed * 3f);   // короткий рывок и долгая неподвижность
                     break;
 
                 case EntityKind.Mara:
@@ -629,7 +640,7 @@ namespace GhostWard
         void TickRusalka(float dt, bool watched)
         {
             watchedTime = watched ? watchedTime + dt : Mathf.Max(0f, watchedTime - dt);
-            if (watchedTime > 1.4f)
+            if (watchedTime > 4f)
             {
                 fade = Mathf.MoveTowards(fade, 0f, dt * 2f);
                 if (fade <= 0.01f)
@@ -710,6 +721,8 @@ namespace GhostWard
 
         void Approach(float v)
         {
+            // вблизи под взглядом стоит и смотрит — подходит, только когда отвели глаза
+            if (!Enraged && FlatDistance() < HoldDistance && game.IsInView(transform.position)) return;
             var dir = cam.transform.position - transform.position;
             dir.y = Planar ? 0f : dir.y * 0.4f;
             var step = dir.normalized * (v * SpeedMul * Time.deltaTime);
@@ -729,11 +742,11 @@ namespace GhostWard
         }
 
         // переставить в тёмное место комнаты не ближе minAngle к направлению взгляда
-        void Relocate(float minAngle, float maxDist, bool keepState = false)
+        void Relocate(float minAngle, float maxDist, bool keepState = false, float lurk = -1f)
         {
             transform.position = game.PickPosition(Def, minAngle, maxDist);
             if (keepState) { fade = 0f; return; }
-            Lurk(Random.Range(3f, 5f));
+            Lurk(lurk > 0f ? lurk : Random.Range(6f, 10f));
         }
 
         public float FlatDistance()

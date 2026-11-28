@@ -25,7 +25,7 @@ namespace GhostWard
         // Игра без ночей и без конца, пока игрок жив: сущности приходят по одной в случайный момент.
         // NightSeconds — сколько сущность пробудет в доме, если её не изгнать; потом уходит сама.
         // Между визитами — затишье случайной длины (Quiet): ни экрана, ни сообщения «пришла».
-        const float NightSeconds = 300f;
+        const float NightSeconds = 420f;   // долгое ожидание страшнее частых событий
         float lullLeft;      // сколько ещё длится затишье
         // Нарастание: с каждым визитом затишье короче, а сущность злится быстрее — до визита MaxRampVisit,
         // дальше темп постоянный (иначе к 30-му визиту злость росла бы мгновенно)
@@ -514,6 +514,8 @@ namespace GhostWard
             ui.SetScan(-1f);
             nightTime = 0f;
             anger = 0f;
+            calmFor = noiseCooldown = 0f;
+            outburst = unrestHinted = false;
             named = namedRight = wrongItemUsed = false;
             wrongGuesses = 0;
             huntPending = -1f;
@@ -730,8 +732,7 @@ namespace GhostWard
 
         void UpdateInvestigation(float dt)
         {
-            if (!prologue)
-                anger += dt * (0.4f + Mathf.Min(night, MaxRampVisit) * 0.05f) * (tumar ? 0.6f : 1f) * (modifier == Modifier.FullMoon ? 1.5f : 1f);
+            if (!prologue) UpdateUnrest(dt);
             frostTime -= dt;
             staticTime -= dt;
             compassTime -= dt;
@@ -742,7 +743,7 @@ namespace GhostWard
             clueTimer -= dt;
             if (clueTimer <= 0f)
             {
-                clueTimer = prologue ? Random.Range(5f, 9f) : Random.Range(8f, 14f);   // между уликами должна быть тишина
+                clueTimer = prologue ? Random.Range(5f, 9f) : Random.Range(10f, 16f);   // между уликами должна быть тишина
                 EmitClue();
             }
 
@@ -762,7 +763,7 @@ namespace GhostWard
             {
                 radioCooldown = 7f;
                 radioAnswerIn = 1.3f;
-                anger += 8f;
+                Disturb(8f);
                 sfx.PlayOneShot(ProceduralAudio.Click(), 0.6f);
             }
             if (radioAnswerIn > 0f)
@@ -799,13 +800,67 @@ namespace GhostWard
             UpdatePrints(dt);
             UpdatePossession(dt);
             UpdateThermalLife();
-            anger = Mathf.Min(anger, 100f);   // злость — чаще и сильнее пугает, но сама на охоту не выводит
+            // беспокойство — чаще и сильнее пугает; на пределе сущность один раз бросается на игрока
+            // (UpdateUnrest), но на охоту выводит только имя
+            anger = Mathf.Min(anger, 100f);
             // распознал (или исчерпал попытки) — она выходит на охоту, когда игрок закрыл дневник
             if (huntPending >= 0f)
             {
                 huntPending -= dt;
                 if (huntPending < 0f) StartHunt(namedRight, enraged: !namedRight);
             }
+        }
+
+        // ---------- беспокойство ----------
+        // Сущность не злится от времени: она спит в логове, пока её не тревожат. Будит её игрок — криком
+        // и громким шумом, вопросами радио, приманками, ошибкой с именем, тем, что подошёл к логову вплотную.
+        // Чем она беспокойнее, тем ближе и смелее режиссёр страха (FearDirector); на пределе — один бросок
+        // со скримером, после которого она снова затихает. Тишина и терпение её успокаивают.
+        float noiseCooldown, calmFor;
+        bool outburst, unrestHinted;
+
+        void Disturb(float v)
+        {
+            if (prologue || phase != Phase.Investigate) return;
+            anger = Mathf.Min(100f, anger + v * (tumar ? 0.6f : 1f) * (modifier == Modifier.FullMoon ? 1.5f : 1f));
+            calmFor = 0f;
+        }
+
+        void UpdateUnrest(float dt)
+        {
+            noiseCooldown -= dt;
+            calmFor += dt;
+            if (mic.Loud && noiseCooldown <= 0f && thunderMask <= 0f)
+            {
+                noiseCooldown = 2.5f;
+                Disturb(6f);
+            }
+            var toLair = lair - cam.transform.position;
+            toLair.y = 0f;
+            if (toLair.magnitude < 1.5f) Disturb(dt * 5f);   // стоит у самого логова
+            if (calmFor > 12f) anger = Mathf.Max(0f, anger - dt * 0.4f);
+            if (Beginner && !unrestHinted && anger >= 60f) { unrestHinted = true; ui.Hint(Loc.T("h.Unrest")); }
+            if (anger >= 100f && !outburst && huntPending < 0f) StartCoroutine(Outburst());
+        }
+
+        // предел: свет гаснет, дыхание за спиной, пауза — и она бросается в лицо
+        IEnumerator Outburst()
+        {
+            outburst = true;
+            sfx.PlayOneShot(ProceduralAudio.Click(), 0.7f);
+            ui.Flash(new Color(0f, 0f, 0f, 0.95f));
+            yield return new WaitForSeconds(0.7f);
+            var back = -cam.transform.forward;
+            back.y = 0f;
+            PlayAt(ProceduralAudio.Breath(), cam.transform.position + back.normalized * 0.4f, 0.7f);
+            yield return new WaitForSeconds(Random.Range(1.4f, 2.4f));
+            if (phase == Phase.Investigate)
+            {
+                Scream(target, Random.value * 10f, 16f);
+                anger = 45f;
+                calmFor = 0f;
+            }
+            outburst = false;
         }
 
         void EmitClue()
@@ -1041,7 +1096,7 @@ namespace GhostWard
             }
 
             wrongGuesses++;
-            anger = Mathf.Min(100f, anger + 20f);
+            Disturb(20f);
             AddFear(8f);
             sfx.PlayOneShot(ProceduralAudio.Whisper(), 0.7f * Settings.Sfx);
             if (phase != Phase.Investigate) return;   // от страха — конец ночи
@@ -1161,7 +1216,7 @@ namespace GhostWard
                            ?? EntitySounds.Loop(target.Kind) ?? ProceduralAudio.Whisper();
                 PlayAt(clip, lair, 1f);
                 glitch = 1f;
-                anger += 15f;
+                Disturb(15f);
                 AddFear(4f);
                 ui.Narrate(Loc.F("lure_yes", Direction(lair)));
                 markTime = 8f;
@@ -1170,7 +1225,7 @@ namespace GhostWard
             }
             else
             {
-                anger += 3f;
+                Disturb(8f);   // чужая приманка только раздражает
                 ui.Narrate(Loc.T("lure_no"));
             }
         }
@@ -1196,12 +1251,14 @@ namespace GhostWard
             phase = Phase.Hunt;
             frostTime = staticTime = compassTime = 0f;
             quietTime = heardTime = 0f;
-            float aggression = (1f + (night - 1) * 0.08f) * (weakened ? 0.75f : enraged ? 1.4f : 1f);
+            // от визита к визиту смелее лишь чуть-чуть: сложность — в загадке и в нервах, а не в скорости
+            float aggression = (1f + Mathf.Min(night - 1, 10) * 0.02f) * (weakened ? 0.85f : enraged ? 1.25f : 1f);
             var flat = lair - cam.transform.position;
             flat.y = 0f;
             if (flat.magnitude < 2.2f) lair = PickPosition(target, 60f, -1f);
             hunter = Entity.Create(target, lair, cam, this, aggression, 2.5f);
             hunter.Weakened = weakened;
+            hunter.Enraged = enraged;
             entities.Add(hunter);
             ui.SetPhase(Loc.T("phase_hunt"), true);
             ui.Message(Loc.T(namedRight ? "named_right" : "id_hunt"), 3.5f);
@@ -1895,7 +1952,7 @@ namespace GhostWard
 
             // волны страха ведёт режиссёр: тишина → нарастание → развязка → передышка
             float tension = Mathf.Max(fear, phase == Phase.Investigate ? anger : 0f) / 100f;
-            var beat = director.Tick(dt, tension, Ramp(night), phase == Phase.Investigate);
+            var beat = director.Tick(dt, tension, Ramp(night), phase == Phase.Investigate, phase == Phase.Investigate ? anger / 100f : 1f);
             // «Мёртвая тишина»: ни звука, но фигура в кадре остаётся
             if (modifier == Modifier.Silence && beat != Beat.Presence) return;
             switch (beat)
@@ -1905,7 +1962,8 @@ namespace GhostWard
                 case Beat.Strike: SignatureScare(); break;
                 case Beat.Presence:
                     if (target.Invisible) { if (modifier != Modifier.Silence) SignatureScare(); }
-                    else if (Random.value < 0.65f) StartCoroutine(StareScare());   // чаще «стоит и смотрит»: из-за края или над мебелью
+                    // спокойная — только проходит вдалеке; потревоженная чаще «стоит и смотрит» из-за края или над мебелью
+                    else if (anger >= 20f && Random.value < 0.65f) StartCoroutine(StareScare());
                     else StartCoroutine(PassScare());
                     break;
             }
@@ -2306,9 +2364,12 @@ namespace GhostWard
             ui.Shake(0.6f);
         }
 
-        public void OnAttack(Entity e)
+        public void OnAttack(Entity e) => Scream(e.Def, e.Seed, e.Def.Invisible ? 15f : 22f);
+
+        // скример: лицо во весь экран, удар струн, вибрация; соляной круг принимает удар на себя
+        void Scream(EntityDef def, float seed, float fearAdd)
         {
-            music.Play(Music.Stinger.Strings, e.Def.Invisible ? 0.4f : 0.8f);
+            music.Play(Music.Stinger.Strings, def.Invisible ? 0.4f : 0.8f);
             if (circle)
             {
                 circle = false;
@@ -2319,9 +2380,9 @@ namespace GhostWard
                 ui.SetProtection(inv);
                 return;
             }
-            AddFear(e.Def.Invisible ? 15f : 22f);
-            ui.Jumpscare(e.Def, e.Seed, e.Def.Invisible ? 0.5f : 1f);
-            sfx.PlayOneShot(EntitySounds.Attack(e.Def.Kind), 0.8f);
+            AddFear(fearAdd);
+            ui.Jumpscare(def, seed, def.Invisible ? 0.5f : 1f);
+            sfx.PlayOneShot(EntitySounds.Attack(def.Kind), 0.8f);
 #if UNITY_ANDROID || UNITY_IOS
             if (Settings.Vibration) Handheld.Vibrate();
 #endif
