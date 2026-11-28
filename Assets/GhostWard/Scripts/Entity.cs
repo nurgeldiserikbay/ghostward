@@ -29,7 +29,7 @@ namespace GhostWard
         public bool Visible => Current == State.Manifest && !Def.Invisible;
         public bool Lit { get; set; }
         public float Exposure { get; private set; }
-        public float ExposureNeeded => (Def.Kind == EntityKind.Upyr ? 2.6f : 1.6f) * (Weakened ? 0.5f : 1f);
+        public float ExposureNeeded => (Def.Kind == EntityKind.Upyr ? 1.9f : 1.2f) * (Weakened ? 0.5f : 1f);
         public bool Weakened { get; set; }          // игрок верно назвал её имя
         public float SpeedMul { get; set; } = 1f;   // затаился — медленнее, зашумел — быстрее
         // Разъярена (ошиблись с именем): не замирает под взглядом. Иначе вблизи, пока на неё смотрят, она стоит
@@ -437,7 +437,7 @@ namespace GhostWard
                     break;
             }
 
-            if (Current != State.Banished) Exposure = Mathf.MoveTowards(Exposure, 0f, dt * (Lit ? 0f : 0.4f));
+            if (Current != State.Banished) Exposure = Mathf.MoveTowards(Exposure, 0f, dt * (Lit ? 0f : 0.2f));   // соскользнул луч — прогресс тает медленно
             mat.SetFloat(FlashId, flash);
             if (flickerTime > 0f)
             {

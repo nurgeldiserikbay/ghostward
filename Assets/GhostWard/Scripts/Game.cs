@@ -1514,9 +1514,20 @@ namespace GhostWard
         }
 
         // сколько места по азимуту до стены или шкафа (м по горизонтали); -1 — не знаем
-        float RoomLimit(float yaw)
+        // в AR неизвестное направление считаем тесным (2.5 м): иначе сущность вставала на 4 м — в стене или за ней,
+        // и карта глубины прятала её целиком
+        const float ArUnknownLimit = 2.5f;
+        float RoomLimit(float yaw) => RoomLimit(yaw, out _);
+        float RoomLimit(float yaw, out bool known)
         {
-            if (arRig != null) return arRig.MaxDistance(cam.transform.position, Quaternion.Euler(0f, yaw, 0f) * Vector3.forward);
+            known = true;
+            if (arRig != null)
+            {
+                float l = arRig.MaxDistance(cam.transform.position, Quaternion.Euler(0f, yaw, 0f) * Vector3.forward);
+                if (l >= 0f) return l;
+                known = false;
+                return ArUnknownLimit;
+            }
             var room = Room;
             return room != null && room.Has ? room.MaxDistance(yaw) : -1f;
         }
@@ -1648,7 +1659,8 @@ namespace GhostWard
                 else dist = Random.Range(3.2f, 4.5f);
                 if (maxDist > 0f) dist = Mathf.Min(dist, maxDist);
 
-                float limit = RoomLimit(yaw);
+                float limit = RoomLimit(yaw, out bool known);
+                if (!known && arRig != null && attempt < 4) continue;   // AR: сначала ищем место там, где стены уже видели
                 if (limit < 0f) break;                              // туда ещё не смотрели — как без карты
                 if (limit < 1.3f && attempt < 5) continue;          // стена или шкаф в шаге — тесно
                 // ползающим по полу — на видимый пол, чтобы фигура не «висела» над столом
@@ -2542,6 +2554,8 @@ namespace GhostWard
             }
         }
 
+        Entity litEntity;
+
         void UpdateLantern(bool on, float dt)
         {
             on &= inv.Battery > 0f;
@@ -2552,7 +2566,16 @@ namespace GhostWard
             }
             ui.SetLantern(on, inv.Battery);
 
-            var lit = on ? Target(16f, 6f) : null;
+            // луч шире прицела (в портрете кадр всего ±15°) и «прилипает»: поймал — держи примерно, рука может дрожать
+            Entity lit = null;
+            if (on)
+            {
+                if (litEntity != null && litEntity.Visible && litEntity.FlatDistance() <= 7f
+                    && Vector3.Angle(cam.transform.forward, litEntity.transform.position - cam.transform.position) < 34f)
+                    lit = litEntity;
+                else lit = Target(26f, 7f);
+            }
+            litEntity = lit;
             foreach (var e in entities)
             {
                 e.Lit = e == lit;

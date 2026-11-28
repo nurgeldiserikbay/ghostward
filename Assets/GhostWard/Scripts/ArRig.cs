@@ -190,12 +190,62 @@ namespace GhostWard
             return found;
         }
 
-        // Сколько свободного места по направлению (по горизонтали): до стены или предмета — по плоскостям
-        // и карте глубины ARCore. -1 — ничего не нашли (стена не видна — не ограничиваем).
+        // Карта препятствий: глубина ARCore видна только в кадре, поэтому, пока игрок осматривается,
+        // точки стен и мебели (на высоте туловища, без пола и потолка) копятся в клетках 15 см по полу.
+        // Так сущность и за спиной не встанет в стену, хотя туда сейчас не смотрят.
+        const float ObstacleCell = 0.15f;
+        const int MaxObstacles = 6000;
+        readonly HashSet<Vector2Int> obstacles = new();
+        float obstacleTimer;
+        public int ObstacleCount => obstacles.Count;
+
+        void Update()
+        {
+            if (raycaster == null || frames == 0 || ARSession.state != ARSessionState.SessionTracking) return;
+            obstacleTimer -= Time.deltaTime;
+            if (obstacleTimer > 0f) return;
+            obstacleTimer = 0.25f;
+            float camY = Cam.transform.position.y;
+            for (int ix = 0; ix < 5; ix++)
+            for (int iy = 0; iy < 4; iy++)
+            {
+                var sp = new Vector2((0.1f + 0.2f * ix) * Screen.width, (0.15f + 0.233f * iy) * Screen.height);
+                if (!raycaster.Raycast(sp, hits, TrackableType.Depth | TrackableType.PlaneWithinPolygon)) continue;
+                var h = hits[0];
+                if (h.trackable is ARPlane p && p.alignment == PlaneAlignment.HorizontalUp) continue;
+                var w = h.pose.position;
+                if (w.y < camY - 1.05f || w.y > camY + 0.8f) continue;   // пол и потолок — не препятствия
+                if (obstacles.Count >= MaxObstacles) obstacles.Clear();  // ушёл далеко — копим заново
+                obstacles.Add(new Vector2Int(Mathf.FloorToInt(w.x / ObstacleCell), Mathf.FloorToInt(w.z / ObstacleCell)));
+            }
+        }
+
+        // ближайшее накопленное препятствие в узком секторе по направлению; -1 — туда ещё не смотрели
+        float MappedDistance(Vector3 from, Vector3 dir)
+        {
+            dir.y = 0f;
+            if (dir.sqrMagnitude < 1e-4f || obstacles.Count == 0) return -1f;
+            dir.Normalize();
+            float best = -1f;
+            foreach (var c in obstacles)
+            {
+                float dx = (c.x + 0.5f) * ObstacleCell - from.x, dz = (c.y + 0.5f) * ObstacleCell - from.z;
+                float along = dx * dir.x + dz * dir.z;
+                if (along < 0.3f) continue;
+                float side = Mathf.Abs(dx * dir.z - dz * dir.x);
+                if (side > 0.25f + along * 0.1f) continue;               // коридор ~±6° и не уже фигуры
+                if (best < 0f || along < best) best = along;
+            }
+            return best;
+        }
+
+        // Сколько свободного места по направлению (по горизонтали): до стены или предмета — по плоскостям,
+        // карте глубины ARCore и накопленной карте препятствий. -1 — ничего не знаем.
         public float MaxDistance(Vector3 from, Vector3 dir)
         {
             if (raycaster == null) return -1f;
-            float best = -1f;
+            float mapped = MappedDistance(from, dir);
+            float best = mapped < 0f ? -1f : mapped + 0.3f;
             // на уровне глаз и чуть ниже — где у фигуры туловище
             for (int k = 0; k < 2; k++)
             {
@@ -262,7 +312,7 @@ namespace GhostWard
         public string Diagnostics()
         {
             string depth = occlusion != null ? occlusion.currentEnvironmentDepthMode.ToString() : "-";
-            return $"AR {ARSession.state} / {ARSession.notTrackingReason}\nкадры {frames}  глубина {depth}";
+            return $"AR {ARSession.state} / {ARSession.notTrackingReason}\nкадры {frames}  глубина {depth}  препятствий {obstacles.Count}";
         }
 
         // полностью отпускаем ARCore, чтобы камера освободилась для режима гироскопа
